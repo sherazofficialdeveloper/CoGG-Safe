@@ -1,0 +1,220 @@
+import {AppState, Linking, PermissionsAndroid, Platform} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+/**
+ * Required Android permissions for SOS emergency functionality.
+ * 
+ * Phase 4 Requirements:
+ * - ACCESS_FINE_LOCATION: Required for GPS coordinates
+ * - CAMERA: Required for front/back emergency photos
+ * - RECORD_AUDIO: Required for 5-second emergency audio
+ * - POST_NOTIFICATIONS: Required for in-app notification badge updates
+ * 
+ * SERVICE INTERACTION:
+ * - All required permissions must be granted before SOS activation
+ * - SOS remains disabled if ANY required permission is denied
+ * - User can request all permissions at once or individually
+ * - If user denies "don't ask again", user must go to Settings
+ */
+export const PERMISSION_ONBOARDING_KEY = '@coggsafe/permission-onboarding-complete';
+export const PERMISSION_ONBOARDING_SKIPPED_KEY = '@coggsafe/permission-onboarding-skipped';
+
+export const REQUIRED_PERMISSIONS = Object.freeze([
+  {key: 'location', permission: PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION, title: 'Location', description: 'Location access is required to share your current location during an emergency.'},
+  {key: 'camera', permission: PermissionsAndroid.PERMISSIONS.CAMERA, title: 'Camera', description: 'Camera access is required to capture emergency evidence when SOS is activated.'},
+  {key: 'audio', permission: PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, title: 'Microphone', description: 'Microphone access is required to record emergency audio during SOS.'},
+  ...(Platform.Version >= 33 && PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS ? [{key: 'notifications', permission: PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS, title: 'Notifications', description: 'Notifications are required to keep you informed about emergency activity.'}] : []),
+]);
+
+const REQUIRED_ANDROID_PERMISSIONS = REQUIRED_PERMISSIONS.map(item => item.permission);
+
+const EMPTY_PERMISSION_STATE = Object.freeze({
+  location: PermissionsAndroid.RESULTS.DENIED,
+  camera: PermissionsAndroid.RESULTS.DENIED,
+  audio: PermissionsAndroid.RESULTS.DENIED,
+  notifications: PermissionsAndroid.RESULTS.DENIED,
+  allRequiredGranted: false,
+  isChecking: true,
+  canRequest: true,
+});
+
+/**
+ * Build permission state object from individual permission results
+ */
+function buildPermissionState(permissions) {
+  const location = permissions[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] || PermissionsAndroid.RESULTS.DENIED;
+  const camera = permissions[PermissionsAndroid.PERMISSIONS.CAMERA] || PermissionsAndroid.RESULTS.DENIED;
+  const audio = permissions[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] || PermissionsAndroid.RESULTS.DENIED;
+  const notifPerm = PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS;
+  const notifications = Platform.Version >= 33 && notifPerm
+    ? permissions[notifPerm] || PermissionsAndroid.RESULTS.DENIED
+    : PermissionsAndroid.RESULTS.GRANTED;
+
+  // All required permissions must be GRANTED for SOS to be available
+  const allRequiredGranted =
+    location === PermissionsAndroid.RESULTS.GRANTED &&
+    camera === PermissionsAndroid.RESULTS.GRANTED &&
+    audio === PermissionsAndroid.RESULTS.GRANTED &&
+    notifications === PermissionsAndroid.RESULTS.GRANTED;
+
+  // Can request = none of them are "NEVER_ASK_AGAIN"
+  const canRequest =
+    location !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
+    camera !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
+    audio !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
+    notifications !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN;
+
+  return {
+    location,
+    camera,
+    audio,
+    notifications,
+    allRequiredGranted,
+    isChecking: false,
+    canRequest,
+  };
+}
+
+function buildPermissionStateFromCheckedResults(checkedResults, requestResults = {}) {
+  const mergedResults = {...checkedResults};
+
+  REQUIRED_PERMISSIONS.forEach(item => {
+    if (requestResults[item.permission] === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+      mergedResults[item.permission] = PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN;
+    }
+  });
+
+  return buildPermissionState(mergedResults);
+}
+
+async function checkRequiredAndroidPermissions() {
+  const entries = await Promise.all(REQUIRED_ANDROID_PERMISSIONS.map(async permission => [
+    permission,
+    (await PermissionsAndroid.check(permission))
+      ? PermissionsAndroid.RESULTS.GRANTED
+      : PermissionsAndroid.RESULTS.DENIED,
+  ]));
+  return Object.fromEntries(entries);
+}
+
+export function createInitialSosPermissionState() {
+  if (Platform.OS !== 'android') {
+    // No iOS permission adapter exists yet. Fail closed rather than
+    // declaring SOS ready without checking the actual device state.
+    return {
+      location: PermissionsAndroid.RESULTS.DENIED,
+      camera: PermissionsAndroid.RESULTS.DENIED,
+      audio: PermissionsAndroid.RESULTS.DENIED,
+      notifications: PermissionsAndroid.RESULTS.DENIED,
+      allRequiredGranted: false,
+      isChecking: false,
+      canRequest: false,
+    };
+  }
+
+  return {...EMPTY_PERMISSION_STATE};
+}
+
+/**
+ * Check all required SOS permissions
+ */
+export async function checkSosPermissions() {
+  if (Platform.OS !== 'android') {
+    return createInitialSosPermissionState();
+  }
+
+  try {
+    const results = await checkRequiredAndroidPermissions();
+    return buildPermissionState(results);
+  } catch (error) {
+    return buildPermissionState({});
+  }
+}
+
+/**
+ * Request all required SOS permissions at once
+ */
+export async function requestRequiredPermissions() {
+  if (Platform.OS !== 'android') {
+    return createInitialSosPermissionState();
+  }
+
+  try {
+    const current = await checkRequiredAndroidPermissions();
+    const missing = REQUIRED_ANDROID_PERMISSIONS.filter(permission => current[permission] !== PermissionsAndroid.RESULTS.GRANTED);
+    if (missing.length === 0) return buildPermissionState(current);
+    const results = await PermissionsAndroid.requestMultiple(missing);
+    const verifiedState = await checkSosPermissions();
+    return buildPermissionStateFromCheckedResults(
+      Object.fromEntries(REQUIRED_PERMISSIONS.map(item => [item.permission, verifiedState[item.key]])),
+      results,
+    );
+  } catch (error) {
+    return {...buildPermissionState({}), error: error?.message || 'Unable to request SOS permissions.'};
+  }
+}
+
+export async function openSosPermissionSettings() {
+  try {
+    await Linking.openSettings();
+  } catch (error) {
+    return false;
+  }
+  return true;
+}
+
+export function subscribeToPermissionChanges(onChange) {
+  const subscription = AppState.addEventListener('change', nextState => {
+    if (nextState === 'active') onChange();
+  });
+
+  return () => subscription.remove();
+}
+
+export async function isPermissionOnboardingComplete() {
+  try {
+    return (await AsyncStorage.getItem(PERMISSION_ONBOARDING_KEY)) === 'true';
+  } catch (error) {
+    return false;
+  }
+}
+
+export async function markPermissionOnboardingComplete() {
+  try {
+    await AsyncStorage.setItem(PERMISSION_ONBOARDING_KEY, 'true');
+    await AsyncStorage.removeItem(PERMISSION_ONBOARDING_SKIPPED_KEY);
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+export async function shouldShowPermissionOnboarding() {
+  const permissionState = await checkSosPermissions();
+  if (permissionState.allRequiredGranted) return false;
+  if (await isPermissionOnboardingComplete()) return true;
+  try {
+    return (await AsyncStorage.getItem(PERMISSION_ONBOARDING_SKIPPED_KEY)) !== 'true';
+  } catch (error) {
+    return true;
+  }
+}
+
+export async function markPermissionOnboardingSkipped() {
+  try {
+    await AsyncStorage.setItem(PERMISSION_ONBOARDING_SKIPPED_KEY, 'true');
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
+export const requestSosPermissions = requestRequiredPermissions;
+
+export function getMissingPermissions(permissionState) {
+  return REQUIRED_PERMISSIONS.filter(item => permissionState[item.key] !== PermissionsAndroid.RESULTS.GRANTED);
+}
+
+export function areRequiredPermissionsGranted(permissionState) {
+  return Boolean(permissionState?.allRequiredGranted);
+}
