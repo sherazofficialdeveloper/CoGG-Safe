@@ -38,23 +38,36 @@ function warnIfProvidersUnconfiguredInProduction() {
 
 async function start() {
   try {
+    console.log('[DEBUG 1] start() called');
+
+    console.log('[DEBUG 2] connecting DB...');
     await connectDB();
+    console.log('[DEBUG 3] DB connected');
+
+    console.log('[DEBUG 4] checking providers...');
     warnIfProvidersUnconfiguredInProduction();
+    console.log('[DEBUG 5] providers checked');
 
-    // Handler registration happens as a side effect of requiring app.js
-    // above (app -> routes -> sos.routes -> sos.controller -> sos.service,
-    // which registers its job handlers at module load). Starting the
-    // poller only after connectDB() ensures it never runs before the DB
-    // is ready. This is the only place the scheduler is started — never
-    // from a controller or from app.js itself, so it stays out of the
-    // request/response path entirely.
+    console.log('[DEBUG 6] starting scheduler...');
     schedulerService.start();
+    console.log('[DEBUG 7] scheduler started');
 
+    console.log('[DEBUG 8] starting HTTP server...');
     server = app.listen(env.port, () => {
+      console.log(`[DEBUG 9] SERVER LISTENING ON PORT ${env.port}`);
       logger.info(`${env.appName} listening on port ${env.port} [${env.nodeEnv}]`);
     });
+
+    server.on('error', error => {
+      console.error('[DEBUG SERVER ERROR]', error);
+    });
+
   } catch (err) {
-    logger.error('Failed to start the application server', { error: err.message, stack: err.stack });
+    console.error('[DEBUG START ERROR]', err);
+    logger.error('Failed to start the application server', {
+      error: err.message,
+      stack: err.stack,
+    });
     process.exit(1);
   }
 }
