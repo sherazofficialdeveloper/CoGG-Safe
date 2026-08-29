@@ -1,7 +1,5 @@
 // App.js
-
-import React, {useEffect, useRef, useState} from 'react';
-
+import React, {useState, useEffect} from 'react';
 import {
   View,
   StyleSheet,
@@ -9,7 +7,6 @@ import {
   Text,
   BackHandler,
 } from 'react-native';
-
 import {SafeAreaProvider} from 'react-native-safe-area-context';
 
 // Context
@@ -40,7 +37,7 @@ import AdminSosScreen from './src/screens/admin/AdminSosScreen';
 import AdminSosDetailScreen from './src/screens/admin/AdminSosDetailScreen';
 import AdminNotificationScreen from './src/screens/admin/AdminNotificationScreen';
 import AdminProfileScreen from './src/screens/admin/AdminProfileScreen';
-import AdminCollectionsScreen from './src/screens/admin/AdminCollectionsBackendScreen';
+import AdminCollectionsScreen from './src/screens/admin/AdminCollectionsScreen';
 import AdminAddCollectionScreen from './src/screens/admin/AdminAddCollectionScreen';
 
 // Bottom Navs
@@ -49,49 +46,28 @@ import AdminBottomNav from './src/components/AdminBottomNav';
 
 // API / SOS foundation
 import {activateSosFlow} from './src/features/sos/orchestrator';
-
-import {
-  syncSosToBackend,
-  uploadCapturedSosMedia,
-} from './src/features/sos/services/backendSyncService';
-import {getCollection} from './src/api/resources';
-
+import {syncSosToBackend} from './src/features/sos/services/backendSyncService';
 import {getCurrentLocation} from './src/features/sos/services/locationService';
 import {sendEmergencySms} from './src/features/sos/services/smsService';
 import {initiateEmergencyCall} from './src/features/sos/services/callService';
-
-import {
-  startLiveLocationSharing,
-  syncPendingLocationPings,
-} from './src/features/sos/services/liveLocationService';
-
-import {captureEmergencyPhotos} from './src/features/sos/services/cameraService';
-import {recordEmergencyAudio} from './src/features/sos/services/audioService';
-
+import {startLiveLocationSharing} from './src/features/sos/services/liveLocationService';
 import {connectivityService} from './src/features/sos/connectivity';
 import {processSosQueue} from './src/features/sos/queue/queueWorker';
-import {recoverActiveSosWork} from './src/features/sos/recovery';
-import {sosLocalStore} from './src/features/sos/storage';
 
 // ============================================================
 // MAIN APP CONTENT
 // ============================================================
 
 function AppContent() {
-  const {token, user, loading, signIn, signOut, updateUser} = useAuth();
+  const {token, user, loading, signIn, signOut} = useAuth();
 
   const [screen, setScreen] = useState('loading');
-  const [portal, setPortal] = useState('admin');
-  const [addCollectionBackScreen, setAddCollectionBackScreen] = useState('adminDashboard');
   const [selectedUser, setSelectedUser] = useState(null);
-  const [userDetailBackScreen, setUserDetailBackScreen] = useState('adminUsers');
   const [selectedSos, setSelectedSos] = useState(null);
   const [selectedNotification, setSelectedNotification] = useState(null);
-
   const [sosLoading, setSosLoading] = useState(false);
   const [sosError, setSosError] = useState('');
   const [activeSosCount, setActiveSosCount] = useState(0);
-  const sosCancelSignalRef = useRef({cancelled: false});
 
   // Toast State
   const [toast, setToast] = useState({
@@ -101,18 +77,11 @@ function AppContent() {
   });
 
   const showToast = (message, type = 'success') => {
-    setToast({
-      visible: true,
-      message,
-      type,
-    });
+    setToast({visible: true, message, type});
   };
 
   const hideToast = () => {
-    setToast(prev => ({
-      ...prev,
-      visible: false,
-    }));
+    setToast(prev => ({...prev, visible: false}));
   };
 
   // ============================================================
@@ -130,7 +99,6 @@ function AppContent() {
       return;
     }
 
-    setPortal(user.role === 'admin' ? 'admin' : 'user');
     if (user.role === 'admin') {
       setScreen('adminDashboard');
     } else {
@@ -138,112 +106,40 @@ function AppContent() {
     }
   }, [user, loading]);
 
-  // ============================================================
-  // SOS QUEUE / RECOVERY / CONNECTIVITY
-  // ============================================================
-
   useEffect(() => {
     connectivityService.setup();
+    if (!token) return undefined;
 
-    if (!token) {
-      return undefined;
-    }
-
-    const processQueue = async () => {
-      try {
-        await processSosQueue({
-          processors: {
-            backend: async (item, event) =>
-              syncSosToBackend({
-                token,
-                sosEvent: event,
-                idempotencyKey: event.id,
-              }),
-
-            mediaUpload: async (item, event) =>
-              uploadCapturedSosMedia({
-                token,
-                sosEvent: event,
-              }),
-
-            liveLocation: async (item, event) =>
-              startLiveLocationSharing({
-                token,
-                sosId: event.id,
-                backendId: event.backendId,
-                startedAt: event.liveLocationStartedAt,
-              }),
-
-            sms: async (item, event) => sendEmergencySms({
-              phoneNumber: event.meta?.emergencyNumber,
-              message: `Emergency SOS ${event.id} for ${user?.username || 'user'}.`,
-            }),
-
-            call: async (item, event) => initiateEmergencyCall({
-              emergencyNumber: event.meta?.emergencyNumber,
-            }),
-          },
-        });
-
-        const activeEvents = await sosLocalStore.getAllEvents();
-
-        for (const active of activeEvents) {
-          if (active.status === 'ACTIVE' && active.backendId) {
-            await syncPendingLocationPings({
-              token,
-              sosId: active.id,
-              backendId: active.backendId,
-            }).catch(() => undefined);
-          }
-        }
-      } catch (err) {
-        // Safe fallback.
-        // Individual queue failures must not crash the app.
-      }
-    };
-
-    recoverActiveSosWork()
-      .then(processQueue)
-      .catch(() => processQueue());
-
-    return connectivityService.subscribe(processQueue);
-  }, [token, user?.username]);
-
-  // ============================================================
-  // HANDLE ANDROID BACK BUTTON
-  // ============================================================
-
-  useEffect(() => {
-    if (!user || user.role !== 'admin') {
-      return undefined;
-    }
-
-    const subscription = BackHandler.addEventListener(
-      'hardwareBackPress',
-      () => {
-        if (screen === 'adminUserDetail') {
-          setScreen(userDetailBackScreen);
-          return true;
-        }
-        if (screen === 'adminSosDetail') {
-          setScreen('adminSos');
-          return true;
-        }
-        if (screen === 'adminAddCollection') {
-          setScreen('adminCollections');
-          return true;
-        }
-        if (screen === 'adminCollections') {
-          setScreen('adminDashboard');
-          return true;
-        }
-
-        return false;
+    const processQueue = () => processSosQueue({
+      processors: {
+        backend: async (item, event) => syncSosToBackend({token, sosEvent: event, idempotencyKey: event.id}),
+        liveLocation: async (item, event) => startLiveLocationSharing({
+          token,
+          sosId: event.id,
+          backendId: event.backendId,
+          startedAt: event.liveLocationStartedAt,
+        }),
       },
-    );
+    }).catch(() => undefined);
+
+    processQueue();
+    return connectivityService.subscribe(processQueue);
+  }, [token]);
+
+  // Handle Android back button
+  useEffect(() => {
+    if (!user || user.role !== 'admin') return;
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (screen !== 'adminDashboard' && screen.startsWith('admin')) {
+        setScreen('adminDashboard');
+        return true;
+      }
+      return false;
+    });
 
     return () => subscription.remove();
-  }, [screen, user, userDetailBackScreen]);
+  }, [screen, user]);
 
   // ============================================================
   // NAVIGATION FUNCTIONS
@@ -254,71 +150,31 @@ function AppContent() {
     setSelectedUser(null);
     setSelectedSos(null);
     setSelectedNotification(null);
-
     signOut();
-
     showToast('Logged out successfully.', 'info');
   };
 
-  // ============================================================
-  // USER NAVIGATION
-  // ============================================================
-
-  const handleUserNavigation = tab => {
+  // User Navigation
+  const handleUserNavigation = (tab) => {
     switch (tab) {
-      case 'Home':
-        setScreen('userHome');
-        break;
-
-      case 'Contacts':
-        setScreen('userContacts');
-        break;
-
-      case 'History':
-        setScreen('userHistory');
-        break;
-
-      case 'Notifications':
-        setScreen('userNotifications');
-        break;
-
-      case 'Profile':
-        setScreen('userProfile');
-        break;
-
-      default:
-        break;
+      case 'Home': setScreen('userHome'); break;
+      case 'Contacts': setScreen('userContacts'); break;
+      case 'History': setScreen('userHistory'); break;
+      case 'Notifications': setScreen('userNotifications'); break;
+      case 'Profile': setScreen('userProfile'); break;
+      default: break;
     }
   };
 
-  // ============================================================
-  // ADMIN NAVIGATION
-  // ============================================================
-
-  const handleAdminNavigation = tab => {
+  // Admin Navigation
+  const handleAdminNavigation = (tab) => {
     switch (tab) {
-      case 'Dashboard':
-        setScreen('adminDashboard');
-        break;
-
-      case 'Collections':
-        setScreen('adminCollections');
-        break;
-
-      case 'SOS':
-        setScreen('adminSos');
-        break;
-
-      case 'Notifications':
-        setScreen('adminNotifications');
-        break;
-
-      case 'Profile':
-        setScreen('adminProfile');
-        break;
-
-      default:
-        break;
+      case 'Dashboard': setScreen('adminDashboard'); break;
+      case 'Collections': setScreen('adminCollections'); break;
+      case 'SOS': setScreen('adminSos'); break;
+      case 'Notifications': setScreen('adminNotifications'); break;
+      case 'Profile': setScreen('adminProfile'); break;
+      default: break;
     }
   };
 
@@ -329,136 +185,40 @@ function AppContent() {
   const handleTriggerSos = async () => {
     setSosError('');
     setSosLoading(true);
-    sosCancelSignalRef.current = {cancelled: false};
-
     try {
-      let collection = null;
       const result = await activateSosFlow({
         userId: user?._id || user?.id,
         collectionId: user?.collectionId,
-        countdownMs: 10000,
-        cancelSignal: sosCancelSignalRef.current,
-        onPending: async event => {
-          setSelectedSos(event);
-          setScreen('userSosActive');
-
-          try {
-            const collectionResponse = await getCollection(token, user?.collectionId);
-            collection = collectionResponse.collection;
-            sosLocalStore.upsertSos({
-              ...event,
-              meta: {
-                ...event.meta,
-                emergencyNumber: collection.emergencyCallNumber,
-              },
-            });
-          } catch (error) {
-            // Keep the event active even if collection metadata is unavailable.
-            // The immediate SOS dispatch is still allowed to proceed with the stored fallbacks.
-          }
-        },
-
         serviceRunners: {
-          // ------------------------------------------------------
-          // SMS
-          // ------------------------------------------------------
-          sms: async event => {
+          sms: async (event) => {
             const location = await getCurrentLocation().catch(() => null);
-
             const message = location
               ? `Emergency assistance requested. Location: ${location.latitude}, ${location.longitude}`
               : 'Emergency assistance requested.';
-
-            return sendEmergencySms({
-              phoneNumber: collection?.emergencyCallNumber,
-              message,
-            });
+            return sendEmergencySms({phoneNumber: user?.emergencyCallNumber, message});
           },
-
-          // ------------------------------------------------------
-          // EMERGENCY CALL
-          // ------------------------------------------------------
-          call: async () =>
-            initiateEmergencyCall({
-              emergencyNumber: collection?.emergencyCallNumber,
-            }),
-
-          // ------------------------------------------------------
-          // CAMERA
-          // ------------------------------------------------------
-          camera: async event =>
-            captureEmergencyPhotos({
-              sosId: event.id,
-            }),
-
-          // ------------------------------------------------------
-          // AUDIO
-          // ------------------------------------------------------
-          audio: async event =>
-            recordEmergencyAudio({
-              sosId: event.id,
-            }),
-
-          // ------------------------------------------------------
-          // LOCATION
-          // ------------------------------------------------------
+          call: async () => initiateEmergencyCall({emergencyNumber: user?.emergencyCallNumber}),
           location: async () => getCurrentLocation(),
-
-          // ------------------------------------------------------
-          // LIVE LOCATION
-          // ------------------------------------------------------
-          liveLocation: async event =>
-            startLiveLocationSharing({
-              token,
-              sosId: event.id,
-              backendId: event.backendId,
-            }),
-
-          // ------------------------------------------------------
-          // BACKEND
-          // ------------------------------------------------------
-          backend: async event =>
-            syncSosToBackend({
-              token,
-              sosEvent: event,
-              idempotencyKey: event.id,
-            }),
-
-          // ------------------------------------------------------
-          // EMAIL
-          // ------------------------------------------------------
-          email: async () => ({
-            status: 'COMPLETED',
-            reason: 'Email dispatch is handled by the backend after activation.',
+          liveLocation: async (event) => startLiveLocationSharing({
+            token,
+            sosId: event.id,
+            backendId: event.backendId,
           }),
-
-          // ------------------------------------------------------
-          // NOTIFICATIONS
-          // ------------------------------------------------------
-          notifications: async () => ({
-            status: 'COMPLETED',
-            reason: 'Notification dispatch is handled by the backend after activation.',
-          }),
+          camera: async () => ({status: 'PENDING', reason: 'Camera capture is not available in this app build.'}),
+          audio: async () => ({status: 'PENDING', reason: 'Audio capture is not available in this app build.'}),
+          backend: async (event) => syncSosToBackend({token, sosEvent: event, idempotencyKey: event.id}),
+          email: async () => ({status: 'NOT_CONFIGURED', reason: 'No email is configured for this account.'}),
+          notifications: async () => ({status: 'PENDING', reason: 'Backend notification dispatch is queued.'}),
         },
       });
 
-      if (result?.cancelled) {
-        showToast('SOS cancelled before dispatch.', 'info');
-      } else if (result?.event) {
+      if (result?.event) {
         setSelectedSos(result.event);
         setScreen('userSosActive');
-
-        showToast(
-          'SOS alert triggered locally and queued for delivery.',
-          'success',
-        );
+        showToast('SOS alert triggered locally and queued for delivery.', 'success');
       }
     } catch (error) {
-      const message =
-        error?.message || 'Unable to trigger the SOS alert.';
-
-      setSosError(message);
-
+      setSosError(error.message);
       showToast('Failed to trigger SOS', 'error');
     } finally {
       setSosLoading(false);
@@ -466,76 +226,50 @@ function AppContent() {
   };
 
   // ============================================================
-  // LOADING SCREEN
+  // RENDER FUNCTIONS
   // ============================================================
 
+  // Loading Screen
   if (screen === 'loading' || loading) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator size="large" color="#E4002B" />
-
-        <Text style={styles.loadingText}>
-          Restoring your secure session...
-        </Text>
+        <Text style={styles.loadingText}>Restoring your secure session...</Text>
       </View>
     );
   }
 
-  // ============================================================
-  // LOGIN SCREEN
-  // ============================================================
-
+  // Login Screen
   if (screen === 'login' || !user) {
     return (
       <LoginScreen
-        onLogin={(identifier, password, selectedRole) =>
-          signIn(identifier, password, selectedRole)
-        }
+        onLogin={(identifier, password, selectedRole) => signIn(identifier, password, selectedRole)}
       />
     );
   }
 
   // ============================================================
-  // USER SCREENS
+  // USER SCREENS (with AppShell - User Header)
   // ============================================================
 
-  if (user?.role === 'user' || (user?.role === 'admin' && portal === 'user')) {
+  if (user?.role === 'user') {
+    // Common props for all user screens
     const userCommonProps = {
       showNotification: true,
-
-      onNotification: () => {
-        setScreen('userNotifications');
-      },
-
+      onNotification: () => setScreen('userNotifications'),
       notificationCount: 0,
-
       showLogout: true,
-
       onLogout: goToLogin,
     };
 
     switch (screen) {
-      // --------------------------------------------------------
-      // USER HOME
-      // --------------------------------------------------------
       case 'userHome':
         return (
           <AppShell
             {...userCommonProps}
-            bottomNav={
-              <UserBottomNav
-                activeTab="Home"
-                onNavigate={handleUserNavigation}
-              />
-            }>
+            bottomNav={<UserBottomNav activeTab="Home" onNavigate={handleUserNavigation} />}>
             <UserHomeScreen
               user={user}
-              token={token}
-              onUserUpdated={updateUser}
-              onSwitchToAdmin={user.role === 'admin' ? () => {
-                setPortal('admin');
-                setScreen('adminDashboard');
-              } : undefined}
               onTriggerSos={handleTriggerSos}
               sosLoading={sosLoading}
               sosError={sosError}
@@ -543,70 +277,39 @@ function AppContent() {
           </AppShell>
         );
 
-      // --------------------------------------------------------
-      // USER CONTACTS
-      // --------------------------------------------------------
       case 'userContacts':
         return (
           <AppShell
             {...userCommonProps}
             showBack={true}
             onBack={() => setScreen('userHome')}
-            bottomNav={
-              <UserBottomNav
-                activeTab="Contacts"
-                onNavigate={handleUserNavigation}
-              />
-            }>
-            <UserContactsScreen
-              token={token}
-              onBack={() => setScreen('userHome')}
-            />
+            bottomNav={<UserBottomNav activeTab="Contacts" onNavigate={handleUserNavigation} />}>
+            <UserContactsScreen onBack={() => setScreen('userHome')} />
           </AppShell>
         );
 
-      // --------------------------------------------------------
-      // USER PROFILE
-      // --------------------------------------------------------
       case 'userProfile':
         return (
           <AppShell
             {...userCommonProps}
             showBack={true}
             onBack={() => setScreen('userHome')}
-            bottomNav={
-              <UserBottomNav
-                activeTab="Profile"
-                onNavigate={handleUserNavigation}
-              />
-            }>
-            <UserProfileScreen
-              user={user}
-              onLogout={goToLogin}
-              onBack={() => setScreen('userHome')}
-            />
+            bottomNav={<UserBottomNav activeTab="Profile" onNavigate={handleUserNavigation} />}>
+            <UserProfileScreen user={user} onLogout={goToLogin} onBack={() => setScreen('userHome')} />
           </AppShell>
         );
 
-      // --------------------------------------------------------
-      // USER HISTORY
-      // --------------------------------------------------------
       case 'userHistory':
         return (
           <AppShell
             {...userCommonProps}
             showBack={true}
             onBack={() => setScreen('userHome')}
-            bottomNav={
-              <UserBottomNav
-                activeTab="History"
-                onNavigate={handleUserNavigation}
-              />
-            }>
+            bottomNav={<UserBottomNav activeTab="History" onNavigate={handleUserNavigation} />}>
             <UserHistoryScreen
               token={token}
               onBack={() => setScreen('userHome')}
-              onHistoryDetail={item => {
+              onHistoryDetail={(item) => {
                 setSelectedSos(item);
                 setScreen('userSosDetail');
               }}
@@ -614,24 +317,16 @@ function AppContent() {
           </AppShell>
         );
 
-      // --------------------------------------------------------
-      // USER NOTIFICATIONS
-      // --------------------------------------------------------
       case 'userNotifications':
         return (
           <AppShell
             {...userCommonProps}
             showBack={true}
             onBack={() => setScreen('userHome')}
-            bottomNav={
-              <UserBottomNav
-                activeTab="Notifications"
-                onNavigate={handleUserNavigation}
-              />
-            }>
+            bottomNav={<UserBottomNav activeTab="Notifications" onNavigate={handleUserNavigation} />}>
             <UserNotificationScreen
               token={token}
-              onNotificationDetail={notification => {
+              onNotificationDetail={(notification) => {
                 setSelectedNotification(notification);
                 setScreen('userNotificationDetail');
               }}
@@ -640,9 +335,6 @@ function AppContent() {
           </AppShell>
         );
 
-      // --------------------------------------------------------
-      // USER NOTIFICATION DETAIL
-      // --------------------------------------------------------
       case 'userNotificationDetail':
         return (
           <AppShell
@@ -653,20 +345,14 @@ function AppContent() {
             <UserNotificationDetailScreen
               notification={selectedNotification}
               onBack={() => setScreen('userNotifications')}
-              onViewSos={sosId => {
-                setSelectedSos({
-                  id: sosId,
-                });
-
+              onViewSos={(sosId) => {
+                setSelectedSos({id: sosId});
                 setScreen('userSosActive');
               }}
             />
           </AppShell>
         );
 
-      // --------------------------------------------------------
-      // USER ACTIVE SOS
-      // --------------------------------------------------------
       case 'userSosActive':
         return (
           <AppShell
@@ -680,7 +366,6 @@ function AppContent() {
               sos={selectedSos}
               onBack={() => setScreen('userHome')}
               onCancelSos={() => {
-                sosCancelSignalRef.current.cancelled = true;
                 setScreen('userHome');
                 showToast('SOS cancelled.', 'info');
               }}
@@ -689,19 +374,11 @@ function AppContent() {
           </AppShell>
         );
 
-      // --------------------------------------------------------
-      // USER DEFAULT
-      // --------------------------------------------------------
       default:
         return (
           <AppShell
             {...userCommonProps}
-            bottomNav={
-              <UserBottomNav
-                activeTab="Home"
-                onNavigate={handleUserNavigation}
-              />
-            }>
+            bottomNav={<UserBottomNav activeTab="Home" onNavigate={handleUserNavigation} />}>
             <UserHomeScreen
               user={user}
               onTriggerSos={handleTriggerSos}
@@ -714,88 +391,56 @@ function AppContent() {
   }
 
   // ============================================================
-  // ADMIN SCREENS
+  // ADMIN SCREENS (AdminHeader ONLY on Dashboard)
   // ============================================================
 
   if (user?.role === 'admin') {
-    // ----------------------------------------------------------
-    // ADMIN LAYOUT WITHOUT HEADER
-    // ----------------------------------------------------------
-
+    // Common layout without header (for non-dashboard screens)
     const AdminLayoutNoHeader = ({children, bottomNav}) => (
       <View style={styles.adminContainer}>
         <View style={styles.adminContent}>
           {children}
         </View>
-
         {bottomNav}
       </View>
     );
 
-    // ----------------------------------------------------------
-    // ADMIN LAYOUT WITH HEADER
-    // Dashboard only
-    // ----------------------------------------------------------
-
+    // Common layout with header (ONLY for Dashboard)
     const AdminLayoutWithHeader = ({children, bottomNav}) => (
       <View style={styles.adminContainer}>
         <AdminHeader
           user={user}
-          onNotifications={() =>
-            setScreen('adminNotifications')
-          }
+          onNotifications={() => setScreen('adminNotifications')}
           onProfile={() => setScreen('adminProfile')}
           onLogout={goToLogin}
           activeSosCount={activeSosCount}
-          onSwitchToUser={() => {
-            setPortal('user');
-            setScreen('userHome');
-          }}
         />
-
         <View style={styles.adminContent}>
           {children}
         </View>
-
         {bottomNav}
       </View>
     );
 
     switch (screen) {
-      // ========================================================
-      // ADMIN DASHBOARD
-      // ========================================================
-
+      // ========== DASHBOARD - WITH HEADER ==========
       case 'adminDashboard':
         return (
-          <AdminLayoutWithHeader
-            bottomNav={
-              <AdminBottomNav
-                activeTab="Dashboard"
-                onNavigate={handleAdminNavigation}
-              />
-            }>
+          <AdminLayoutWithHeader bottomNav={<AdminBottomNav activeTab="Dashboard" onNavigate={handleAdminNavigation} />}>
             <AdminDashboardScreen
               user={user}
               onNavigate={handleAdminNavigation}
-              onCollections={() =>
-                setScreen('adminCollections')
-              }
-              onAddCollection={() => {
-                setAddCollectionBackScreen('adminDashboard');
-                setScreen('adminAddCollection');
-              }}
+              onCollections={() => setScreen('adminCollections')}
+              onAddCollection={() => setScreen('adminAddCollection')}
               onSos={() => setScreen('adminSos')}
-              onNotifications={() =>
-                setScreen('adminNotifications')
-              }
+              onNotifications={() => setScreen('adminNotifications')}
               onProfile={() => setScreen('adminProfile')}
               onLogout={goToLogin}
-              onUserDetail={userData => {
+              onUserDetail={(userData) => {
                 setSelectedUser(userData);
                 setScreen('adminUserDetail');
               }}
-              onSosDetail={sos => {
+              onSosDetail={(sos) => {
                 setSelectedSos(sos);
                 setScreen('adminSosDetail');
               }}
@@ -803,82 +448,39 @@ function AppContent() {
           </AdminLayoutWithHeader>
         );
 
-      // ========================================================
-      // ADMIN COLLECTIONS
-      // ========================================================
-
+      // ========== COLLECTIONS - WITHOUT HEADER ==========
       case 'adminCollections':
         return (
-          <AdminLayoutNoHeader
-            bottomNav={
-              <AdminBottomNav
-                activeTab="Collections"
-                onNavigate={handleAdminNavigation}
-              />
-            }>
+          <AdminLayoutNoHeader bottomNav={<AdminBottomNav activeTab="Collections" onNavigate={handleAdminNavigation} />}>
             <AdminCollectionsScreen
-              token={token}
-              onAddCollection={() => {
-                setAddCollectionBackScreen('adminCollections');
-                setScreen('adminAddCollection');
-              }}
-              onUserDetail={userData => {
-                setSelectedUser(userData);
-                setUserDetailBackScreen('adminCollections');
-                setScreen('adminUserDetail');
-              }}
               onNavigate={handleAdminNavigation}
-              onBack={() => setScreen(addCollectionBackScreen)}
+              onBack={() => setScreen('adminDashboard')}
             />
           </AdminLayoutNoHeader>
         );
 
-      // ========================================================
-      // ADMIN ADD COLLECTION
-      // ========================================================
-
+      // ========== ADD COLLECTION - WITHOUT HEADER ==========
       case 'adminAddCollection':
         return (
-          <AdminLayoutNoHeader
-            bottomNav={
-              <AdminBottomNav
-                activeTab="Dashboard"
-                onNavigate={handleAdminNavigation}
-              />
-            }>
+          <AdminLayoutNoHeader bottomNav={<AdminBottomNav activeTab="Dashboard" onNavigate={handleAdminNavigation} />}>
             <AdminAddCollectionScreen
-              token={token}
               onBack={() => setScreen('adminDashboard')}
-              onSave={collectionData => {
-                showToast(
-                  `Collection "${collectionData.name}" created!`,
-                  'success',
-                );
-
+              onSave={(collectionData) => {
+                showToast(`Collection "${collectionData.name}" created!`, 'success');
                 setScreen('adminDashboard');
               }}
             />
           </AdminLayoutNoHeader>
         );
 
-      // ========================================================
-      // ADMIN USERS
-      // ========================================================
-
+      // ========== USERS - WITHOUT HEADER ==========
       case 'adminUsers':
         return (
-          <AdminLayoutNoHeader
-            bottomNav={
-              <AdminBottomNav
-                activeTab="Users"
-                onNavigate={handleAdminNavigation}
-              />
-            }>
+          <AdminLayoutNoHeader bottomNav={<AdminBottomNav activeTab="Users" onNavigate={handleAdminNavigation} />}>
             <AdminUsersScreen
               token={token}
-              currentAdmin={user}
               onNavigate={handleAdminNavigation}
-              onUserDetail={userData => {
+              onUserDetail={(userData) => {
                 setSelectedUser(userData);
                 setScreen('adminUserDetail');
               }}
@@ -888,18 +490,14 @@ function AppContent() {
           </AdminLayoutNoHeader>
         );
 
-      // ========================================================
-      // ADMIN USER DETAIL
-      // ========================================================
-
+      // ========== USER DETAIL - WITHOUT HEADER ==========
       case 'adminUserDetail':
         return (
           <AdminLayoutNoHeader>
             <AdminUserDetailScreen
-              token={token}
               user={selectedUser}
-              onBack={() => setScreen(userDetailBackScreen)}
-              onSosDetail={sos => {
+              onBack={() => setScreen('adminUsers')}
+              onSosDetail={(sos) => {
                 setSelectedSos(sos);
                 setScreen('adminSosDetail');
               }}
@@ -907,23 +505,13 @@ function AppContent() {
           </AdminLayoutNoHeader>
         );
 
-      // ========================================================
-      // ADMIN SOS
-      // ========================================================
-
+      // ========== SOS - WITHOUT HEADER ==========
       case 'adminSos':
         return (
-          <AdminLayoutNoHeader
-            bottomNav={
-              <AdminBottomNav
-                activeTab="SOS"
-                onNavigate={handleAdminNavigation}
-              />
-            }>
+          <AdminLayoutNoHeader bottomNav={<AdminBottomNav activeTab="SOS" onNavigate={handleAdminNavigation} />}>
             <AdminSosScreen
-              token={token}
               onNavigate={handleAdminNavigation}
-              onSosDetail={sos => {
+              onSosDetail={(sos) => {
                 setSelectedSos(sos);
                 setScreen('adminSosDetail');
               }}
@@ -933,18 +521,14 @@ function AppContent() {
           </AdminLayoutNoHeader>
         );
 
-      // ========================================================
-      // ADMIN SOS DETAIL
-      // ========================================================
-
+      // ========== SOS DETAIL - WITHOUT HEADER ==========
       case 'adminSosDetail':
         return (
           <AdminLayoutNoHeader>
             <AdminSosDetailScreen
-              token={token}
               sos={selectedSos}
               onBack={() => setScreen('adminSos')}
-              onUserDetail={userData => {
+              onUserDetail={(userData) => {
                 setSelectedUser(userData);
                 setScreen('adminUserDetail');
               }}
@@ -952,48 +536,26 @@ function AppContent() {
           </AdminLayoutNoHeader>
         );
 
-      // ========================================================
-      // ADMIN NOTIFICATIONS
-      // ========================================================
-
+      // ========== NOTIFICATIONS - WITHOUT HEADER ==========
       case 'adminNotifications':
         return (
-          <AdminLayoutNoHeader
-            bottomNav={
-              <AdminBottomNav
-                activeTab="Notifications"
-                onNavigate={handleAdminNavigation}
-              />
-            }>
+          <AdminLayoutNoHeader bottomNav={<AdminBottomNav activeTab="Notifications" onNavigate={handleAdminNavigation} />}>
             <AdminNotificationScreen
               token={token}
               onNavigate={handleAdminNavigation}
               onBack={() => setScreen('adminDashboard')}
-              onNotificationPress={notification => {
+              onNotificationPress={(notification) => {
                 setSelectedNotification(notification);
-
-                showToast(
-                  'Notification opened',
-                  'info',
-                );
+                showToast('Notification opened', 'info');
               }}
             />
           </AdminLayoutNoHeader>
         );
 
-      // ========================================================
-      // ADMIN PROFILE
-      // ========================================================
-
+      // ========== PROFILE - WITHOUT HEADER ==========
       case 'adminProfile':
         return (
-          <AdminLayoutNoHeader
-            bottomNav={
-              <AdminBottomNav
-                activeTab="Profile"
-                onNavigate={handleAdminNavigation}
-              />
-            }>
+          <AdminLayoutNoHeader bottomNav={<AdminBottomNav activeTab="Profile" onNavigate={handleAdminNavigation} />}>
             <AdminProfileScreen
               user={user}
               onNavigate={handleAdminNavigation}
@@ -1003,32 +565,16 @@ function AppContent() {
           </AdminLayoutNoHeader>
         );
 
-      // ========================================================
-      // ADMIN DEFAULT
-      // ========================================================
-
       default:
         return (
-          <AdminLayoutWithHeader
-            bottomNav={
-              <AdminBottomNav
-                activeTab="Dashboard"
-                onNavigate={handleAdminNavigation}
-              />
-            }>
+          <AdminLayoutWithHeader bottomNav={<AdminBottomNav activeTab="Dashboard" onNavigate={handleAdminNavigation} />}>
             <AdminDashboardScreen
               user={user}
               onNavigate={handleAdminNavigation}
-              onCollections={() =>
-                setScreen('adminCollections')
-              }
-              onAddCollection={() =>
-                setScreen('adminAddCollection')
-              }
+              onCollections={() => setScreen('adminCollections')}
+              onAddCollection={() => setScreen('adminAddCollection')}
               onSos={() => setScreen('adminSos')}
-              onNotifications={() =>
-                setScreen('adminNotifications')
-              }
+              onNotifications={() => setScreen('adminNotifications')}
               onProfile={() => setScreen('adminProfile')}
               onLogout={goToLogin}
             />
@@ -1037,15 +583,11 @@ function AppContent() {
     }
   }
 
-  // ============================================================
-  // FALLBACK
-  // ============================================================
-
+  // Fallback
   return (
     <LoginScreen
-      onLogin={(identifier, password, selectedRole) =>
-        signIn(identifier, password, selectedRole)
-      }
+      onLogin={(identifier, password) => signIn(identifier, password, 'user')}
+      onAdminLogin={(identifier, password) => signIn(identifier, password, 'admin')}
     />
   );
 }
@@ -1055,11 +597,31 @@ function AppContent() {
 // ============================================================
 
 export default function App() {
+  const [toast, setToast] = useState({
+    visible: false,
+    message: '',
+    type: 'success',
+  });
+
+  const showToast = (message, type = 'success') => {
+    setToast({visible: true, message, type});
+  };
+
+  const hideToast = () => {
+    setToast(prev => ({...prev, visible: false}));
+  };
+
   return (
     <SafeAreaProvider>
       <AuthProvider>
         <View style={styles.container}>
           <AppContent />
+          <Toast
+            visible={toast.visible}
+            message={toast.message}
+            type={toast.type}
+            onHide={hideToast}
+          />
         </View>
       </AuthProvider>
     </SafeAreaProvider>

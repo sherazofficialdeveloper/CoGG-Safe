@@ -2,12 +2,11 @@ import {sosLocalStore} from './storage';
 import {connectivityService} from './connectivity';
 import {enqueueSosJob} from './queue/queueWorker';
 
-const RETRYABLE_SERVICES = new Set(['sms', 'call', 'backend', 'liveLocation']);
+const RETRYABLE_SERVICES = new Set(['sms', 'call', 'backend', 'email', 'notifications', 'liveLocation']);
 
 export function generateClientSosId() {
-  const nativeCrypto = typeof global !== 'undefined' ? global.crypto : null;
-  const random = nativeCrypto?.randomUUID
-    ? nativeCrypto.randomUUID()
+  const random = (typeof crypto !== 'undefined' && crypto.randomUUID)
+    ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `sos_${random.replace(/-/g, '')}`;
 }
@@ -26,14 +25,14 @@ export function createBaseServiceState() {
   };
 }
 
-export async function createSosLocalEvent({userId, collectionId, meta = {}, status = 'ACTIVE'}) {
+export async function createSosLocalEvent({userId, collectionId, meta = {}}) {
   const event = {
     id: generateClientSosId(),
     userId,
     collectionId,
     createdAt: new Date().toISOString(),
-    activatedAt: status === 'ACTIVE' ? new Date().toISOString() : null,
-    status,
+    activatedAt: new Date().toISOString(),
+    status: 'ACTIVE',
     location: {
       latitude: null,
       longitude: null,
@@ -46,24 +45,6 @@ export async function createSosLocalEvent({userId, collectionId, meta = {}, stat
 
   await sosLocalStore.upsertSos(event);
   return event;
-}
-
-export async function cancelSosLocalEvent(sosId) {
-  const event = await sosLocalStore.getSosById(sosId);
-  if (!event || event.status !== 'PENDING') return null;
-  const cancelled = {...event, status: 'CANCELLED', cancelledAt: new Date().toISOString()};
-  await sosLocalStore.upsertSos(cancelled);
-  return cancelled;
-}
-
-export async function activateLocalSosEvent(event, serviceRunners = {}) {
-  const activated = {
-    ...event,
-    status: 'ACTIVE',
-    activatedAt: new Date().toISOString(),
-  };
-  await sosLocalStore.upsertSos(activated);
-  return runSosServices(activated, serviceRunners);
 }
 
 export function resolveSosServiceStatus(serviceName, networkState) {
@@ -81,119 +62,66 @@ export function resolveSosServiceStatus(serviceName, networkState) {
   return 'PENDING';
 }
 
-export async function activateSosFlow({
-  userId,
-  collectionId,
-  serviceRunners = {},
-  countdownMs = 0,
-  onPending,
-  cancelSignal,
-}) {
-  const event = await createSosLocalEvent({
-    userId,
-    collectionId,
-    status: countdownMs > 0 ? 'PENDING' : 'ACTIVE',
-  });
-
-  await Promise.resolve(onPending?.(event));
-
-  if (countdownMs > 0) {
-    const deadline = Date.now() + countdownMs;
-    while (Date.now() < deadline) {
-      if (cancelSignal?.cancelled) {
-        return {event: await cancelSosLocalEvent(event.id), cancelled: true};
-      }
-      await new Promise(resolve => setTimeout(resolve, 250));
-    }
-    if (cancelSignal?.cancelled) {
-      return {event: await cancelSosLocalEvent(event.id), cancelled: true};
-    }
-
-    event.status = 'ACTIVE';
-    event.activatedAt = new Date().toISOString();
-    await sosLocalStore.upsertSos(event);
-  }
-
-  return runSosServices(event, serviceRunners);
-}
-
-export async function runSosServices(event, serviceRunners = {}) {
+export async function activateSosFlow({userId, collectionId, serviceRunners = {}}) {
+  const event = await createSosLocalEvent({userId, collectionId});
 
   const runners = {
-    sms: serviceRunners.sms || (async () => ({status: 'PENDING', reason: 'SMS service is not configured.'})),
-    call: serviceRunners.call || (async () => ({status: 'PENDING', reason: 'Call service is not configured.'})),
-    camera: serviceRunners.camera || (async () => ({status: 'PENDING', reason: 'Camera service is not configured.'})),
-    audio: serviceRunners.audio || (async () => ({status: 'PENDING', reason: 'Audio service is not configured.'})),
-    location: serviceRunners.location || (async () => ({status: 'PENDING', reason: 'Location service is not configured.'})),
-    liveLocation: serviceRunners.liveLocation || (async () => ({status: 'PENDING', reason: 'Live location service is not configured.'})),
-    backend: serviceRunners.backend || (async () => ({status: 'PENDING', reason: 'Backend sync service is not configured.'})),
-    email: serviceRunners.email || (async () => ({status: 'PENDING', reason: 'Email service is not configured.'})),
-    notifications: serviceRunners.notifications || (async () => ({status: 'PENDING', reason: 'Notification service is not configured.'})),
+    sms: serviceRunners.sms || (async () => 'sms'),
+    call: serviceRunners.call || (async () => 'call'),
+    camera: serviceRunners.camera || (async () => 'camera'),
+    audio: serviceRunners.audio || (async () => 'audio'),
+    location: serviceRunners.location || (async () => 'location'),
+    backend: serviceRunners.backend || (async () => 'backend'),
+    email: serviceRunners.email || (async () => 'email'),
+    notifications: serviceRunners.notifications || (async () => 'notifications'),
   };
 
-  const serviceOrder = ['backend', 'camera', 'audio', 'location', 'sms', 'call', 'liveLocation', 'email', 'notifications'];
-  const names = [...new Set([...serviceOrder.filter(name => Object.prototype.hasOwnProperty.call(runners, name)), ...Object.keys(runners)])];
-  const execution = [];
-
-  for (const serviceName of names) {
-    const serviceState = event.services[serviceName];
-    try {
-      const result = await runners[serviceName](event);
-      const resultStatus = result?.status || 'COMPLETED';
-      const next = {
-        ...serviceState,
-        ...(result && typeof result === 'object' ? result : {}),
-        status: resultStatus,
-        ...(result?.error || result?.reason
-          ? {error: result.error || result.reason}
-          : {}),
-        ...(resultStatus === 'COMPLETED' || resultStatus === 'NOT_CONFIGURED'
-          ? {completedAt: new Date().toISOString()}
-          : {}),
-        ...(result && typeof result === 'object' ? { lastResult: result } : {}),
-      };
-      if (serviceName === 'location' && result?.latitude != null && result?.longitude != null) {
-        event.location = {...event.location, ...result};
-      }
-      if (serviceName === 'backend' && result?.backendId) {
-        event.backendId = result.backendId;
-        event.emergencyLink = result.emergencyLink || null;
-      }
-      if (serviceName === 'liveLocation') {
-        if (result?.startedAt) event.liveLocationStartedAt = result.startedAt;
-        if (result?.expiresAt) event.liveLocationExpiresAt = result.expiresAt;
-        if (resultStatus === 'COMPLETED' || result?.serverStatus === 'active') {
+  const names = Object.keys(runners);
+  const execution = await Promise.all(
+    names.map(async (serviceName) => {
+      const serviceState = event.services[serviceName];
+      try {
+        const result = await runners[serviceName](event);
+        const resultStatus = result?.status || 'COMPLETED';
+        const next = {
+          ...serviceState,
+          status: resultStatus,
+          ...(resultStatus === 'COMPLETED' || resultStatus === 'NOT_CONFIGURED'
+            ? {completedAt: new Date().toISOString()}
+            : {}),
+          ...(result && typeof result === 'object' ? { lastResult: result } : {}),
+        };
+        if (serviceName === 'location' && result?.latitude != null && result?.longitude != null) {
+          event.location = {...event.location, ...result};
+        }
+        if (serviceName === 'backend' && result?.backendId) {
+          event.backendId = result.backendId;
+          event.emergencyLink = result.emergencyLink || null;
+        }
+        if (serviceName === 'liveLocation' && result?.startedAt) {
+          event.liveLocationStartedAt = result.startedAt;
           event.liveLocationStatus = 'ACTIVE';
         }
+        event.services[serviceName] = next;
+        await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
+        if (resultStatus === 'PENDING' && RETRYABLE_SERVICES.has(serviceName)) {
+          await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
+        }
+      } catch (error) {
+        const next = {
+          ...serviceState,
+          status: 'FAILED',
+          error: error?.message || 'Service failed',
+          completedAt: new Date().toISOString(),
+        };
+        event.services[serviceName] = next;
+        await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
+        if (RETRYABLE_SERVICES.has(serviceName)) {
+          await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
+        }
       }
-      event.services[serviceName] = next;
-      await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
-      if ((serviceName === 'camera' || serviceName === 'audio') && resultStatus === 'COMPLETED') {
-        await enqueueSosJob({
-          sosId: event.id,
-          type: 'MEDIA_UPLOAD',
-          serviceName: 'mediaUpload',
-        });
-      }
-      if (resultStatus === 'PENDING' && RETRYABLE_SERVICES.has(serviceName)) {
-        await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
-      }
-      execution.push({serviceName, status: resultStatus});
-    } catch (error) {
-      const next = {
-        ...serviceState,
-        status: 'FAILED',
-        error: error?.message || 'Service failed',
-        completedAt: new Date().toISOString(),
-      };
-      event.services[serviceName] = next;
-      await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
-      if (RETRYABLE_SERVICES.has(serviceName)) {
-        await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
-      }
-      execution.push({serviceName, status: 'FAILED', error: next.error});
-    }
-  }
+    })
+  );
 
   event.status = 'ACTIVE';
   await sosLocalStore.upsertSos(event);
@@ -205,9 +133,6 @@ export default {
   createSosLocalEvent,
   generateClientSosId,
   activateSosFlow,
-  activateLocalSosEvent,
-  cancelSosLocalEvent,
-  runSosServices,
   resolveSosServiceStatus,
   connectivityService,
 };

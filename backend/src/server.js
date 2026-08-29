@@ -37,21 +37,26 @@ function warnIfProvidersUnconfiguredInProduction() {
 }
 
 async function start() {
-  await connectDB();
-  warnIfProvidersUnconfiguredInProduction();
+  try {
+    await connectDB();
+    warnIfProvidersUnconfiguredInProduction();
 
-  // Handler registration happens as a side effect of requiring app.js
-  // above (app -> routes -> sos.routes -> sos.controller -> sos.service,
-  // which registers its job handlers at module load). Starting the
-  // poller only after connectDB() ensures it never runs before the DB
-  // is ready. This is the only place the scheduler is started — never
-  // from a controller or from app.js itself, so it stays out of the
-  // request/response path entirely.
-  schedulerService.start();
+    // Handler registration happens as a side effect of requiring app.js
+    // above (app -> routes -> sos.routes -> sos.controller -> sos.service,
+    // which registers its job handlers at module load). Starting the
+    // poller only after connectDB() ensures it never runs before the DB
+    // is ready. This is the only place the scheduler is started — never
+    // from a controller or from app.js itself, so it stays out of the
+    // request/response path entirely.
+    schedulerService.start();
 
-  server = app.listen(env.port, () => {
-    logger.info(`${env.appName} listening on port ${env.port} [${env.nodeEnv}]`);
-  });
+    server = app.listen(env.port, () => {
+      logger.info(`${env.appName} listening on port ${env.port} [${env.nodeEnv}]`);
+    });
+  } catch (err) {
+    logger.error('Failed to start the application server', { error: err.message, stack: err.stack });
+    process.exit(1);
+  }
 }
 
 function shutdown(signal) {
@@ -95,29 +100,6 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
-async function start() {
-  console.log('1️⃣ start() entered');
+start();
 
-  try {
-    console.log('2️⃣ connecting to MongoDB...');
-    await connectDB();
-    console.log('3️⃣ MongoDB connectDB() completed');
-
-    warnIfProvidersUnconfiguredInProduction();
-    console.log('4️⃣ provider check completed');
-
-    schedulerService.start();
-    console.log('5️⃣ scheduler started');
-
-    server = app.listen(env.port, () => {
-      console.log(`6️⃣ SERVER LISTENING ON PORT ${env.port}`);
-    });
-
-    console.log('7️⃣ app.listen() called');
-  } catch (err) {
-    console.error('❌ START ERROR:', err);
-    console.error(err.stack);
-    process.exit(1);
-  }
-}
 module.exports = app;

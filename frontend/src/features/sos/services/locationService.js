@@ -1,8 +1,12 @@
-import Geolocation from '@react-native-community/geolocation';
-
 export async function getCurrentLocation() {
+  const geolocation = globalThis.navigator && globalThis.navigator.geolocation;
+
+  if (!geolocation || typeof geolocation.getCurrentPosition !== 'function') {
+    throw new Error('Location services are not available on this device.');
+  }
+
   return new Promise((resolve, reject) => {
-    Geolocation.getCurrentPosition(
+    geolocation.getCurrentPosition(
       (position) => {
         resolve({
           latitude: position?.coords?.latitude ?? null,

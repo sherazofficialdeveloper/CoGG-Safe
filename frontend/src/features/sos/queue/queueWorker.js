@@ -3,7 +3,6 @@ import {getConnectivityState} from '../connectivity';
 
 const MAX_ATTEMPTS = 5;
 const BASE_BACKOFF_MS = 5000;
-const PROCESSING_RECOVERY_MS = 60 * 1000;
 
 function requiresInternet(item) {
   return ['BACKEND_SYNC', 'BACKEND', 'MEDIA_UPLOAD', 'EMAIL', 'NOTIFICATIONS', 'LIVELOCATION'].includes(item.type);
@@ -37,14 +36,6 @@ export async function enqueueSosJob({sosId, type, serviceName, payload = {}}) {
 
 export async function processSosQueue({processors = {}, now = Date.now()} = {}) {
   const state = getConnectivityState();
-  const queueBeforeRecovery = await sosLocalStore.getPendingQueue();
-  await Promise.all(queueBeforeRecovery
-    .filter(item => item.status === 'PROCESSING')
-    .map(item => sosLocalStore.updateQueueItem(item.id, {
-      status: 'RETRY_WAITING',
-      error: 'Recovered after an interrupted queue attempt.',
-      nextAttemptAt: new Date(now + PROCESSING_RECOVERY_MS).toISOString(),
-    })));
   const priority = {BACKEND: 0, BACKEND_SYNC: 0};
   const queue = (await sosLocalStore.getPendingQueue()).sort(
     (left, right) => (priority[left.type] ?? 1) - (priority[right.type] ?? 1)

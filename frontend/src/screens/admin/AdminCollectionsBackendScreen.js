@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useState} from 'react';
-import {ActivityIndicator, Alert, BackHandler, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
+import {ActivityIndicator, Alert, BackHandler, Clipboard, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {createUser, deleteUser, listCollectionUsers, listCollections, setUserStatus, updateCollection} from '../../api/resources';
 import Button from '../../components/Button';
@@ -20,6 +20,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
   const [userForm, setUserForm] = useState(EMPTY_USER);
   const [editForm, setEditForm] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [credentialMap, setCredentialMap] = useState({});
 
   const loadCollections = useCallback(async () => {
     setLoading(true);
@@ -99,7 +100,14 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
     }
     setSubmitting(true);
     try {
-      await createUser(token, payload);
+      const response = await createUser(token, payload);
+      const createdUser = response?.user || null;
+      const createdPassword = payload.password;
+
+      if (createdUser?._id) {
+        setCredentialMap(current => ({...current, [createdUser._id]: createdPassword}));
+      }
+
       setUserForm(EMPTY_USER);
       setShowUserForm(false);
       await loadMembers(selected._id);
@@ -136,6 +144,11 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
       try {
         await deleteUser(token, member._id);
         setMembers(items => items.filter(item => item._id !== member._id));
+        setCredentialMap(current => {
+          const next = {...current};
+          delete next[member._id];
+          return next;
+        });
       } catch (requestError) {
         setError(requestError.message || 'Unable to delete user.');
       } finally {
@@ -143,6 +156,25 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
       }
     }},
   ]);
+
+  const copyCredentials = async member => {
+    const password = credentialMap[member._id];
+
+    if (!password) {
+      Alert.alert(
+        'Credentials unavailable',
+        'The backend never returns plaintext passwords because they are stored as a secure bcrypt hash. Copy is only available for the password entered when the account was created in this session.',
+      );
+      return;
+    }
+
+    try {
+      await Clipboard.setString(`Username: ${member.username}\nPassword: ${password}`);
+      Alert.alert('Credentials copied', 'The username and password were copied to your clipboard.');
+    } catch (error) {
+      Alert.alert('Unable to copy credentials', 'Please try again.');
+    }
+  };
 
   const header = (title, subtitle, backAction, actionLabel, action) => <Header title={title} subtitle={subtitle} onBack={backAction} right={<Button title={actionLabel} variant="ghost" onPress={action} style={styles.headerAction} textStyle={styles.headerActionText} />} />;
 
@@ -155,7 +187,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
         {showEditForm ? <View style={styles.form}><Text style={styles.formTitle}>Edit collection</Text><Input label="Collection name" value={editForm?.name || ''} onChangeText={value => setEditForm(current => ({...current, name: value}))} editable={editForm?.type === 'other'} placeholder="Collection name" /><Input label="Emergency number" value={editForm?.emergencyCallNumber || ''} onChangeText={value => setEditForm(current => ({...current, emergencyCallNumber: value}))} placeholder="Emergency number" keyboardType="phone-pad" /><View style={styles.typeRow}>{COLLECTION_TYPES.map(item => <Button key={item.value} title={item.label} variant={editForm?.type === item.value ? 'primary' : 'outline'} onPress={() => setEditForm(current => ({...current, type: item.value, name: item.value === 'other' ? current.name : item.label}))} style={styles.typeButton} />)}</View><Button title="Save changes" icon="save" loading={submitting} onPress={saveCollection} style={styles.submit} /></View> : <Button title="Edit collection" icon="edit" variant="secondary" onPress={() => setShowEditForm(true)} style={styles.editButton} />}
         {showUserForm ? <InlineUserForm form={userForm} setForm={setUserForm} submitting={submitting} onCancel={() => {setUserForm(EMPTY_USER); setShowUserForm(false);}} onSubmit={submitUser} /> : null}
         <Text style={styles.sectionTitle}>COLLECTION USERS</Text>
-        {membersLoading ? <ActivityIndicator color="#E4002B" /> : members.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>No users in this collection</Text><Text style={styles.muted}>Add a user to this collection.</Text></View> : members.map(member => <TouchableOpacity key={member._id} style={styles.member} onPress={() => onUserDetail?.({...member, name: member.username, phone: member.mobileNumber, email: member.email || 'No email configured', accountStatus: member.status, status: member.status === 'active' ? 'Active' : 'Inactive', initials: member.username.slice(0, 2).toUpperCase(), joined: member.createdAt ? new Date(member.createdAt).toLocaleDateString() : 'Date unavailable', color: '#E4002B'})}><View style={styles.avatar}><Text style={styles.avatarText}>{member.username.slice(0, 2).toUpperCase()}</Text></View><View style={styles.memberInfo}><Text style={styles.memberName}>{member.username}</Text><Text style={styles.muted}>{member.mobileNumber}{member.email ? ` · ${member.email}` : ''}</Text><Text style={member.status === 'active' ? styles.active : styles.inactive}>{member.status === 'active' ? 'Active' : 'Inactive'}</Text><View style={styles.memberActions}><TouchableOpacity disabled={submitting} onPress={() => updateStatus(member)}><Text style={styles.actionText}>{member.status === 'active' ? 'Deactivate' : 'Activate'}</Text></TouchableOpacity><TouchableOpacity disabled={submitting} onPress={() => removeUser(member)}><Text style={styles.deleteText}>Delete</Text></TouchableOpacity><TouchableOpacity onPress={() => Alert.alert('Credentials unavailable', 'Passwords are securely hashed and cannot be retrieved. They are available only immediately after creation.')}><Text style={styles.actionText}>Copy credentials</Text></TouchableOpacity></View></View></TouchableOpacity>)}
+        {membersLoading ? <ActivityIndicator color="#E4002B" /> : members.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>No users in this collection</Text><Text style={styles.muted}>Add a user to this collection.</Text></View> : members.map(member => <TouchableOpacity key={member._id} style={styles.member} onPress={() => onUserDetail?.({...member, name: member.username, phone: member.mobileNumber, email: member.email || 'No email configured', accountStatus: member.status, status: member.status === 'active' ? 'Active' : 'Inactive', initials: member.username.slice(0, 2).toUpperCase(), joined: member.createdAt ? new Date(member.createdAt).toLocaleDateString() : 'Date unavailable', color: '#E4002B'})}><View style={styles.avatar}><Text style={styles.avatarText}>{member.username.slice(0, 2).toUpperCase()}</Text></View><View style={styles.memberInfo}><Text style={styles.memberName}>{member.username}</Text><Text style={styles.muted}>{member.mobileNumber}{member.email ? ` · ${member.email}` : ''}</Text><Text style={member.status === 'active' ? styles.active : styles.inactive}>{member.status === 'active' ? 'Active' : 'Inactive'}</Text><View style={styles.memberActions}><TouchableOpacity disabled={submitting} onPress={() => updateStatus(member)}><Text style={styles.actionText}>{member.status === 'active' ? 'Deactivate' : 'Activate'}</Text></TouchableOpacity><TouchableOpacity disabled={submitting} onPress={() => removeUser(member)}><Text style={styles.deleteText}>Delete</Text></TouchableOpacity><TouchableOpacity onPress={() => copyCredentials(member)}><Text style={styles.actionText}>Copy credentials</Text></TouchableOpacity></View></View></TouchableOpacity>)}
       </ScrollView>
     </KeyboardAvoidingView>
   </SafeAreaView>;
