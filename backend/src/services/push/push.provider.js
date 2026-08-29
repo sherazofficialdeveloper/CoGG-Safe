@@ -12,8 +12,7 @@ const env = require('../../config/env');
  * Phase 1) against FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/
  * FIREBASE_PRIVATE_KEY. This is the correct approach for FCM specifically
  * — its HTTP v1 API requires signed OAuth2 service-account requests,
- * which the SDK handles; hand-rolling that (unlike the plain-REST
- * Twilio calls) would be substantially riskier.
+ * which the SDK handles.
  *
  * TOKEN CLEANUP: when FCM reports a token as no longer valid
  * (uninstalled app, expired registration), this throws an error tagged

@@ -58,13 +58,6 @@ const env = {
       : undefined,
   },
 
-  sms: {
-    provider: process.env.SMS_PROVIDER || 'twilio',
-    accountSid: process.env.SMS_ACCOUNT_SID,
-    authToken: process.env.SMS_AUTH_TOKEN,
-    fromNumber: process.env.SMS_FROM_NUMBER,
-  },
-
   email: {
     provider: process.env.EMAIL_PROVIDER || 'smtp',
     host: process.env.EMAIL_HOST,
@@ -78,21 +71,6 @@ const env = {
     provider: process.env.STORAGE_PROVIDER || 'local',
     localPath: process.env.STORAGE_LOCAL_PATH || 'uploads',
     baseUrl: process.env.STORAGE_BASE_URL || 'http://localhost:5000/uploads',
-  },
-
-  call: {
-    provider: process.env.CALL_PROVIDER || 'twilio',
-    // Voice calls reuse the same Twilio account credentials as SMS by
-    // default (the common setup — one Twilio account, both capabilities),
-    // but can be overridden independently if a different account/number
-    // is used for voice.
-    accountSid: process.env.CALL_ACCOUNT_SID || process.env.SMS_ACCOUNT_SID,
-    authToken: process.env.CALL_AUTH_TOKEN || process.env.SMS_AUTH_TOKEN,
-    fromNumber: process.env.CALL_FROM_NUMBER || process.env.SMS_FROM_NUMBER,
-    // Twilio requires a TwiML URL telling it what the call should say/do
-    // once answered — this must be provided by the operator (a static
-    // TwiML Bin or their own webhook), the backend cannot generate one.
-    twimlUrl: process.env.CALL_TWIML_URL,
   },
 
   emergencyLink: {

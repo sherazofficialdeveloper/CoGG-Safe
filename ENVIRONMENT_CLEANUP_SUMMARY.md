@@ -121,7 +121,7 @@ Time:        187.652 s
 ✅ JWT_SECRET - Backend only  
 ✅ MongoDB URI - Backend only  
 ✅ Firebase private key - Backend only  
-✅ Twilio auth tokens - Backend only  
+✅ External provider auth tokens - Backend only
 ✅ SMTP passwords - Backend only  
 ✅ Database credentials - Backend only  
 
@@ -146,7 +146,7 @@ Time:        187.652 s
 2. Set actual `MONGODB_URI` (production database)
 3. Generate and set new `JWT_SECRET` (DO NOT reuse development value)
 4. Add production Firebase credentials (if using FCM)
-5. Add production Twilio credentials (if using SMS/voice)
+5. Add production provider credentials only where they are genuinely required by the deployment
 6. Update `EMERGENCY_LINK_BASE_URL` to production domain
 7. Verify `.env` is in `.gitignore` and NOT committed
 8. Test with actual credentials
@@ -155,7 +155,7 @@ Time:        187.652 s
 - [ ] MONGODB_URI configured
 - [ ] JWT_SECRET generated and set
 - [ ] Firebase credentials added (if needed)
-- [ ] Twilio credentials added (if needed)
+- [ ] optional provider credentials added only if needed
 - [ ] Email provider configured (if needed)
 - [ ] EMERGENCY_LINK_BASE_URL set to production domain
 - [ ] backend/.env exists and is gitignored

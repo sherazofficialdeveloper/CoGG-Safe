@@ -113,7 +113,7 @@ Therefore the following cannot be confirmed from this environment:
 
 The app has external dependencies for:
 - Firebase push notifications
-- Twilio backend providers
+- backend provider abstractions for optional non-native notifications
 - SMTP email
 - mobile network connectivity
 
@@ -173,7 +173,7 @@ This means:
 1. No actual Android handset or emulator was available in this environment.
 2. Real SIM/network behavior remains unverified.
 3. The backend test suite still has 3 failing tests unrelated to the SOS path.
-4. Real provider connectivity (Firebase/Twilio/SMTP) remains unverified.
+4. Real provider connectivity (Firebase/SMTP) remains unverified.
 
 ## Test evidence
 

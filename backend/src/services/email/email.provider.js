@@ -3,8 +3,7 @@ const logger = require('../../config/logger');
 const env = require('../../config/env');
 
 /**
- * Email provider abstraction. See sms.provider.js for the general
- * pattern this follows.
+ * Email provider abstraction.
  *
  * REAL IMPLEMENTATION: sends via SMTP using nodemailer, configured from
  * the existing EMAIL_HOST/EMAIL_PORT/EMAIL_USER/EMAIL_PASSWORD env vars

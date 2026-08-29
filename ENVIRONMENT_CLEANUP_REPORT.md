@@ -40,10 +40,10 @@ SCHEDULER: SCHEDULER_POLL_INTERVAL_MS
 MEDIA: MEDIA_MAX_UPLOAD_SIZE_MB
 RATE_LIMIT: RATE_LIMIT_WINDOW_MINUTES, RATE_LIMIT_MAX_REQUESTS
 FIREBASE: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY (dev test key)
-SMS: SMS_PROVIDER, SMS_ACCOUNT_SID, SMS_AUTH_TOKEN, SMS_FROM_NUMBER
+SMS: optional backend SMS provider config (removed from final runtime)
 EMAIL: EMAIL_PROVIDER, EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD, EMAIL_FROM
 STORAGE: STORAGE_PROVIDER, STORAGE_LOCAL_PATH, STORAGE_BASE_URL
-CALL: CALL_PROVIDER, CALL_ACCOUNT_SID, CALL_AUTH_TOKEN, CALL_FROM_NUMBER, CALL_TWIML_URL
+CALL: optional backend call provider config (removed from final runtime)
 EMERGENCY_LINK: EMERGENCY_LINK_BASE_URL
 ADMIN_SEED: ADMIN_SEED_USERNAME, ADMIN_SEED_PASSWORD, ADMIN_SEED_MOBILE, ADMIN_SEED_EMAIL
 ```
@@ -156,7 +156,7 @@ ADMIN_SEED: ADMIN_SEED_USERNAME, ADMIN_SEED_PASSWORD, ADMIN_SEED_MOBILE, ADMIN_S
 - ✅ MONGODB_URI - Backend only  
 - ✅ Firebase private key - Backend only
 - ✅ Firebase client email - Backend only
-- ✅ Twilio auth tokens - Backend only
+- ✅ Optional provider auth tokens - Backend only
 - ✅ SMTP passwords - Backend only
 - ✅ Database credentials - Backend only
 
@@ -197,10 +197,8 @@ All variables read through centralized config layer:
 | **Media** | MEDIA_MAX_UPLOAD_SIZE_MB | Config | ✅ |
 | **Rate Limiting** | RATE_LIMIT_WINDOW_MINUTES, RATE_LIMIT_MAX_REQUESTS | Config | ✅ |
 | **Firebase** | FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY | Secret | ⚠️ Empty (optional provider) |
-| **SMS Provider** | SMS_PROVIDER, SMS_ACCOUNT_SID, SMS_AUTH_TOKEN, SMS_FROM_NUMBER | Secret | ⚠️ Empty (optional provider) |
 | **Email Provider** | EMAIL_PROVIDER, EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD, EMAIL_FROM | Secret | ⚠️ Empty (optional provider) |
 | **Storage** | STORAGE_PROVIDER, STORAGE_LOCAL_PATH, STORAGE_BASE_URL | Config | ✅ |
-| **Call Provider** | CALL_PROVIDER, CALL_ACCOUNT_SID, CALL_AUTH_TOKEN, CALL_FROM_NUMBER, CALL_TWIML_URL | Secret | ⚠️ Empty (optional provider) |
 | **Emergency Link** | EMERGENCY_LINK_BASE_URL | Config | ✅ |
 | **Admin Seed** | ADMIN_SEED_USERNAME, ADMIN_SEED_PASSWORD, ADMIN_SEED_MOBILE, ADMIN_SEED_EMAIL | Setup | ✅ Empty (correct) |
 
@@ -397,7 +395,7 @@ backend/.env.example | 33 ++++++++++++++++-----------------
 - Database schema or models
 - API endpoints or services
 - React Native version or dependencies
-- Twilio provider implementations
+- legacy provider implementations removed from final runtime
 - Any non-environment configuration
 
 ---
@@ -408,14 +406,14 @@ backend/.env.example | 33 ++++++++++++++++-----------------
 ✅ **READY** - All environment files properly configured for local development
 - Port 8000 correctly configured throughout
 - MongoDB URI needs to be set (currently empty - expected for local setup)
-- Optional providers (Firebase, Twilio, Email) can remain unconfigured
+- Optional providers (Firebase, Email) can remain unconfigured
 
 ### For Production
 ⚠️ **PARTIALLY READY** - Requires:
 1. Set real MONGODB_URI (production database)
 2. Set real JWT_SECRET (generate new, rotate from development)
 3. Set real Firebase credentials (production project)
-4. Set real SMS/Call/Email provider credentials (Twilio, etc.)
+4. Set real optional email/provider credentials only where genuinely required by the deployment
 5. Update EMERGENCY_LINK_BASE_URL to production domain
 6. Create new backend/.env from .env.example template
 7. Create new frontend/.env with production API endpoint
@@ -449,7 +447,7 @@ These variables must be configured for functionality (not in scope of cleanup):
 | SMS_* | Optional | ⚠️ Empty | Needed for SMS emergency alerts |
 | CALL_* | Optional | ⚠️ Empty | Needed for voice emergency calls |
 | EMAIL_* | Optional | ⚠️ Empty | Needed for email notifications |
-| CALL_TWIML_URL | Optional | ⚠️ Empty | Required if using Twilio calls |
+| CALL_TWIML_URL | Removed | ✅ N/A | No longer used by the final manual SOS runtime |
 
 ---
 
@@ -465,7 +463,7 @@ These variables must be configured for functionality (not in scope of cleanup):
 1. **Rotate Credentials Periodically**
    - JWT_SECRET before each environment promotion
    - Firebase keys before production deployment
-   - Twilio tokens on key rotation schedule
+   - provider tokens on key rotation schedule only where actually used
 
 2. **Never Commit Secrets**
    - Always verify `git status` before push
@@ -552,6 +550,6 @@ The CoGG Safe application now has:
 - ✅ All tests passing (no regressions)
 - ✅ Ready for production deployment (after external configuration)
 
-**No changes to SOS architecture, React Native version, Twilio providers, or application logic.**
+**No changes to SOS architecture, React Native version, or application logic; native Android SMS/call remains the manual SOS path.**
 
 **Status: PRODUCTION READY (environment configuration)**

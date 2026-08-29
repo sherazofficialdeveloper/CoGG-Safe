@@ -3,9 +3,7 @@ const logger = require('./config/logger');
 const { connectDB, disconnectDB } = require('./config/db');
 const app = require('./app');
 const schedulerService = require('./modules/scheduler/scheduler.service');
-const smsProvider = require('./services/sms/sms.provider');
 const emailProvider = require('./services/email/email.provider');
-const callProvider = require('./services/call/call.provider');
 const pushProvider = require('./services/push/push.provider');
 
 const SHUTDOWN_FORCE_EXIT_MS = 10_000;
@@ -26,9 +24,7 @@ function warnIfProvidersUnconfiguredInProduction() {
   if (env.nodeEnv !== 'production') return;
 
   const unconfigured = [
-    !smsProvider.isConfigured() && 'SMS (Twilio)',
     !emailProvider.isConfigured() && 'Email (SMTP)',
-    !callProvider.isConfigured() && 'Emergency call (Twilio Voice)',
     !pushProvider.isConfigured() && 'Push (FCM)',
   ].filter(Boolean);
 

@@ -4,9 +4,7 @@ const Collection = require('../collections/collection.model');
 const notificationService = require('../notifications/notification.service');
 const pushTokenService = require('../notifications/pushToken.service');
 const pushProvider = require('../../services/push/push.provider');
-const smsProvider = require('../../services/sms/sms.provider');
 const emailProvider = require('../../services/email/email.provider');
-const callProvider = require('../../services/call/call.provider');
 const { setComponentStatus } = require('./component.util');
 const { COMPONENT_STATUS, COMPONENT_NAMES } = require('../../constants/sosConstants');
 const { buildEmergencyLink } = require('./emergencyLink.service');
@@ -97,38 +95,6 @@ async function dispatchNotification(sos, user, collection) {
   }
 }
 
-async function dispatchSms(sos, recipients, renderedMessage) {
-  await setComponentStatus(sos._id, COMPONENT_NAMES.SMS, COMPONENT_STATUS.PROCESSING);
-  try {
-    if (recipients.length === 0) {
-      await setComponentStatus(sos._id, COMPONENT_NAMES.SMS, COMPONENT_STATUS.SKIPPED, {
-        error: 'No recipients to notify',
-      });
-      return;
-    }
-    const results = await Promise.allSettled(
-      recipients.map((recipient) => smsProvider.send({ to: recipient.mobileNumber, body: renderedMessage }))
-    );
-    const anySucceeded = results.some((r) => r.status === 'fulfilled' && r.value?.status === 'sent');
-    const allUnsupported = results.length > 0 && results.every((r) => r.status === 'fulfilled' && r.value?.status === 'unsupported');
-    if (anySucceeded) {
-      await setComponentStatus(sos._id, COMPONENT_NAMES.SMS, COMPONENT_STATUS.SUCCESS);
-    } else if (allUnsupported) {
-      await setComponentStatus(sos._id, COMPONENT_NAMES.SMS, COMPONENT_STATUS.UNSUPPORTED, {
-        error: 'SMS provider is not configured',
-      });
-    } else {
-      const firstFailure = results.find((r) => r.status === 'rejected');
-      throw (firstFailure && firstFailure.reason) || new Error('All SMS deliveries failed');
-    }
-  } catch (err) {
-    logger.error('SMS dispatch failed', { sosId: sos._id.toString(), error: err.message });
-    await setComponentStatus(sos._id, COMPONENT_NAMES.SMS, COMPONENT_STATUS.FAILED, {
-      error: safeErrorMessage(err, 'SMS delivery failed'),
-    });
-  }
-}
-
 async function dispatchEmail(sos, recipients, subject, renderedMessage) {
   await setComponentStatus(sos._id, COMPONENT_NAMES.EMAIL, COMPONENT_STATUS.PROCESSING);
   try {
@@ -160,36 +126,6 @@ async function dispatchEmail(sos, recipients, subject, renderedMessage) {
     logger.error('Email dispatch failed', { sosId: sos._id.toString(), error: err.message });
     await setComponentStatus(sos._id, COMPONENT_NAMES.EMAIL, COMPONENT_STATUS.FAILED, {
       error: safeErrorMessage(err, 'Email delivery failed'),
-    });
-  }
-}
-
-async function dispatchCall(sos, collection) {
-  await setComponentStatus(sos._id, COMPONENT_NAMES.CALL, COMPONENT_STATUS.PROCESSING);
-  try {
-    if (!collection.emergencyCallNumber) {
-      await setComponentStatus(sos._id, COMPONENT_NAMES.CALL, COMPONENT_STATUS.SKIPPED, {
-        error: 'Collection has no emergency call number configured',
-      });
-      return;
-    }
-    const result = await callProvider.initiate({ to: collection.emergencyCallNumber });
-    if (result.status === 'initiated') {
-      await setComponentStatus(sos._id, COMPONENT_NAMES.CALL, COMPONENT_STATUS.SUCCESS);
-    } else if (result.status === 'unsupported') {
-      await setComponentStatus(sos._id, COMPONENT_NAMES.CALL, COMPONENT_STATUS.UNSUPPORTED, {
-        error: result.error || 'Call provider is not configured',
-      });
-    } else {
-      // The provider explicitly reported it could not initiate the call
-      // (e.g. network unavailable) — record that truthfully, never
-      // claim the call happened.
-      throw new Error(result.error || 'Call could not be initiated');
-    }
-  } catch (err) {
-    logger.error('Emergency call dispatch failed', { sosId: sos._id.toString(), error: err.message });
-    await setComponentStatus(sos._id, COMPONENT_NAMES.CALL, COMPONENT_STATUS.FAILED, {
-      error: safeErrorMessage(err, 'Emergency call could not be initiated'),
     });
   }
 }
@@ -256,9 +192,7 @@ async function dispatchSos(sos) {
   // or delays the others.
   await Promise.allSettled([
     dispatchNotification(sos, user, collection),
-    dispatchSms(sos, recipients, renderedMessage),
     dispatchEmail(sos, recipients, `SOS Alert — ${user.username}`, renderedMessage),
-    dispatchCall(sos, collection),
   ]);
 }
 
