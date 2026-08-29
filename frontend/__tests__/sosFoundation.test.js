@@ -135,6 +135,29 @@ test('persists a pending SOS before countdown activation', async () => {
   expect((await sosLocalStore.getSosById(result.event.id)).status).toBe('CANCELLED');
 });
 
+test('waits for async pending setup before dispatching SOS services', async () => {
+  let ready = false;
+
+  const result = await activateSosFlow({
+    userId: 'user-1',
+    collectionId: 'collection-1',
+    countdownMs: 0,
+    onPending: async () => {
+      await Promise.resolve();
+      ready = true;
+    },
+    serviceRunners: {
+      backend: async () => {
+        expect(ready).toBe(true);
+        return {status: 'COMPLETED'};
+      },
+    },
+  });
+
+  expect(result.event.services.backend.status).toBe('COMPLETED');
+  expect(ready).toBe(true);
+});
+
 test('transitions to ACTIVE before the orchestrator dispatches services', async () => {
   const observedStatuses = [];
   const result = await activateSosFlow({
@@ -200,6 +223,37 @@ test('queue deduplicates jobs and waits for required connectivity', async () => 
   expect(result[0].status).toBe('COMPLETED');
   expect(backend).toHaveBeenCalledTimes(1);
   expect(await sosLocalStore.getPendingQueue()).toHaveLength(0);
+});
+
+test('manual SOS waits for backend creation before live-location sharing begins', async () => {
+  const result = await activateSosFlow({
+    userId: 'user-1',
+    collectionId: 'collection-1',
+    serviceRunners: {
+      backend: async event => {
+        await new Promise(resolve => setTimeout(resolve, 30));
+        event.backendId = 'backend-ordered';
+        return {status: 'COMPLETED', backendId: 'backend-ordered'};
+      },
+      location: async () => ({status: 'COMPLETED', latitude: 51.5, longitude: -0.12}),
+      camera: async () => ({status: 'COMPLETED', frontImagePath: '/tmp/front.jpg', backImagePath: '/tmp/back.jpg'}),
+      audio: async () => ({status: 'COMPLETED', localPath: '/tmp/audio.m4a'}),
+      liveLocation: async event => {
+        if (!event.backendId) {
+          throw new Error('Live location started before backend creation');
+        }
+        return {status: 'PENDING', reason: 'Live location start is queued until internet returns.'};
+      },
+      sms: async () => ({status: 'PENDING'}),
+      call: async () => ({status: 'PENDING'}),
+      email: async () => ({status: 'PENDING'}),
+      notifications: async () => ({status: 'PENDING'}),
+    },
+  });
+
+  expect(result.event.services.backend.status).toBe('COMPLETED');
+  expect(result.event.services.liveLocation.status).toBe('PENDING');
+  expect(result.event.backendId).toBe('backend-ordered');
 });
 
 test('live location expiry is timestamp based and restart safe', () => {

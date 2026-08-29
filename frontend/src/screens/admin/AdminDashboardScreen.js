@@ -21,12 +21,12 @@ const AdminDashboardScreen = ({
   onSwitchToUser,
 }) => {
   const [collections, setCollections] = useState([]);
+  const [recentSos, setRecentSos] = useState([]);
   const [totalCollections, setTotalCollections] = useState(0);
   const [totalUsers, setTotalUsers] = useState(0);
   const [activeUsers, setActiveUsers] = useState(0);
   const [inactiveUsers, setInactiveUsers] = useState(0);
   const [totalSos, setTotalSos] = useState(0);
-  const [recentSos, setRecentSos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -35,12 +35,13 @@ const AdminDashboardScreen = ({
     setError('');
 
     try {
-      const [collectionResult, userResult, activeUserResult, inactiveUserResult, sosResult] = await Promise.all([
+      const [collectionResult, userResult, activeUserResult, inactiveUserResult, sosResult, sosFullResult] = await Promise.all([
         listCollections(token),
         listUsers(token, {limit: 1}),
         listUsers(token, {limit: 1, status: 'active'}),
         listUsers(token, {limit: 1, status: 'inactive'}),
         listSos(token, {limit: 1}),
+        listSos(token, {limit: 5}),
       ]);
       if (!isMounted()) return;
       setCollections(collectionResult.collections || []);
@@ -49,7 +50,19 @@ const AdminDashboardScreen = ({
       setActiveUsers(activeUserResult.meta?.total ?? 0);
       setInactiveUsers(inactiveUserResult.meta?.total ?? 0);
       setTotalSos(sosResult.meta?.total ?? 0);
-      setRecentSos(sosResult.sos || []);
+
+      // Map SOS records to display format
+      const mapped = (sosFullResult?.sos || []).map(record => ({
+        ...record,
+        id: record.id || record._id,
+        userName: record.userId?.username || 'CoGG Safe user',
+        mobileNumber: record.userId?.mobileNumber || 'Mobile unavailable',
+        initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
+        collectionName: record.collectionId?.name || 'Assigned collection',
+        status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Pending',
+        time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
+      }));
+      setRecentSos(mapped);
     } catch (requestError) {
       if (isMounted()) setError(requestError.message || 'Unable to load the admin overview.');
     } finally {
@@ -273,7 +286,7 @@ const AdminDashboardScreen = ({
                     styles.sosItemLast,
                 ]}
                 activeOpacity={0.75}
-                onPress={onSosDetail}>
+                onPress={() => onSosDetail(item)}>
 
                 <View style={styles.sosItemLeft}>
 

@@ -22,8 +22,9 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress}) => {
   const readNotification = notification => {
     onNotificationPress?.(notification);
     if (notification.isRead) return;
-    markNotificationRead(token, notification._id)
-      .then(() => setNotifications(items => items.map(item => item._id === notification._id ? {...item, isRead: true} : item)))
+    const notificationId = notification._id || notification.id;
+    markNotificationRead(token, notificationId)
+      .then(() => setNotifications(items => items.map(item => (item._id || item.id) === notificationId ? {...item, isRead: true} : item)))
       .catch(requestError => setError(requestError.message));
   };
 
@@ -50,7 +51,7 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress}) => {
       </View>
       {loading ? <View style={styles.state}><ActivityIndicator color="#E4002B" /><Text style={styles.stateText}>Loading notifications...</Text></View> : null}
       {!loading && error ? <View style={styles.state}><Text style={styles.stateTitle}>Unable to load notifications</Text><Text style={styles.stateText}>{error}</Text></View> : null}
-      {!loading && !error ? <FlatList data={notifications} renderItem={renderItem} keyExtractor={item => item._id} contentContainerStyle={styles.list} ListEmptyComponent={<View style={styles.state}><Text style={styles.stateTitle}>No notifications</Text><Text style={styles.stateText}>There are no alerts for this account.</Text></View>} /> : null}
+      {!loading && !error ? <FlatList data={notifications} renderItem={renderItem} keyExtractor={item => item._id || item.id} contentContainerStyle={styles.list} ListEmptyComponent={<View style={styles.state}><Text style={styles.stateTitle}>No notifications</Text><Text style={styles.stateText}>There are no alerts for this account.</Text></View>} /> : null}
     </SafeAreaView>
   );
 };

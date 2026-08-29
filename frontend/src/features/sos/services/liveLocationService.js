@@ -137,13 +137,8 @@ export async function stopLiveLocationSharing({token, sosId, backendId}) {
     throw new Error('Live location stop requires a local SOS identifier.');
   }
 
-  const idToStop = backendId || sosId;
   if (token && backendId) {
-    try {
-      await stopLiveLocation(token, backendId);
-    } catch (error) {
-      // Harmless if already stopped
-    }
+    await stopLiveLocation(token, backendId);
   }
 
   // Clear any remaining pending pings

@@ -35,6 +35,8 @@ const UserHomeScreen = ({
     permissionState.location !== 'granted' && 'location',
     permissionState.camera !== 'granted' && 'camera',
     permissionState.audio !== 'granted' && 'microphone',
+    permissionState.sms !== 'granted' && 'SMS',
+    permissionState.call !== 'granted' && 'Phone',
     permissionState.notifications !== 'granted' && 'notifications',
   ].filter(Boolean);
 

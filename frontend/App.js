@@ -25,7 +25,6 @@ import LoginScreen from './src/screens/LoginScreen';
 
 // User Screens
 import UserHomeScreen from './src/screens/UserHomeScreen';
-import PermissionOnboardingScreen from './src/screens/PermissionOnboardingScreen';
 import UserSosActiveScreen from './src/screens/UserSosActiveScreen';
 import UserContactsScreen from './src/screens/UserContactsScreen';
 import UserProfileScreen from './src/screens/UserProfileScreen';
@@ -55,7 +54,7 @@ import {
   syncSosToBackend,
   uploadCapturedSosMedia,
 } from './src/features/sos/services/backendSyncService';
-import {getCollection, getSos, reportLocation, reportMedia, reportSosService} from './src/api/resources';
+import {getCollection} from './src/api/resources';
 
 import {getCurrentLocation} from './src/features/sos/services/locationService';
 import {sendEmergencySms} from './src/features/sos/services/smsService';
@@ -73,7 +72,6 @@ import {connectivityService} from './src/features/sos/connectivity';
 import {processSosQueue} from './src/features/sos/queue/queueWorker';
 import {recoverActiveSosWork} from './src/features/sos/recovery';
 import {sosLocalStore} from './src/features/sos/storage';
-import {shouldShowPermissionOnboarding} from './src/permissions/sosPermissions';
 
 // ============================================================
 // MAIN APP CONTENT
@@ -81,8 +79,6 @@ import {shouldShowPermissionOnboarding} from './src/permissions/sosPermissions';
 
 function AppContent() {
   const {token, user, loading, signIn, signOut, updateUser} = useAuth();
-  const userId = user?._id || user?.id;
-  const userRole = user?.role;
 
   const [screen, setScreen] = useState('loading');
   const [portal, setPortal] = useState('admin');
@@ -96,7 +92,6 @@ function AppContent() {
   const [sosError, setSosError] = useState('');
   const [activeSosCount, setActiveSosCount] = useState(0);
   const sosCancelSignalRef = useRef({cancelled: false});
-  const sosInFlightRef = useRef(false);
 
   // Toast State
   const [toast, setToast] = useState({
@@ -130,23 +125,18 @@ function AppContent() {
       return;
     }
 
-    if (!userId) {
+    if (!user) {
       setScreen('login');
       return;
     }
 
-    let mounted = true;
-    setPortal(userRole === 'admin' ? 'admin' : 'user');
-    if (userRole === 'admin') {
+    setPortal(user.role === 'admin' ? 'admin' : 'user');
+    if (user.role === 'admin') {
       setScreen('adminDashboard');
-      return () => { mounted = false; };
+    } else {
+      setScreen('userHome');
     }
-    setScreen('loading');
-    shouldShowPermissionOnboarding().then(showOnboarding => {
-      if (mounted) setScreen(showOnboarding ? 'permissionOnboarding' : 'userHome');
-    });
-    return () => { mounted = false; };
-  }, [userId, userRole, loading]);
+  }, [user, loading]);
 
   // ============================================================
   // SOS QUEUE / RECOVERY / CONNECTIVITY
@@ -337,8 +327,6 @@ function AppContent() {
   // ============================================================
 
   const handleTriggerSos = async () => {
-    if (sosInFlightRef.current) return;
-    sosInFlightRef.current = true;
     setSosError('');
     setSosLoading(true);
     sosCancelSignalRef.current = {cancelled: false};
@@ -350,21 +338,24 @@ function AppContent() {
         collectionId: user?.collectionId,
         countdownMs: 10000,
         cancelSignal: sosCancelSignalRef.current,
-        onPending: event => {
+        onPending: async event => {
           setSelectedSos(event);
           setScreen('userSosActive');
-          getCollection(token, user?.collectionId)
-            .then(collectionResponse => {
-              collection = collectionResponse.collection;
-              sosLocalStore.upsertSos({
-                ...event,
-                meta: {
-                  ...event.meta,
-                  emergencyNumber: collection.emergencyCallNumber,
-                },
-              });
-            })
-            .catch(() => undefined);
+
+          try {
+            const collectionResponse = await getCollection(token, user?.collectionId);
+            collection = collectionResponse.collection;
+            sosLocalStore.upsertSos({
+              ...event,
+              meta: {
+                ...event.meta,
+                emergencyNumber: collection.emergencyCallNumber,
+              },
+            });
+          } catch (error) {
+            // Keep the event active even if collection metadata is unavailable.
+            // The immediate SOS dispatch is still allowed to proceed with the stored fallbacks.
+          }
         },
 
         serviceRunners: {
@@ -411,13 +402,7 @@ function AppContent() {
           // ------------------------------------------------------
           // LOCATION
           // ------------------------------------------------------
-          location: async event => {
-            const location = await getCurrentLocation();
-            if (event.backendId && location?.latitude != null && location?.longitude != null) {
-              await reportLocation(token, event.backendId, location);
-            }
-            return location;
-          },
+          location: async () => getCurrentLocation(),
 
           // ------------------------------------------------------
           // LIVE LOCATION
@@ -443,16 +428,16 @@ function AppContent() {
           // EMAIL
           // ------------------------------------------------------
           email: async () => ({
-            status: 'PENDING',
-            reason: 'Email dispatch is handled by the backend after synchronization.',
+            status: 'COMPLETED',
+            reason: 'Email dispatch is handled by the backend after activation.',
           }),
 
           // ------------------------------------------------------
           // NOTIFICATIONS
           // ------------------------------------------------------
           notifications: async () => ({
-            status: 'PENDING',
-            reason: 'Notification dispatch is handled by the backend after synchronization.',
+            status: 'COMPLETED',
+            reason: 'Notification dispatch is handled by the backend after activation.',
           }),
         },
       });
@@ -460,49 +445,8 @@ function AppContent() {
       if (result?.cancelled) {
         showToast('SOS cancelled before dispatch.', 'info');
       } else if (result?.event) {
-        if (result.event.backendId) {
-          await Promise.all(['sms', 'call', 'backend'].map(async serviceName => {
-            const service = result.event.services?.[serviceName];
-            if (!service || service.status === 'PENDING') return;
-            const status = service.status === 'COMPLETED'
-              ? 'success'
-              : service.status === 'NOT_CONFIGURED'
-                ? 'skipped'
-                : String(service.status).toLowerCase();
-            await reportSosService(token, result.event.backendId, serviceName, {
-              status,
-              error: service.error || undefined,
-            }).catch(() => undefined);
-          }));
-
-          if (result.event.location?.latitude != null && result.event.location?.longitude != null) {
-            await reportLocation(token, result.event.backendId, result.event.location).catch(() => undefined);
-          } else if (result.event.services?.location?.status === 'FAILED') {
-            await reportLocation(token, result.event.backendId, {
-              status: 'failed',
-              error: result.event.services.location.error || 'Location capture failed.',
-            }).catch(() => undefined);
-          }
-
-          const camera = result.event.services?.camera;
-          if (camera?.status === 'FAILED') {
-            await Promise.all(['frontImage', 'backImage'].map(component => reportMedia(
-              token,
-              result.event.backendId,
-              component,
-              {status: 'failed', error: camera.error || `${component} capture failed.`},
-            ).catch(() => undefined)));
-          }
-          const audio = result.event.services?.audio;
-          if (audio?.status === 'FAILED') {
-            await reportMedia(token, result.event.backendId, 'audio', {
-              status: 'failed',
-              error: audio.error || 'Audio capture failed.',
-            }).catch(() => undefined);
-          }
-        }
         setSelectedSos(result.event);
-        setScreen('userHome');
+        setScreen('userSosActive');
 
         showToast(
           'SOS alert triggered locally and queued for delivery.',
@@ -518,7 +462,6 @@ function AppContent() {
       showToast('Failed to trigger SOS', 'error');
     } finally {
       setSosLoading(false);
-      sosInFlightRef.current = false;
     }
   };
 
@@ -572,9 +515,6 @@ function AppContent() {
     };
 
     switch (screen) {
-      case 'permissionOnboarding':
-        return <PermissionOnboardingScreen onComplete={() => setScreen('userHome')} onDecline={() => setScreen('userHome')} />;
-
       // --------------------------------------------------------
       // USER HOME
       // --------------------------------------------------------
@@ -642,10 +582,8 @@ function AppContent() {
             }>
             <UserProfileScreen
               user={user}
-              token={token}
               onLogout={goToLogin}
               onBack={() => setScreen('userHome')}
-              onUserUpdated={updateUser}
             />
           </AppShell>
         );
@@ -683,7 +621,8 @@ function AppContent() {
         return (
           <AppShell
             {...userCommonProps}
-            hideHeader={true}
+            showBack={true}
+            onBack={() => setScreen('userHome')}
             bottomNav={
               <UserBottomNav
                 activeTab="Notifications"
@@ -707,25 +646,19 @@ function AppContent() {
       case 'userNotificationDetail':
         return (
           <AppShell
-            hideHeader={true}
-            bottomNav={
-              <UserBottomNav
-                activeTab="Notifications"
-                onNavigate={handleUserNavigation}
-              />
-            }>
+            showBack={true}
+            onBack={() => setScreen('userNotifications')}
+            showNotification={false}
+            showLogout={false}>
             <UserNotificationDetailScreen
               notification={selectedNotification}
               onBack={() => setScreen('userNotifications')}
-              onViewSos={async notificationSos => {
-                const sosId = notificationSos?._id || notificationSos?.id || notificationSos;
-                try {
-                  const response = await getSos(token, sosId);
-                  setSelectedSos(response.sos);
-                  setScreen('userSosActive');
-                } catch (error) {
-                  showToast(error.message || 'Unable to load this SOS.', 'error');
-                }
+              onViewSos={sosId => {
+                setSelectedSos({
+                  id: sosId,
+                });
+
+                setScreen('userSosActive');
               }}
             />
           </AppShell>
@@ -771,7 +704,6 @@ function AppContent() {
             }>
             <UserHomeScreen
               user={user}
-              token={token}
               onTriggerSos={handleTriggerSos}
               sosLoading={sosLoading}
               sosError={sosError}
@@ -845,7 +777,6 @@ function AppContent() {
             }>
             <AdminDashboardScreen
               user={user}
-              token={token}
               onNavigate={handleAdminNavigation}
               onCollections={() =>
                 setScreen('adminCollections')
@@ -1012,7 +943,6 @@ function AppContent() {
             <AdminSosDetailScreen
               token={token}
               sos={selectedSos}
-              onUpdated={updatedSos => setSelectedSos(updatedSos)}
               onBack={() => setScreen('adminSos')}
               onUserDetail={userData => {
                 setSelectedUser(userData);
@@ -1037,18 +967,15 @@ function AppContent() {
             }>
             <AdminNotificationScreen
               token={token}
+              onNavigate={handleAdminNavigation}
               onBack={() => setScreen('adminDashboard')}
               onNotificationPress={notification => {
                 setSelectedNotification(notification);
-                const sosId = notification.sosId?._id || notification.sosId?.id || notification.sosId;
-                if (sosId) {
-                  getSos(token, sosId)
-                    .then(response => {
-                      setSelectedSos(response.sos);
-                      setScreen('adminSosDetail');
-                    })
-                    .catch(error => showToast(error.message || 'Unable to load this SOS.', 'error'));
-                }
+
+                showToast(
+                  'Notification opened',
+                  'info',
+                );
               }}
             />
           </AdminLayoutNoHeader>

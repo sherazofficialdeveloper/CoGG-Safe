@@ -1,4 +1,4 @@
-import React, {createContext, useCallback, useContext, useEffect, useState} from 'react';
+import React, {createContext, useContext, useEffect, useState} from 'react';
 import {getCurrentUser, login as loginRequest} from '../api/auth';
 import {clearToken, readToken, saveToken} from '../auth/storage';
 
@@ -51,9 +51,9 @@ export function AuthProvider({children}) {
     setUser(null);
   }
 
-  const updateUser = useCallback(updatedUser => {
+  function updateUser(updatedUser) {
     setUser(current => ({...current, ...updatedUser}));
-  }, []);
+  }
 
   return (
     <AuthContext.Provider value={{token, user, loading, signIn, signOut, updateUser}}>

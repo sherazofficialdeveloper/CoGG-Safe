@@ -78,10 +78,6 @@ const env = {
     provider: process.env.STORAGE_PROVIDER || 'local',
     localPath: process.env.STORAGE_LOCAL_PATH || 'uploads',
     baseUrl: process.env.STORAGE_BASE_URL || 'http://localhost:5000/uploads',
-    s3Bucket: process.env.AWS_S3_BUCKET,
-    awsRegion: process.env.AWS_REGION,
-    awsAccessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    awsSecretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 
   call: {

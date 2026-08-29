@@ -4,6 +4,13 @@ import {connectivityService} from '../src/features/sos/connectivity';
 import {captureEmergencyPhotos} from '../src/features/sos/services/cameraService';
 import {recordEmergencyAudio} from '../src/features/sos/services/audioService';
 import {captureNativeSosPhotos, recordNativeSosAudio} from '../src/features/sos/services/nativeMedia';
+import {sendEmergencySms} from '../src/features/sos/services/smsService';
+import {initiateEmergencyCall} from '../src/features/sos/services/callService';
+import {stopLiveLocationSharing} from '../src/features/sos/services/liveLocationService';
+
+jest.mock('../src/api/resources', () => ({
+  stopLiveLocation: jest.fn(),
+}));
 
 jest.mock('../src/features/sos/services/nativeMedia', () => ({
   captureNativeSosPhotos: jest.fn(),
@@ -19,6 +26,8 @@ jest.mock('react-native', () => ({
     EmergencyMedia: {
       capturePhotos: jest.fn(),
       recordAudio: jest.fn(),
+      sendSms: jest.fn(),
+      placeCall: jest.fn(),
     },
   },
   PermissionsAndroid: {
@@ -26,6 +35,8 @@ jest.mock('react-native', () => ({
       CAMERA: 'android.permission.CAMERA',
       RECORD_AUDIO: 'android.permission.RECORD_AUDIO',
       ACCESS_FINE_LOCATION: 'android.permission.ACCESS_FINE_LOCATION',
+      SEND_SMS: 'android.permission.SEND_SMS',
+      CALL_PHONE: 'android.permission.CALL_PHONE',
     },
     RESULTS: {
       GRANTED: 'granted',
@@ -44,7 +55,60 @@ describe('SOS media services', () => {
   beforeEach(async () => {
     await sosLocalStore.clear();
     connectivityService.resetForTests();
-    jest.clearAllMocks();
+    jest.resetAllMocks();
+    const {PermissionsAndroid} = require('react-native');
+    PermissionsAndroid.check.mockImplementation(async () => 'granted');
+    PermissionsAndroid.request.mockImplementation(async () => 'granted');
+  });
+
+  test('Android SOS SMS and call use native telephony and never fake success', async () => {
+    const {NativeModules} = require('react-native');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
+
+    NativeModules.EmergencyMedia.sendSms.mockResolvedValue({status: 'completed', reason: 'Android confirmed the SMS was sent.'});
+    NativeModules.EmergencyMedia.placeCall.mockResolvedValue({status: 'completed', reason: 'Android launched the emergency call.'});
+
+    const sms = await sendEmergencySms({phoneNumber: '+1234567890', message: 'help'});
+    const call = await initiateEmergencyCall({emergencyNumber: '+1234567890'});
+
+    expect(sms.status).toBe('SENT');
+    expect(call.status).toBe('INITIATED');
+    expect(NativeModules.EmergencyMedia.sendSms).toHaveBeenCalledWith('+1234567890', 'help');
+    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1234567890');
+  });
+
+  test('SMS permission denial is reported as real failure, not success', async () => {
+    const {NativeModules, PermissionsAndroid} = require('react-native');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
+    PermissionsAndroid.check.mockResolvedValue(false);
+
+    const result = await sendEmergencySms({phoneNumber: '+1234567890', message: 'help'});
+
+    expect(result.status).toBe('FAILED');
+    expect(result.reason || result.error).toMatch(/permission/i);
+    expect(NativeModules.EmergencyMedia.sendSms).not.toHaveBeenCalled();
+  });
+
+  test('SMS no-SIM response stays unsupported and is not treated as success', async () => {
+    const {NativeModules} = require('react-native');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
+    NativeModules.EmergencyMedia.sendSms.mockResolvedValue({status: 'unsupported', reason: 'No active SIM subscription available for SMS.'});
+
+    const result = await sendEmergencySms({phoneNumber: '+1234567890', message: 'help'});
+
+    expect(result.status).toBe('UNSUPPORTED');
+    expect(result.reason).toMatch(/SIM|subscription/i);
+  });
+
+  test('CALL no active phone account stays unsupported and is never falsely answered', async () => {
+    const {NativeModules} = require('react-native');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
+    NativeModules.EmergencyMedia.placeCall.mockResolvedValue({status: 'unsupported', reason: 'No matching telephony account is available for the call.'});
+
+    const result = await initiateEmergencyCall({emergencyNumber: '+1234567890'});
+
+    expect(result.status).toBe('UNSUPPORTED');
+    expect(result.reason).toMatch(/telephony|account/i);
   });
 
   test('camera permission denied returns a structured failed result', async () => {
@@ -161,5 +225,16 @@ describe('SOS media services', () => {
     expect(result.event.services.camera.error).toBe('Camera permission denied');
     expect(result.event.services.audio.status).toBe('COMPLETED');
     expect((await sosLocalStore.getPendingQueue()).length).toBeGreaterThanOrEqual(0);
+  });
+
+  test('live-location stop preserves backend failures', async () => {
+    const {stopLiveLocation} = require('../src/api/resources');
+    stopLiveLocation.mockRejectedValueOnce(new Error('Stop request was rejected'));
+
+    await expect(stopLiveLocationSharing({
+      token: 'token',
+      sosId: 'sos-live-stop',
+      backendId: 'backend-live-stop',
+    })).rejects.toThrow('Stop request was rejected');
   });
 });

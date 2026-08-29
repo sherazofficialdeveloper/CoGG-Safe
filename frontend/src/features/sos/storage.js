@@ -1,5 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const fallbackStorage = {
+  getItem: async () => null,
+  setItem: async () => undefined,
+  removeItem: async () => undefined,
+};
+const safeStorage = AsyncStorage || fallbackStorage;
+
 const SOS_EVENT_KEY = 'cogg_safe.sos.events';
 const SOS_QUEUE_KEY = 'cogg_safe.sos.queue';
 const SOS_LOCATION_PINGS_KEY = 'cogg_safe.sos.pending_pings';
@@ -17,7 +24,7 @@ function readJson(key, fallback) {
     }
   }
 
-  return AsyncStorage.getItem(key).then(value => {
+  return Promise.resolve(safeStorage.getItem(key)).then(value => {
     if (!value) return fallback;
     try {
       const parsed = JSON.parse(value);
@@ -31,7 +38,7 @@ function readJson(key, fallback) {
 
 function writeJson(key, value) {
   memoryStore[key] = JSON.stringify(value);
-  writeChain = writeChain.then(() => AsyncStorage.setItem(key, JSON.stringify(value)));
+  writeChain = writeChain.then(() => safeStorage.setItem(key, JSON.stringify(value)));
   return writeChain;
 }
 
@@ -88,9 +95,9 @@ export const sosLocalStore = {
     delete memoryStore[SOS_QUEUE_KEY];
     delete memoryStore[SOS_LOCATION_PINGS_KEY];
     await Promise.all([
-      AsyncStorage.removeItem(SOS_EVENT_KEY),
-      AsyncStorage.removeItem(SOS_QUEUE_KEY),
-      AsyncStorage.removeItem(SOS_LOCATION_PINGS_KEY),
+      safeStorage.removeItem(SOS_EVENT_KEY),
+      safeStorage.removeItem(SOS_QUEUE_KEY),
+      safeStorage.removeItem(SOS_LOCATION_PINGS_KEY),
     ]);
     writeChain = Promise.resolve();
     eventMutationChain = Promise.resolve();

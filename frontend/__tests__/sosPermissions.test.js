@@ -6,6 +6,8 @@ const mockOpenSettings = jest.fn();
 const LOCATION = 'android.permission.ACCESS_FINE_LOCATION';
 const CAMERA = 'android.permission.CAMERA';
 const AUDIO = 'android.permission.RECORD_AUDIO';
+const SMS = 'android.permission.SEND_SMS';
+const CALL = 'android.permission.CALL_PHONE';
 const NOTIFICATIONS = 'android.permission.POST_NOTIFICATIONS';
 
 jest.mock('react-native', () => ({
@@ -16,6 +18,8 @@ jest.mock('react-native', () => ({
       ACCESS_FINE_LOCATION: LOCATION,
       CAMERA,
       RECORD_AUDIO: AUDIO,
+      SEND_SMS: SMS,
+      CALL_PHONE: CALL,
       POST_NOTIFICATIONS: NOTIFICATIONS,
     },
     RESULTS: {GRANTED: 'granted', DENIED: 'denied', NEVER_ASK_AGAIN: 'never_ask_again'},

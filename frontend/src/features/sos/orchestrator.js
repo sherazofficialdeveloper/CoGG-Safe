@@ -95,8 +95,9 @@ export async function activateSosFlow({
     status: countdownMs > 0 ? 'PENDING' : 'ACTIVE',
   });
 
+  await Promise.resolve(onPending?.(event));
+
   if (countdownMs > 0) {
-    onPending?.(event);
     const deadline = Date.now() + countdownMs;
     while (Date.now() < deadline) {
       if (cancelSignal?.cancelled) {
@@ -130,72 +131,69 @@ export async function runSosServices(event, serviceRunners = {}) {
     notifications: serviceRunners.notifications || (async () => ({status: 'PENDING', reason: 'Notification service is not configured.'})),
   };
 
-  const names = Object.keys(runners);
-  const execution = await Promise.all(
-    names.map(async (serviceName) => {
-      const serviceState = event.services[serviceName];
-      try {
-        const result = await runners[serviceName](event);
-        const resultStatus = result?.status || 'COMPLETED';
-        const next = {
-          ...serviceState,
-          ...(result && typeof result === 'object' ? result : {}),
-          status: resultStatus,
-          ...(result?.error || result?.reason
-            ? {error: result.error || result.reason}
-            : {}),
-          ...(resultStatus === 'COMPLETED' || resultStatus === 'NOT_CONFIGURED'
-            ? {completedAt: new Date().toISOString()}
-            : {}),
-          ...(result && typeof result === 'object' ? { lastResult: result } : {}),
-        };
-        if (serviceName === 'location' && result?.latitude != null && result?.longitude != null) {
-          event.location = {...event.location, ...result};
-        }
-        if (serviceName === 'backend' && result?.backendId) {
-          event.backendId = result.backendId;
-          event.emergencyLink = result.emergencyLink || null;
-        }
-        if (serviceName === 'liveLocation') {
-          if (result?.startedAt) event.liveLocationStartedAt = result.startedAt;
-          if (result?.expiresAt) event.liveLocationExpiresAt = result.expiresAt;
-          if (resultStatus === 'COMPLETED' || result?.serverStatus === 'active') {
-            event.liveLocationStatus = 'ACTIVE';
-          }
-        }
-        event.services[serviceName] = next;
-        await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
-        if (
-          (serviceName === 'camera' || serviceName === 'audio') &&
-          resultStatus === 'COMPLETED'
-        ) {
-          // A capture can finish before or after backend creation. A single
-          // durable upload job reconciles it once both the file and backend
-          // SOS id are available.
-          await enqueueSosJob({
-            sosId: event.id,
-            type: 'MEDIA_UPLOAD',
-            serviceName: 'mediaUpload',
-          });
-        }
-        if (resultStatus === 'PENDING' && RETRYABLE_SERVICES.has(serviceName)) {
-          await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
-        }
-      } catch (error) {
-        const next = {
-          ...serviceState,
-          status: 'FAILED',
-          error: error?.message || 'Service failed',
-          completedAt: new Date().toISOString(),
-        };
-        event.services[serviceName] = next;
-        await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
-        if (RETRYABLE_SERVICES.has(serviceName)) {
-          await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
+  const serviceOrder = ['backend', 'camera', 'audio', 'location', 'sms', 'call', 'liveLocation', 'email', 'notifications'];
+  const names = [...new Set([...serviceOrder.filter(name => Object.prototype.hasOwnProperty.call(runners, name)), ...Object.keys(runners)])];
+  const execution = [];
+
+  for (const serviceName of names) {
+    const serviceState = event.services[serviceName];
+    try {
+      const result = await runners[serviceName](event);
+      const resultStatus = result?.status || 'COMPLETED';
+      const next = {
+        ...serviceState,
+        ...(result && typeof result === 'object' ? result : {}),
+        status: resultStatus,
+        ...(result?.error || result?.reason
+          ? {error: result.error || result.reason}
+          : {}),
+        ...(resultStatus === 'COMPLETED' || resultStatus === 'NOT_CONFIGURED'
+          ? {completedAt: new Date().toISOString()}
+          : {}),
+        ...(result && typeof result === 'object' ? { lastResult: result } : {}),
+      };
+      if (serviceName === 'location' && result?.latitude != null && result?.longitude != null) {
+        event.location = {...event.location, ...result};
+      }
+      if (serviceName === 'backend' && result?.backendId) {
+        event.backendId = result.backendId;
+        event.emergencyLink = result.emergencyLink || null;
+      }
+      if (serviceName === 'liveLocation') {
+        if (result?.startedAt) event.liveLocationStartedAt = result.startedAt;
+        if (result?.expiresAt) event.liveLocationExpiresAt = result.expiresAt;
+        if (resultStatus === 'COMPLETED' || result?.serverStatus === 'active') {
+          event.liveLocationStatus = 'ACTIVE';
         }
       }
-    })
-  );
+      event.services[serviceName] = next;
+      await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
+      if ((serviceName === 'camera' || serviceName === 'audio') && resultStatus === 'COMPLETED') {
+        await enqueueSosJob({
+          sosId: event.id,
+          type: 'MEDIA_UPLOAD',
+          serviceName: 'mediaUpload',
+        });
+      }
+      if (resultStatus === 'PENDING' && RETRYABLE_SERVICES.has(serviceName)) {
+        await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
+      }
+      execution.push({serviceName, status: resultStatus});
+    } catch (error) {
+      const next = {
+        ...serviceState,
+        status: 'FAILED',
+        error: error?.message || 'Service failed',
+        completedAt: new Date().toISOString(),
+      };
+      event.services[serviceName] = next;
+      await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
+      if (RETRYABLE_SERVICES.has(serviceName)) {
+        await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
+      }
+      execution.push({serviceName, status: 'FAILED', error: next.error});
+    }
+  }
 
   event.status = 'ACTIVE';
   await sosLocalStore.upsertSos(event);

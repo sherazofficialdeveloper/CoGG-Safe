@@ -59,9 +59,10 @@ export default function PermissionOnboardingScreen({onComplete, onDecline}) {
       <View style={styles.permissionList}>
         {REQUIRED_PERMISSIONS.map(item => {
           const granted = permissionState[item.key] === 'granted';
+          const iconName = item.key === 'location' ? 'location' : item.key === 'camera' ? 'camera' : item.key === 'audio' ? 'microphone' : item.key === 'sms' ? 'sms' : item.key === 'call' ? 'phone' : 'notifications';
           return (
             <View key={item.key} style={styles.permissionRow}>
-              <View style={styles.iconBox}><Icon name={item.key === 'location' ? 'location' : item.key === 'camera' ? 'camera' : item.key === 'audio' ? 'microphone' : 'notifications'} size={23} color="#E4002B" /></View>
+              <View style={styles.iconBox}><Icon name={iconName} size={23} color="#E4002B" /></View>
               <View style={styles.permissionCopy}>
                 <View style={styles.permissionHeading}><Text style={styles.permissionTitle}>{item.title}</Text><Text style={[styles.status, granted && styles.statusGranted]}>{statusFor(item.key)}</Text></View>
                 <Text style={styles.description}>{item.description}</Text>

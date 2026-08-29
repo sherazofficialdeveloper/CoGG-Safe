@@ -1,5 +1,5 @@
 // UserProfileScreen.js
-import React, {useEffect, useState} from 'react';
+import React, {useState} from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,6 @@ import {
   TextInput,
 } from 'react-native';
 import Icon from '../components/Icon';
-import {getCurrentUser} from '../api/auth';
 import {updateMyProfile} from '../api/resources';
 
 const UserProfileScreen = ({
@@ -21,40 +20,19 @@ const UserProfileScreen = ({
   token,
   onUserUpdated,
 }) => {
-  const [profile, setProfile] = useState(user);
   const [offlineSmsEnabled, setOfflineSmsEnabled] = useState(true);
   const [dailyAlarmEnabled, setDailyAlarmEnabled] = useState(true);
-  const defaultEmergencyMessage = profile?.username ? `I am ${profile.username}, I may be in danger.` : '';
-  const [emergencyMessage, setEmergencyMessage] = useState(profile?.emergencyMessage || defaultEmergencyMessage);
+  const defaultEmergencyMessage = user?.username ? `I am ${user.username}, I may be in danger.` : '';
+  const [emergencyMessage, setEmergencyMessage] = useState(user?.emergencyMessage || defaultEmergencyMessage);
 
   const [isEditingTemplate, setIsEditingTemplate] = useState(false);
   const [tempTemplate, setTempTemplate] = useState(emergencyMessage);
 
-  useEffect(() => {
-    let mounted = true;
-    getCurrentUser(token)
-      .then(result => {
-        if (!mounted) return;
-        const currentUser = {...result.user, collection: result.collection || result.user?.collection || null};
-        setProfile(currentUser);
-        setEmergencyMessage(currentUser.emergencyMessage || (currentUser.username ? `I am ${currentUser.username}, I may be in danger.` : ''));
-        onUserUpdated?.(currentUser);
-      })
-      .catch(() => undefined);
-
-    return () => {
-      mounted = false;
-    };
-  }, [token, onUserUpdated]);
-
   const handleSaveTemplate = async () => {
     try {
       const result = await updateMyProfile(token, {emergencyMessage: tempTemplate});
-      const updatedUser = {...profile, ...result.user};
-      const updatedDefault = updatedUser.username ? `I am ${updatedUser.username}, I may be in danger.` : '';
-      setProfile(updatedUser);
-      setEmergencyMessage(updatedUser.emergencyMessage || updatedDefault);
-      onUserUpdated?.(updatedUser);
+      setEmergencyMessage(result.user.emergencyMessage || defaultEmergencyMessage);
+      onUserUpdated?.(result.user);
       setIsEditingTemplate(false);
       Alert.alert('Success', 'Message template updated successfully.');
     } catch (error) {
@@ -69,7 +47,7 @@ const UserProfileScreen = ({
 
       {/* ================= BACK BUTTON ================= */}
       <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.8}>
-        <Icon name="back" size={20} color="#E4002B" />
+        <Text style={styles.backIcon}>←</Text>
         <Text style={styles.backText}>Back</Text>
       </TouchableOpacity>
 
@@ -79,17 +57,17 @@ const UserProfileScreen = ({
 
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>
-            {profile?.username ? profile.username[0].toUpperCase() : 'U'}
+            {user?.username ? user.username[0].toUpperCase() : 'U'}
           </Text>
         </View>
 
         <View style={styles.profileInfo}>
-          <Text style={styles.profileName}>{profile?.username || 'User'}</Text>
-          <Text style={styles.profileRole}>{profile?.role || 'user'} · {profile?.status || 'unknown'}</Text>
+          <Text style={styles.profileName}>{user?.username || 'User'}</Text>
+          <Text style={styles.profileRole}>{user?.role || 'user'} · {user?.status || 'unknown'}</Text>
           <Text style={styles.profileEmail} numberOfLines={2}>
-            {profile?.email || 'Email not configured'} · {profile?.mobileNumber || 'Mobile not configured'}
+            {user?.email || 'Email not configured'} · {user?.mobileNumber || 'Mobile not configured'}
           </Text>
-          <Text style={styles.profileEmail}>{profile?.collection?.name || 'Collection not assigned'}</Text>
+          <Text style={styles.profileEmail}>{user?.collection?.name || 'Collection not assigned'}</Text>
         </View>
       </View>
 
