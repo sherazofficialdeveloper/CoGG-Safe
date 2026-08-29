@@ -95,6 +95,29 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
-start();
+async function start() {
+  console.log('1️⃣ start() entered');
 
+  try {
+    console.log('2️⃣ connecting to MongoDB...');
+    await connectDB();
+    console.log('3️⃣ MongoDB connectDB() completed');
+
+    warnIfProvidersUnconfiguredInProduction();
+    console.log('4️⃣ provider check completed');
+
+    schedulerService.start();
+    console.log('5️⃣ scheduler started');
+
+    server = app.listen(env.port, () => {
+      console.log(`6️⃣ SERVER LISTENING ON PORT ${env.port}`);
+    });
+
+    console.log('7️⃣ app.listen() called');
+  } catch (err) {
+    console.error('❌ START ERROR:', err);
+    console.error(err.stack);
+    process.exit(1);
+  }
+}
 module.exports = app;
