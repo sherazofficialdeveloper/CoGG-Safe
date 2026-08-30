@@ -11,6 +11,7 @@ import Icon from './Icon';
 
 const AdminHeader = ({
   user,
+  onProfile,
   onNotifications,
   onLogout,
   activeSosCount = 0,
@@ -37,6 +38,15 @@ const AdminHeader = ({
 
       {/* ================= RIGHT ================= */}
       <View style={styles.rightSection}>
+
+        {/* PROFILE */}
+        <TouchableOpacity
+          style={styles.headerButton}
+          onPress={onProfile}
+          activeOpacity={0.75}
+          accessibilityLabel="User profile">
+          <Icon name="user" size={22} color="#1A1A1A" />
+        </TouchableOpacity>
 
         {/* NOTIFICATION */}
         <TouchableOpacity

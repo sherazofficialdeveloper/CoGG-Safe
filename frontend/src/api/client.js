@@ -1,4 +1,4 @@
-import {API_BASE_URL} from './config';
+﻿import {API_BASE_URL} from './config';
 
 export class ApiError extends Error {
   constructor(message, status) {
@@ -33,3 +33,4 @@ export async function request(path, {method = 'GET', body, token} = {}) {
 
   return payload.data;
 }
+

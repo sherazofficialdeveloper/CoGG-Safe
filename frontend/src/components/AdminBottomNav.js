@@ -59,8 +59,13 @@ const AdminBottomNav = ({
                   style={[
                     styles.icon,
                     tab.key === 'SOS' &&
+                      !isActive &&
                       styles.sosIcon,
-                    isActive &&
+                    tab.key === 'SOS' &&
+                      isActive &&
+                      styles.activeSosIcon,
+                    tab.key !== 'SOS' &&
+                      isActive &&
                       styles.activeIcon,
                   ]}>
                   {tab.icon}
@@ -151,6 +156,11 @@ const styles = StyleSheet.create({
 
   sosIcon: {
     color: '#E4002B',
+    fontWeight: '900',
+  },
+
+  activeSosIcon: {
+    color: '#FFFFFF',
     fontWeight: '900',
   },
 
