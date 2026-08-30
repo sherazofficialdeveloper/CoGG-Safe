@@ -7,6 +7,7 @@ import {captureNativeSosPhotos, recordNativeSosAudio} from '../src/features/sos/
 import {sendEmergencySms} from '../src/features/sos/services/smsService';
 import {initiateEmergencyCall} from '../src/features/sos/services/callService';
 import {stopLiveLocationSharing} from '../src/features/sos/services/liveLocationService';
+import {enqueueSosJob, processSosQueue} from '../src/features/sos/queue/queueWorker';
 
 jest.mock('../src/api/resources', () => ({
   stopLiveLocation: jest.fn(),
@@ -75,6 +76,19 @@ describe('SOS media services', () => {
     expect(call.status).toBe('INITIATED');
     expect(NativeModules.EmergencyMedia.sendSms).toHaveBeenCalledWith('+1234567890', 'help');
     expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1234567890');
+  });
+
+  test('SMS and call are queued as retryable pending when cellular is unavailable', async () => {
+    const {NativeModules} = require('react-native');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: false});
+
+    const sms = await sendEmergencySms({phoneNumber: '+1234567890', message: 'help'});
+    const call = await initiateEmergencyCall({emergencyNumber: '+1234567890'});
+
+    expect(sms.status).toBe('PENDING');
+    expect(call.status).toBe('PENDING');
+    expect(NativeModules.EmergencyMedia.sendSms).not.toHaveBeenCalled();
+    expect(NativeModules.EmergencyMedia.placeCall).not.toHaveBeenCalled();
   });
 
   test('SMS permission denial is reported as real failure, not success', async () => {
@@ -178,7 +192,7 @@ describe('SOS media services', () => {
     expect(result.error).toBe('Recording failed: file creation error');
   });
 
-  test('orchestrator keeps camera and audio success data in local storage', async () => {
+  test('orchestrator keeps camera and audio success data in local storage while offline backend sync remains queued', async () => {
     const result = await activateSosFlow({
       userId: 'user-1',
       collectionId: 'collection-1',
@@ -188,20 +202,40 @@ describe('SOS media services', () => {
         sms: async () => ({status: 'PENDING'}),
         call: async () => ({status: 'PENDING'}),
         location: async () => ({status: 'COMPLETED', latitude: 51.5, longitude: -0.12}),
-        backend: async () => ({status: 'PENDING'}),
+        backend: async () => ({status: 'PENDING', reason: 'Internet unavailable'}),
         email: async () => ({status: 'PENDING'}),
         notifications: async () => ({status: 'PENDING'}),
         liveLocation: async () => ({status: 'PENDING'}),
       },
     });
 
-    expect(result.event.status).toBe('ACTIVE');
+    expect(result.event.status).toBe('PENDING');
     expect(result.event.services.camera.status).toBe('COMPLETED');
     expect(result.event.services.audio.status).toBe('COMPLETED');
 
     const persisted = await sosLocalStore.getSosById(result.event.id);
     expect(persisted.services.camera.frontImagePath).toBe('/tmp/front.jpg');
     expect(persisted.services.audio.localPath).toBe('/tmp/audio.m4a');
+  });
+
+  test('pending SMS and backend jobs resume independently when connectivity returns', async () => {
+    const event = await createSosLocalEvent({userId: 'user-1', collectionId: 'collection-1'});
+    await enqueueSosJob({sosId: event.id, type: 'SMS', serviceName: 'sms'});
+    await enqueueSosJob({sosId: event.id, type: 'BACKEND', serviceName: 'backend'});
+
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
+    const result = await processSosQueue({
+      processors: {
+        sms: jest.fn(async () => ({status: 'SENT'})),
+        backend: jest.fn(async () => ({status: 'COMPLETED', backendId: 'backend-queued'})),
+      },
+    });
+
+    expect(result).toEqual(expect.arrayContaining([
+      expect.objectContaining({status: 'COMPLETED'}),
+      expect.objectContaining({status: 'COMPLETED'}),
+    ]));
+    expect(await sosLocalStore.getPendingQueue()).toHaveLength(0);
   });
 
   test('orchestrator preserves partial failures without breaking queue state', async () => {
@@ -214,13 +248,14 @@ describe('SOS media services', () => {
         sms: async () => ({status: 'PENDING'}),
         call: async () => ({status: 'PENDING'}),
         location: async () => ({status: 'COMPLETED', latitude: 1, longitude: 2}),
-        backend: async () => ({status: 'PENDING'}),
+        backend: async () => ({status: 'PENDING', reason: 'Internet unavailable'}),
         email: async () => ({status: 'PENDING'}),
         notifications: async () => ({status: 'PENDING'}),
         liveLocation: async () => ({status: 'PENDING'}),
       },
     });
 
+    expect(result.event.status).toBe('PENDING');
     expect(result.event.services.camera.status).toBe('FAILED');
     expect(result.event.services.camera.error).toBe('Camera permission denied');
     expect(result.event.services.audio.status).toBe('COMPLETED');

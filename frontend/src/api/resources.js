@@ -17,6 +17,8 @@ export const createSos = (token, body) => request('/sos', {method: 'POST', token
 export const cancelSos = (token, id) => request(`/sos/${id}/cancel`, {method: 'PATCH', token});
 export const deactivateSos = (token, id) => request(`/sos/${id}/deactivate`, {method: 'PATCH', token});
 export const reportLocation = (token, id, body) => request(`/sos/${id}/location`, {method: 'POST', token, body});
+export const reportSosMedia = (token, id, component, body) => request(`/sos/${id}/media/${component}`, {method: 'PATCH', token, body});
+export const reportSosServiceResult = (token, id, component, body) => request(`/sos/${id}/service/${component}`, {method: 'PATCH', token, body});
 export const uploadSosMedia = (token, id, component, file) => {
   const body = new FormData();
   body.append('file', file);

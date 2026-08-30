@@ -1,5 +1,6 @@
 export async function getCurrentLocation() {
-  const geolocation = globalThis.navigator && globalThis.navigator.geolocation;
+  const navigatorRef = typeof navigator !== 'undefined' ? navigator : undefined;
+  const geolocation = navigatorRef && navigatorRef.geolocation;
 
   if (!geolocation || typeof geolocation.getCurrentPosition !== 'function') {
     throw new Error('Location services are not available on this device.');

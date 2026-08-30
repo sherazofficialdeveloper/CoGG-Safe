@@ -1,5 +1,5 @@
 // App.js
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useRef} from 'react';
 import {
   View,
   StyleSheet,
@@ -22,7 +22,6 @@ import LoginScreen from './src/screens/LoginScreen';
 
 // User Screens
 import UserHomeScreen from './src/screens/UserHomeScreen';
-import UserSosActiveScreen from './src/screens/UserSosActiveScreen';
 import UserContactsScreen from './src/screens/UserContactsScreen';
 import UserProfileScreen from './src/screens/UserProfileScreen';
 import UserHistoryScreen from './src/screens/UserHistoryScreen';
@@ -46,6 +45,7 @@ import AdminBottomNav from './src/components/AdminBottomNav';
 
 // API / SOS foundation
 import {activateSosFlow} from './src/features/sos/orchestrator';
+import {checkSosPermissions} from './src/permissions/sosPermissions';
 import {syncSosToBackend} from './src/features/sos/services/backendSyncService';
 import {getCurrentLocation} from './src/features/sos/services/locationService';
 import {sendEmergencySms} from './src/features/sos/services/smsService';
@@ -53,6 +53,7 @@ import {initiateEmergencyCall} from './src/features/sos/services/callService';
 import {startLiveLocationSharing} from './src/features/sos/services/liveLocationService';
 import {connectivityService} from './src/features/sos/connectivity';
 import {processSosQueue} from './src/features/sos/queue/queueWorker';
+import {reportLocation, reportSosMedia, reportSosServiceResult} from './src/api/resources';
 
 // ============================================================
 // MAIN APP CONTENT
@@ -66,8 +67,11 @@ function AppContent() {
   const [selectedSos, setSelectedSos] = useState(null);
   const [selectedNotification, setSelectedNotification] = useState(null);
   const [sosLoading, setSosLoading] = useState(false);
+  const [sosCountdown, setSosCountdown] = useState(0);
   const [sosError, setSosError] = useState('');
   const [activeSosCount, setActiveSosCount] = useState(0);
+  const [sosStatusLogs, setSosStatusLogs] = useState([]);
+  const sosCountdownTimerRef = useRef(null);
 
   // Toast State
   const [toast, setToast] = useState({
@@ -83,6 +87,43 @@ function AppContent() {
   const hideToast = () => {
     setToast(prev => ({...prev, visible: false}));
   };
+
+  const appendSosStatusLog = (message, type = 'success') => {
+    const normalizedMessage = String(message || '').trim();
+    if (!normalizedMessage) return;
+
+    setSosStatusLogs((current) => {
+      const dedupeKey = `${type}:${normalizedMessage}`;
+      if (current.some((entry) => entry.key === dedupeKey)) return current;
+
+      const nextEntry = {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        key: dedupeKey,
+        message: normalizedMessage,
+        type,
+      };
+
+      return [...current, nextEntry].slice(-6);
+    });
+  };
+
+  useEffect(() => {
+    if (sosStatusLogs.length === 0) return undefined;
+
+    const timers = sosStatusLogs.map((entry) => setTimeout(() => {
+      setSosStatusLogs((current) => current.filter((item) => item.id !== entry.id));
+    }, 4500));
+
+    return () => timers.forEach((timer) => clearTimeout(timer));
+  }, [sosStatusLogs]);
+
+  useEffect(() => {
+    return () => {
+      if (sosCountdownTimerRef.current) {
+        clearTimeout(sosCountdownTimerRef.current);
+      }
+    };
+  }, []);
 
   // ============================================================
   // EFFECTS
@@ -119,12 +160,37 @@ function AppContent() {
           backendId: event.backendId,
           startedAt: event.liveLocationStartedAt,
         }),
+        sms: async (item, event) => {
+          const result = await sendEmergencySms({
+            phoneNumber: user?.emergencyCallNumber,
+            message: 'Emergency assistance requested.',
+          });
+          if (result?.status === 'SENT') {
+            appendSosStatusLog('Emergency SMS sent', 'success');
+          } else if (result?.status === 'PENDING') {
+            appendSosStatusLog('Emergency SMS queued for retry', 'error');
+          } else if (result?.status === 'UNSUPPORTED') {
+            appendSosStatusLog('Emergency SMS unavailable', 'error');
+          }
+          return result;
+        },
+        call: async (item, event) => {
+          const result = await initiateEmergencyCall({emergencyNumber: user?.emergencyCallNumber});
+          if (result?.status === 'INITIATED') {
+            appendSosStatusLog('Emergency call initiated', 'success');
+          } else if (result?.status === 'PENDING') {
+            appendSosStatusLog('Emergency call queued for retry', 'error');
+          } else if (result?.status === 'UNSUPPORTED') {
+            appendSosStatusLog('Emergency call unavailable', 'error');
+          }
+          return result;
+        },
       },
     }).catch(() => undefined);
 
     processQueue();
     return connectivityService.subscribe(processQueue);
-  }, [token]);
+  }, [token, user?.emergencyCallNumber]);
 
   // Handle Android back button
   useEffect(() => {
@@ -183,46 +249,236 @@ function AppContent() {
   // ============================================================
 
   const handleTriggerSos = async () => {
-    setSosError('');
-    setSosLoading(true);
-    try {
-      const result = await activateSosFlow({
-        userId: user?._id || user?.id,
-        collectionId: user?.collectionId,
-        serviceRunners: {
-          sms: async (event) => {
-            const location = await getCurrentLocation().catch(() => null);
-            const message = location
-              ? `Emergency assistance requested. Location: ${location.latitude}, ${location.longitude}`
-              : 'Emergency assistance requested.';
-            return sendEmergencySms({phoneNumber: user?.emergencyCallNumber, message});
-          },
-          call: async () => initiateEmergencyCall({emergencyNumber: user?.emergencyCallNumber}),
-          location: async () => getCurrentLocation(),
-          liveLocation: async (event) => startLiveLocationSharing({
-            token,
-            sosId: event.id,
-            backendId: event.backendId,
-          }),
-          camera: async () => ({status: 'PENDING', reason: 'Camera capture is not available in this app build.'}),
-          audio: async () => ({status: 'PENDING', reason: 'Audio capture is not available in this app build.'}),
-          backend: async (event) => syncSosToBackend({token, sosEvent: event, idempotencyKey: event.id}),
-          email: async () => ({status: 'NOT_CONFIGURED', reason: 'No email is configured for this account.'}),
-          notifications: async () => ({status: 'PENDING', reason: 'Backend notification dispatch is queued.'}),
-        },
-      });
+    if (sosLoading || sosCountdown > 0) return;
 
-      if (result?.event) {
-        setSelectedSos(result.event);
-        setScreen('userSosActive');
-        showToast('SOS alert triggered locally and queued for delivery.', 'success');
-      }
-    } catch (error) {
-      setSosError(error.message);
-      showToast('Failed to trigger SOS', 'error');
-    } finally {
+    const currentPermissionState = await checkSosPermissions();
+    setSosError('');
+    setSosStatusLogs([]);
+
+    if (!currentPermissionState.allRequiredGranted) {
       setSosLoading(false);
+      setSosCountdown(0);
+      return;
     }
+
+    setSosLoading(true);
+    setSosCountdown(2);
+    if (sosCountdownTimerRef.current) {
+      clearTimeout(sosCountdownTimerRef.current);
+    }
+
+    sosCountdownTimerRef.current = setTimeout(async () => {
+      setSosCountdown(0);
+
+      const persistComponentStatus = async ({backendSosId, component, payload}) => {
+        if (!token || !backendSosId || !component) return;
+        try {
+          if (component === 'location') {
+            await reportLocation(token, backendSosId, payload);
+            return;
+          }
+          if (['frontImage', 'backImage', 'audio'].includes(component)) {
+            await reportSosMedia(token, backendSosId, component, payload);
+            return;
+          }
+          await reportSosServiceResult(token, backendSosId, component, payload);
+        } catch (error) {
+          appendSosStatusLog(`${component} sync failed`, 'error');
+        }
+      };
+
+      try {
+        const result = await activateSosFlow({
+          userId: user?._id || user?.id,
+          collectionId: user?.collectionId,
+          serviceRunners: {
+            sms: async (event) => {
+              const location = await getCurrentLocation().catch(() => null);
+              const message = location
+                ? `Emergency assistance requested. Location: ${location.latitude}, ${location.longitude}`
+                : 'Emergency assistance requested.';
+              const smsResult = await sendEmergencySms({phoneNumber: user?.emergencyCallNumber, message});
+              if (smsResult?.status === 'SENT') {
+                appendSosStatusLog('Emergency SMS sent', 'success');
+                await persistComponentStatus({
+                  backendSosId: event.backendId,
+                  component: 'sms',
+                  payload: {status: 'success'},
+                });
+              } else if (smsResult?.status === 'PENDING') {
+                appendSosStatusLog('Emergency SMS queued for retry', 'error');
+                await persistComponentStatus({
+                  backendSosId: event.backendId,
+                  component: 'sms',
+                  payload: {status: 'pending', error: smsResult.reason || 'SMS queued for retry'},
+                });
+              } else if (smsResult?.status === 'UNSUPPORTED') {
+                appendSosStatusLog('Emergency SMS unavailable', 'error');
+                await persistComponentStatus({
+                  backendSosId: event.backendId,
+                  component: 'sms',
+                  payload: {status: 'unsupported', error: smsResult.reason || 'SMS unsupported'},
+                });
+              } else if (smsResult?.status === 'FAILED' || smsResult?.status === 'NOT_CONFIGURED') {
+                appendSosStatusLog('Emergency SMS failed', 'error');
+                await persistComponentStatus({
+                  backendSosId: event.backendId,
+                  component: 'sms',
+                  payload: {status: 'failed', error: smsResult.reason || 'SMS failed'},
+                });
+              }
+              return smsResult;
+            },
+            call: async (event) => {
+              const callResult = await initiateEmergencyCall({emergencyNumber: user?.emergencyCallNumber});
+              if (callResult?.status === 'INITIATED') {
+                appendSosStatusLog('Emergency call initiated', 'success');
+                await persistComponentStatus({
+                  backendSosId: event.backendId,
+                  component: 'call',
+                  payload: {status: 'success'},
+                });
+              } else if (callResult?.status === 'PENDING') {
+                appendSosStatusLog('Emergency call queued for retry', 'error');
+                await persistComponentStatus({
+                  backendSosId: event.backendId,
+                  component: 'call',
+                  payload: {status: 'pending', error: callResult.reason || 'Emergency call queued for retry'},
+                });
+              } else if (callResult?.status === 'UNSUPPORTED' || callResult?.status === 'FAILED' || callResult?.status === 'NOT_CONFIGURED') {
+                appendSosStatusLog('Emergency call failed', 'error');
+                await persistComponentStatus({
+                  backendSosId: event.backendId,
+                  component: 'call',
+                  payload: {status: callResult?.status === 'UNSUPPORTED' ? 'unsupported' : 'failed', error: callResult?.reason || 'Emergency call failed'},
+                });
+              }
+              return callResult;
+            },
+            location: async (event) => {
+              try {
+                const location = await getCurrentLocation();
+                appendSosStatusLog('Location fetched successfully', 'success');
+                await persistComponentStatus({
+                  backendSosId: event.backendId,
+                  component: 'location',
+                  payload: {
+                    status: 'success',
+                    latitude: location.latitude,
+                    longitude: location.longitude,
+                    accuracy: location.accuracy,
+                    capturedAt: location.capturedAt,
+                  },
+                });
+                return location;
+              } catch (error) {
+                appendSosStatusLog('Location unavailable', 'error');
+                await persistComponentStatus({
+                  backendSosId: event.backendId,
+                  component: 'location',
+                  payload: {status: 'failed', error: error?.message || 'Location unavailable'},
+                });
+                return {status: 'FAILED', error: error?.message || 'Location unavailable'};
+              }
+            },
+            liveLocation: async (event) => {
+              const liveLocationResult = await startLiveLocationSharing({
+                token,
+                sosId: event.id,
+                backendId: event.backendId,
+              });
+              if (liveLocationResult?.status === 'COMPLETED') {
+                appendSosStatusLog('Live location sharing started', 'success');
+                await persistComponentStatus({
+                  backendSosId: event.backendId,
+                  component: 'liveLocation',
+                  payload: {status: 'success'},
+                });
+              } else if (liveLocationResult?.status === 'PENDING') {
+                appendSosStatusLog('Live location failed to start', 'error');
+                await persistComponentStatus({
+                  backendSosId: event.backendId,
+                  component: 'liveLocation',
+                  payload: {status: 'pending', error: liveLocationResult.reason || 'Live location queued'},
+                });
+              }
+              return liveLocationResult;
+            },
+            camera: async (event) => {
+              const {captureEmergencyPhotos} = await import('./src/features/sos/services/cameraService');
+              const cameraResult = await captureEmergencyPhotos({sosId: event.id});
+              if (cameraResult?.status === 'COMPLETED') {
+                if (cameraResult.frontImagePath) {
+                  appendSosStatusLog('Front image captured', 'success');
+                  await persistComponentStatus({
+                    backendSosId: event.backendId,
+                    component: 'frontImage',
+                    payload: {status: 'success', storageRef: cameraResult.frontImagePath, mimeType: 'image/jpeg'},
+                  });
+                }
+                if (cameraResult.backImagePath) {
+                  appendSosStatusLog('Back image captured', 'success');
+                  await persistComponentStatus({
+                    backendSosId: event.backendId,
+                    component: 'backImage',
+                    payload: {status: 'success', storageRef: cameraResult.backImagePath, mimeType: 'image/jpeg'},
+                  });
+                }
+              } else {
+                appendSosStatusLog('Front image capture failed', 'error');
+                await persistComponentStatus({
+                  backendSosId: event.backendId,
+                  component: 'frontImage',
+                  payload: {status: 'failed', error: cameraResult?.error || 'Front image capture failed'},
+                });
+              }
+              return cameraResult;
+            },
+            audio: async (event) => {
+              const {recordEmergencyAudio} = await import('./src/features/sos/services/audioService');
+              const audioResult = await recordEmergencyAudio({sosId: event.id});
+              if (audioResult?.status === 'COMPLETED') {
+                appendSosStatusLog('Audio recording completed', 'success');
+                await persistComponentStatus({
+                  backendSosId: event.backendId,
+                  component: 'audio',
+                  payload: {status: 'success', storageRef: audioResult.localPath, mimeType: 'audio/m4a'},
+                });
+              } else {
+                appendSosStatusLog('Audio recording failed', 'error');
+                await persistComponentStatus({
+                  backendSosId: event.backendId,
+                  component: 'audio',
+                  payload: {status: 'failed', error: audioResult?.error || 'Audio recording failed'},
+                });
+              }
+              return audioResult;
+            },
+            backend: async (event) => {
+              const backendResult = await syncSosToBackend({token, sosEvent: event, idempotencyKey: event.id});
+              if (backendResult?.status === 'COMPLETED') {
+                appendSosStatusLog('SOS activated', 'success');
+              } else if (backendResult?.status !== 'PENDING') {
+                appendSosStatusLog('SOS activation failed', 'error');
+              }
+              return backendResult;
+            },
+            email: async () => ({status: 'NOT_CONFIGURED', reason: 'No email is configured for this account.'}),
+            notifications: async () => ({status: 'PENDING', reason: 'Backend notification dispatch is queued.'}),
+          },
+        });
+
+        if (result?.event) {
+          setSelectedSos(result.event);
+        }
+      } catch (error) {
+        setSosError(error.message);
+        appendSosStatusLog('SOS activation failed', 'error');
+        showToast('Failed to trigger SOS', 'error');
+      } finally {
+        setSosLoading(false);
+      }
+    }, 2000);
   };
 
   // ============================================================
@@ -270,9 +526,11 @@ function AppContent() {
             bottomNav={<UserBottomNav activeTab="Home" onNavigate={handleUserNavigation} />}>
             <UserHomeScreen
               user={user}
+              token={token}
               onTriggerSos={handleTriggerSos}
               sosLoading={sosLoading}
               sosError={sosError}
+              sosStatusLogs={sosStatusLogs}
             />
           </AppShell>
         );
@@ -311,7 +569,8 @@ function AppContent() {
               onBack={() => setScreen('userHome')}
               onHistoryDetail={(item) => {
                 setSelectedSos(item);
-                setScreen('userSosDetail');
+                setScreen('userHome');
+                showToast('SOS record is available in history.', 'info');
               }}
             />
           </AppShell>
@@ -347,29 +606,9 @@ function AppContent() {
               onBack={() => setScreen('userNotifications')}
               onViewSos={(sosId) => {
                 setSelectedSos({id: sosId});
-                setScreen('userSosActive');
+                setScreen('userHistory');
+                showToast('Opening SOS history.', 'info');
               }}
-            />
-          </AppShell>
-        );
-
-      case 'userSosActive':
-        return (
-          <AppShell
-            showBack={true}
-            onBack={() => setScreen('userHome')}
-            hideLogo={true}
-            showNotification={false}
-            showLogout={false}>
-            <UserSosActiveScreen
-              token={token}
-              sos={selectedSos}
-              onBack={() => setScreen('userHome')}
-              onCancelSos={() => {
-                setScreen('userHome');
-                showToast('SOS cancelled.', 'info');
-              }}
-              onViewContacts={() => setScreen('userContacts')}
             />
           </AppShell>
         );

@@ -20,10 +20,20 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
   };
 
   const response = await createSos(token, payload);
+  const sosRecord = response?.sos || response;
+  const backendId = sosRecord?._id || sosRecord?.id || null;
+
+  if (!backendId) {
+    return {
+      status: 'FAILED',
+      error: 'SOS backend creation did not return a valid SOS identifier.',
+    };
+  }
+
   return {
     status: 'COMPLETED',
-    backendId: response?.sos?._id || null,
-    emergencyLink: response?.sos?.emergencyLink || null,
+    backendId,
+    emergencyLink: sosRecord?.emergencyLink || null,
   };
 }
 

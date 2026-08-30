@@ -4,6 +4,8 @@ const DEFAULT_STATE = {
   isConnected: false,
   isInternetReachable: false,
   isCellularAvailable: false,
+  telephonySupported: true,
+  telephonyStatus: 'TEMPORARILY_UNAVAILABLE',
   details: null,
 };
 
@@ -19,10 +21,13 @@ class ConnectivityService {
     this.initialized = true;
 
     NetInfo.addEventListener(state => {
+      const cellularConnected = Boolean(state?.type === 'cellular' && state?.isConnected);
       const nextState = {
         isConnected: Boolean(state?.isConnected),
         isInternetReachable: Boolean(state?.isInternetReachable),
-        isCellularAvailable: Boolean(state?.type === 'cellular' && state?.isConnected),
+        isCellularAvailable: cellularConnected,
+        telephonySupported: state?.type === 'cellular' ? true : true,
+        telephonyStatus: cellularConnected ? 'AVAILABLE' : 'TEMPORARILY_UNAVAILABLE',
         details: state || null,
       };
       this.state = nextState;
@@ -50,6 +55,14 @@ class ConnectivityService {
 
   getCellularAvailability() {
     return Boolean(this.state.isCellularAvailable);
+  }
+
+  getTelephonyStatus() {
+    return this.state.telephonyStatus || 'TEMPORARILY_UNAVAILABLE';
+  }
+
+  isTelephonySupported() {
+    return this.state.telephonySupported !== false;
   }
 
   resetForTests() {

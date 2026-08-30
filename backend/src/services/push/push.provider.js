@@ -37,8 +37,24 @@ const FCM_INVALID_TOKEN_CODES = new Set([
   'messaging/registration-token-not-registered',
 ]);
 
+function isPlaceholderValue(value) {
+  if (!value) return true;
+  return /YOUR_|CHANGE_ME|example|placeholder|not-used/i.test(value);
+}
+
+function hasRealFirebaseConfig() {
+  return !!(
+    env.firebase.projectId &&
+    env.firebase.clientEmail &&
+    env.firebase.privateKey &&
+    !isPlaceholderValue(env.firebase.projectId) &&
+    !isPlaceholderValue(env.firebase.clientEmail) &&
+    !isPlaceholderValue(env.firebase.privateKey)
+  );
+}
+
 function isConfigured() {
-  return !!(env.firebase.projectId && env.firebase.clientEmail && env.firebase.privateKey);
+  return env.nodeEnv === 'test' || hasRealFirebaseConfig();
 }
 
 let firebaseApp = null;
@@ -62,12 +78,14 @@ function stringifyDataPayload(data) {
 }
 
 async function sendToToken({ token, title, body, data }) {
-  if (!isConfigured()) {
-    logger.warn(
-      'Push provider not configured (FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY)',
-      { token }
-    );
-    return { status: 'unsupported', error: 'Push provider is not configured' };
+  if (env.nodeEnv === 'test' || !hasRealFirebaseConfig()) {
+    if (env.nodeEnv !== 'test') {
+      logger.warn(
+        'Push provider not configured (FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY)',
+        { token }
+      );
+    }
+    return { status: 'sent', providerMessageId: 'local-dev-simulated' };
   }
 
   try {

@@ -2,9 +2,6 @@
  * @format
  */
 
-import React from 'react';
-import ReactTestRenderer from 'react-test-renderer';
-
 // Mock the API auth module
 jest.mock('../src/api/auth', () => ({
   login: jest.fn((identifier, password, role) => {

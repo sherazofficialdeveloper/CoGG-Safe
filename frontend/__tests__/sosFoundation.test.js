@@ -25,14 +25,14 @@ beforeEach(async () => {
   connectivityService.resetForTests();
 });
 
-test('creates a local SOS event with a unique client ID and initialized services', async () => {
+test('creates a local SOS event with a unique client ID and keeps backend lifecycle pending until confirmed', async () => {
   const event = await createSosLocalEvent({
     userId: 'user-1',
     collectionId: 'collection-1',
   });
 
   expect(event.id).toMatch(/^sos_/);
-  expect(event.status).toBe('ACTIVE');
+  expect(event.status).toBe('PENDING');
   expect(event.services.sms.status).toBe('PENDING');
   expect(event.services.backend.status).toBe('PENDING');
   expect(event.services.location.status).toBe('PENDING');
@@ -71,7 +71,7 @@ test('orchestrator continues when a service fails', async () => {
       camera: async () => 'camera okay',
       audio: async () => 'audio okay',
       location: async () => 'location okay',
-      backend: async () => 'backend okay',
+      backend: async () => ({status: 'COMPLETED', backendId: 'backend-1'}),
       email: async () => 'email okay',
       notifications: async () => 'notifications okay',
     },
@@ -83,15 +83,19 @@ test('orchestrator continues when a service fails', async () => {
   expect(result.event.services.backend.status).toBe('COMPLETED');
 });
 
-test('connectivity service tracks internet and cellular separately', () => {
+test('connectivity service tracks internet, cellular and telephony separately', () => {
   connectivityService.updateState({
     isConnected: true,
     isInternetReachable: true,
     isCellularAvailable: false,
+    telephonyStatus: 'TEMPORARILY_UNAVAILABLE',
+    telephonySupported: false,
   });
 
   expect(connectivityService.getInternetAvailability()).toBe(true);
   expect(connectivityService.getCellularAvailability()).toBe(false);
+  expect(connectivityService.getTelephonyStatus()).toBe('TEMPORARILY_UNAVAILABLE');
+  expect(connectivityService.isTelephonySupported()).toBe(false);
   expect(resolveSosServiceStatus('backend', connectivityService.getState())).toBe('READY');
   expect(resolveSosServiceStatus('sms', connectivityService.getState())).toBe('PENDING');
 });
@@ -110,6 +114,34 @@ test('queue deduplicates jobs and waits for required connectivity', async () => 
   expect(result[0].status).toBe('COMPLETED');
   expect(backend).toHaveBeenCalledTimes(1);
   expect(await sosLocalStore.getPendingQueue()).toHaveLength(0);
+});
+
+test('backend creation obtains an id before dependent operations continue', async () => {
+  const result = await activateSosFlow({
+    userId: 'user-1',
+    collectionId: 'collection-1',
+    serviceRunners: {
+      backend: async () => ({status: 'COMPLETED', backendId: 'backend-123'}),
+      location: async (event) => ({
+        status: 'COMPLETED',
+        latitude: 1,
+        longitude: 2,
+        capturedAt: new Date().toISOString(),
+        backendId: event.backendId,
+      }),
+      camera: async () => ({status: 'COMPLETED', frontImagePath: '/front.jpg', backImagePath: '/back.jpg'}),
+      audio: async () => ({status: 'COMPLETED', localPath: '/audio.m4a'}),
+      sms: async () => ({status: 'PENDING', reason: 'Cellular unavailable'}),
+      call: async () => ({status: 'PENDING', reason: 'Cellular unavailable'}),
+      notifications: async () => ({status: 'PENDING', reason: 'Queued'}),
+      liveLocation: async (event) => ({status: 'COMPLETED', backendId: event.backendId, startedAt: new Date().toISOString()}),
+    },
+  });
+
+  expect(result.event.backendId).toBe('backend-123');
+  expect(result.event.services.location.status).toBe('COMPLETED');
+  expect(result.event.services.sms.status).toBe('PENDING');
+  expect(result.event.services.call.status).toBe('PENDING');
 });
 
 test('live location expiry is timestamp based and restart safe', () => {

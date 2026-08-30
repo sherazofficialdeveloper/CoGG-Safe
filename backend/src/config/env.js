@@ -21,7 +21,7 @@ const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT, 10) || 5000,
   appName: process.env.APP_NAME || 'CoGG SOS Backend',
-  clientOrigin: process.env.CLIENT_ORIGIN || '*',
+  clientOrigin: process.env.NODE_ENV === 'test' ? '*' : (process.env.CLIENT_ORIGIN || '*'),
 
   mongoUri: process.env.MONGODB_URI,
 

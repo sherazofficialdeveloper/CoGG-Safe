@@ -1,19 +1,62 @@
-import {Linking, Platform} from 'react-native';
+import {NativeModules, PermissionsAndroid, Platform} from 'react-native';
+import {getConnectivityState} from '../connectivity';
+
+function normalizeCallResult(result) {
+  const status = String(result?.status || '').toUpperCase();
+  const reason = result?.reason || '';
+
+  if (status === 'COMPLETED' || status === 'INITIATED') {
+    return {status: 'INITIATED', reason: reason || 'Android launched the emergency call.'};
+  }
+
+  if (status === 'PENDING' || /no service|cellular service|cellular.*unavailable|signal|radio off|temporary/i.test(reason)) {
+    return {status: 'PENDING', reason: reason || 'Cellular service is temporarily unavailable; emergency call will retry automatically.'};
+  }
+
+  if (status === 'UNSUPPORTED' || /telephony|account|SIM|subscription/i.test(reason)) {
+    return {status: 'UNSUPPORTED', reason: reason || 'No active telephony account is available for the emergency call.'};
+  }
+
+  return {status: 'FAILED', reason: reason || 'Emergency call failed.'};
+}
 
 export async function initiateEmergencyCall({emergencyNumber}) {
   if (!emergencyNumber) {
     return {status: 'NOT_CONFIGURED', reason: 'No emergency call number is configured for this collection.'};
   }
 
-  const url = Platform.OS === 'android' ? `tel:${emergencyNumber}` : `telprompt:${emergencyNumber}`;
-  const supported = await Linking.canOpenURL(url);
-
-  if (!supported) {
-    throw new Error('This device cannot initiate a call from the app.');
+  if (Platform.OS !== 'android') {
+    return {status: 'UNSUPPORTED', reason: 'Emergency call is only supported on Android devices.'};
   }
 
-  await Linking.openURL(url);
-  return {status: 'COMPLETED'};
+  const connectivity = getConnectivityState();
+  const cellularAvailable = Boolean(connectivity.isCellularAvailable || connectivity.details?.type === 'cellular');
+  if (!cellularAvailable) {
+    return {status: 'PENDING', reason: 'Cellular service is unavailable; emergency call is queued for retry.'};
+  }
+
+  const callPermission = PermissionsAndroid.PERMISSIONS.CALL_PHONE;
+  const hasPermission = await PermissionsAndroid.check(callPermission);
+  const deniedStates = [false, PermissionsAndroid.RESULTS.DENIED, PermissionsAndroid.RESULTS.BLOCKED, PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN];
+  if (deniedStates.includes(hasPermission)) {
+    return {status: 'FAILED', reason: 'Phone permission denied. Emergency call cannot be placed.'};
+  }
+
+  const emergencyMedia = NativeModules?.EmergencyMedia;
+  if (!emergencyMedia || typeof emergencyMedia.placeCall !== 'function') {
+    return {status: 'FAILED', reason: 'Native Android emergency call module is unavailable.'};
+  }
+
+  try {
+    const result = await emergencyMedia.placeCall(emergencyNumber);
+    return normalizeCallResult(result);
+  } catch (error) {
+    const reason = error?.message || 'Emergency call failed.';
+    if (/no service|cellular service|radio off|temporary|signal|unavailable/i.test(reason)) {
+      return {status: 'PENDING', reason};
+    }
+    return normalizeCallResult({status: 'FAILED', reason});
+  }
 }
 
 export default { initiateEmergencyCall };

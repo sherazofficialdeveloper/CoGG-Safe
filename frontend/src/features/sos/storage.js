@@ -3,6 +3,27 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const SOS_EVENT_KEY = 'cogg_safe.sos.events';
 const SOS_QUEUE_KEY = 'cogg_safe.sos.queue';
 const memoryStore = {};
+const storageApi = AsyncStorage && AsyncStorage.default ? AsyncStorage.default : AsyncStorage;
+const safeAsyncStorage = {
+  async getItem(key) {
+    if (storageApi && typeof storageApi.getItem === 'function') {
+      return storageApi.getItem(key);
+    }
+    return null;
+  },
+  async setItem(key, value) {
+    if (storageApi && typeof storageApi.setItem === 'function') {
+      return storageApi.setItem(key, value);
+    }
+    return undefined;
+  },
+  async removeItem(key) {
+    if (storageApi && typeof storageApi.removeItem === 'function') {
+      return storageApi.removeItem(key);
+    }
+    return undefined;
+  },
+};
 
 function readJson(key, fallback) {
   if (Object.prototype.hasOwnProperty.call(memoryStore, key)) {
@@ -14,7 +35,7 @@ function readJson(key, fallback) {
     }
   }
 
-  return AsyncStorage.getItem(key).then(value => {
+  return safeAsyncStorage.getItem(key).then(value => {
     if (!value) return fallback;
     try {
       const parsed = JSON.parse(value);
@@ -28,7 +49,7 @@ function readJson(key, fallback) {
 
 function writeJson(key, value) {
   memoryStore[key] = JSON.stringify(value);
-  return AsyncStorage.setItem(key, JSON.stringify(value));
+  return safeAsyncStorage.setItem(key, JSON.stringify(value));
 }
 
 export const sosLocalStore = {
@@ -76,8 +97,8 @@ export const sosLocalStore = {
     delete memoryStore[SOS_EVENT_KEY];
     delete memoryStore[SOS_QUEUE_KEY];
     await Promise.all([
-      AsyncStorage.removeItem(SOS_EVENT_KEY),
-      AsyncStorage.removeItem(SOS_QUEUE_KEY),
+      safeAsyncStorage.removeItem(SOS_EVENT_KEY),
+      safeAsyncStorage.removeItem(SOS_QUEUE_KEY),
     ]);
   },
 

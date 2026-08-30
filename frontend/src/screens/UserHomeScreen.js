@@ -25,10 +25,12 @@ const UserHomeScreen = ({
   sosLoading = false,
   sosError = '',
   onSwitchToAdmin,
+  sosStatusLogs = [],
 }) => {
   const [permissionState, setPermissionState] = useState(createInitialSosPermissionState);
   const [requestingPermissions, setRequestingPermissions] = useState(false);
   const [activeSharingSos, setActiveSharingSos] = useState(null);
+  const [hasActiveSosSession, setHasActiveSosSession] = useState(false);
   const [sharingError, setSharingError] = useState('');
   const [stoppingSharing, setStoppingSharing] = useState(false);
   const missingPermissions = [
@@ -60,12 +62,20 @@ const UserHomeScreen = ({
   }, []);
 
   useEffect(() => {
-    if (!token) return undefined;
+    if (!token) {
+      setActiveSharingSos(null);
+      setHasActiveSosSession(false);
+      return undefined;
+    }
+
     let mounted = true;
     listSos(token, {status: 'active', limit: 10})
       .then(result => {
-        const active = (result.sos || []).find(item => item.liveLocation?.status === 'active');
-        if (mounted) setActiveSharingSos(active || null);
+        if (!mounted) return;
+        const activeSos = (result.sos || []).find(item => item.status === 'active');
+        const activeLocation = (result.sos || []).find(item => item.liveLocation?.status === 'active');
+        setHasActiveSosSession(Boolean(activeSos));
+        setActiveSharingSos(activeLocation || null);
       })
       .catch(error => mounted && setSharingError(error.message));
     return () => { mounted = false; };
@@ -86,7 +96,7 @@ const UserHomeScreen = ({
   };
 
   const handleSOS = async () => {
-    if (permissionState.isChecking || sosLoading) return;
+    if (permissionState.isChecking || sosLoading || hasActiveSosSession) return;
 
     const currentPermissionState = await checkSosPermissions();
     setPermissionState(currentPermissionState);
@@ -146,7 +156,7 @@ const UserHomeScreen = ({
                   ]}
                   activeOpacity={0.85}
                   onPress={handleSOS}
-                  disabled={sosLoading || !permissionState.allRequiredGranted || permissionState.isChecking}>
+                  disabled={sosLoading || hasActiveSosSession || !permissionState.allRequiredGranted || permissionState.isChecking}>
 
                   <Text style={styles.sosText}>
                     {sosLoading ? '...' : 'SOS'}
@@ -162,6 +172,22 @@ const UserHomeScreen = ({
             </View>
           </View>
         </View>
+
+        {sosStatusLogs.length > 0 ? (
+          <View style={styles.statusLogContainer}>
+            {sosStatusLogs.map((log) => (
+              <View
+                key={log.id}
+                style={[
+                  styles.statusLog,
+                  log.type === 'error' ? styles.statusLogError : styles.statusLogSuccess,
+                ]}>
+                <Text style={styles.statusLogIcon}>{log.type === 'error' ? '✕' : '✓'}</Text>
+                <Text style={styles.statusLogText}>{log.message}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         {activeSharingSos ? (
           <TouchableOpacity style={styles.stopSharingButton} onPress={handleStopSharing} disabled={stoppingSharing}>
@@ -416,6 +442,46 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     textAlign: 'center',
+  },
+
+  statusLogContainer: {
+    width: '100%',
+    marginTop: 14,
+    gap: 8,
+  },
+
+  statusLog: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderWidth: 1,
+  },
+
+  statusLogSuccess: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#BBF7D0',
+  },
+
+  statusLogError: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+  },
+
+  statusLogIcon: {
+    fontSize: 14,
+    fontWeight: '900',
+    marginRight: 8,
+    color: '#111827',
+  },
+
+  statusLogText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#111827',
   },
 
   stopSharingButton: {

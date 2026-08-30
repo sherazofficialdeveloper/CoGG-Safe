@@ -1,22 +1,62 @@
-import {Linking, Platform} from 'react-native';
+import {NativeModules, PermissionsAndroid, Platform} from 'react-native';
+import {getConnectivityState} from '../connectivity';
+
+function normalizeSmsResult(result) {
+  const status = String(result?.status || '').toUpperCase();
+  const reason = result?.reason || '';
+
+  if (status === 'COMPLETED' || status === 'SENT') {
+    return {status: 'SENT', reason: reason || 'Android confirmed the SMS was sent.'};
+  }
+
+  if (status === 'PENDING' || /no service|cellular service|cellular.*unavailable|signal|radio off|temporary/i.test(reason)) {
+    return {status: 'PENDING', reason: reason || 'Cellular service is temporarily unavailable; SMS will retry automatically.'};
+  }
+
+  if (status === 'UNSUPPORTED' || /SIM|subscription|carrier|telephony/i.test(reason)) {
+    return {status: 'UNSUPPORTED', reason: reason || 'No active SIM subscription is available for SMS.'};
+  }
+
+  return {status: 'FAILED', reason: reason || 'Emergency SMS failed.'};
+}
 
 export async function sendEmergencySms({phoneNumber, message}) {
   if (!phoneNumber) {
     return {status: 'NOT_CONFIGURED', reason: 'No emergency SMS number is configured for this collection.'};
   }
 
-  const body = encodeURIComponent(message || 'Emergency assistance requested.');
-  const url = Platform.OS === 'android'
-    ? `sms:${phoneNumber}?body=${body}`
-    : `sms:${phoneNumber}&body=${body}`;
-
-  const supported = await Linking.canOpenURL(url);
-  if (!supported) {
-    throw new Error('This device cannot open the SMS app.');
+  if (Platform.OS !== 'android') {
+    return {status: 'UNSUPPORTED', reason: 'SMS is only supported on Android devices.'};
   }
 
-  await Linking.openURL(url);
-  return {status: 'COMPLETED'};
+  const connectivity = getConnectivityState();
+  const cellularAvailable = Boolean(connectivity.isCellularAvailable || connectivity.details?.type === 'cellular');
+  if (!cellularAvailable) {
+    return {status: 'PENDING', reason: 'Cellular service is unavailable; SMS is queued for retry.'};
+  }
+
+  const smsPermission = PermissionsAndroid.PERMISSIONS.SEND_SMS;
+  const hasPermission = await PermissionsAndroid.check(smsPermission);
+  const deniedStates = [false, PermissionsAndroid.RESULTS.DENIED, PermissionsAndroid.RESULTS.BLOCKED, PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN];
+  if (deniedStates.includes(hasPermission)) {
+    return {status: 'FAILED', reason: 'SMS permission denied. Emergency SMS cannot be sent.'};
+  }
+
+  const emergencyMedia = NativeModules?.EmergencyMedia;
+  if (!emergencyMedia || typeof emergencyMedia.sendSms !== 'function') {
+    return {status: 'FAILED', reason: 'Native Android SMS module is unavailable.'};
+  }
+
+  try {
+    const result = await emergencyMedia.sendSms(phoneNumber, message || 'Emergency assistance requested.');
+    return normalizeSmsResult(result);
+  } catch (error) {
+    const reason = error?.message || 'Emergency SMS failed.';
+    if (/no service|cellular service|radio off|temporary|signal|unavailable/i.test(reason)) {
+      return {status: 'PENDING', reason};
+    }
+    return normalizeSmsResult({status: 'FAILED', reason});
+  }
 }
 
 export default { sendEmergencySms };

@@ -20,16 +20,20 @@ function isEligible(item, state, now = Date.now()) {
   return true;
 }
 
-export async function enqueueSosJob({sosId, type, serviceName, payload = {}}) {
+export async function enqueueSosJob({sosId, backendSosId = null, type, serviceName, payload = {}, idempotencyKey = null}) {
   return sosLocalStore.enqueueQueueItem({
-    id: `${sosId}:${type}`,
-    sosId,
+    id: `${sosId}:${type}:${backendSosId || 'local'}`,
+    localSosId: sosId,
+    backendSosId,
+    operationType: type,
     type,
     serviceName,
     payload,
     status: 'PENDING',
     attempts: 0,
+    idempotencyKey: idempotencyKey || payload.idempotencyKey || null,
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     nextAttemptAt: new Date().toISOString(),
   });
 }
@@ -43,8 +47,10 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
   const processed = [];
 
   for (const item of queue) {
+    const localSosId = item.localSosId || item.sosId;
+    if (!localSosId) continue;
     if (!isEligible(item, state, now) || typeof processors[item.serviceName] !== 'function') continue;
-    const event = await sosLocalStore.getSosById(item.sosId);
+    const event = await sosLocalStore.getSosById(localSosId);
     if (!event) {
       await sosLocalStore.removeQueueItem(item.id);
       continue;
@@ -52,7 +58,10 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
 
     const attempts = (item.attempts || 0) + 1;
     await sosLocalStore.updateQueueItem(item.id, {
-      status: 'PROCESSING', attempts, lastAttemptAt: new Date(now).toISOString(),
+      status: 'PROCESSING',
+      attempts,
+      lastAttemptAt: new Date(now).toISOString(),
+      updatedAt: new Date(now).toISOString(),
     });
 
     try {
@@ -76,7 +85,9 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
         processed.push({id: item.id, status: 'FAILED'});
       } else {
         await sosLocalStore.updateQueueItem(item.id, {
-          status: 'RETRY_WAITING', error: error?.message || 'Queue job failed',
+          status: 'RETRY_WAITING',
+          error: error?.message || 'Queue job failed',
+          updatedAt: new Date(now).toISOString(),
           nextAttemptAt: new Date(now + BASE_BACKOFF_MS * (2 ** (attempts - 1))).toISOString(),
         });
         processed.push({id: item.id, status: 'RETRY_WAITING'});
