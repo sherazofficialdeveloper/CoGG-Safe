@@ -428,6 +428,7 @@ function AppContent() {
         return (
           <AdminLayoutWithHeader bottomNav={<AdminBottomNav activeTab="Dashboard" onNavigate={handleAdminNavigation} />}>
             <AdminDashboardScreen
+              token={token}
               user={user}
               onNavigate={handleAdminNavigation}
               onCollections={() => setScreen('adminCollections')}
@@ -453,6 +454,7 @@ function AppContent() {
         return (
           <AdminLayoutNoHeader bottomNav={<AdminBottomNav activeTab="Collections" onNavigate={handleAdminNavigation} />}>
             <AdminCollectionsScreen
+              token={token}
               onNavigate={handleAdminNavigation}
               onBack={() => setScreen('adminDashboard')}
             />
@@ -464,6 +466,7 @@ function AppContent() {
         return (
           <AdminLayoutNoHeader bottomNav={<AdminBottomNav activeTab="Dashboard" onNavigate={handleAdminNavigation} />}>
             <AdminAddCollectionScreen
+              token={token}
               onBack={() => setScreen('adminDashboard')}
               onSave={(collectionData) => {
                 showToast(`Collection "${collectionData.name}" created!`, 'success');
@@ -495,6 +498,7 @@ function AppContent() {
         return (
           <AdminLayoutNoHeader>
             <AdminUserDetailScreen
+              token={token}
               user={selectedUser}
               onBack={() => setScreen('adminUsers')}
               onSosDetail={(sos) => {
@@ -510,6 +514,7 @@ function AppContent() {
         return (
           <AdminLayoutNoHeader bottomNav={<AdminBottomNav activeTab="SOS" onNavigate={handleAdminNavigation} />}>
             <AdminSosScreen
+              token={token}
               onNavigate={handleAdminNavigation}
               onSosDetail={(sos) => {
                 setSelectedSos(sos);
@@ -526,6 +531,7 @@ function AppContent() {
         return (
           <AdminLayoutNoHeader>
             <AdminSosDetailScreen
+              token={token}
               sos={selectedSos}
               onBack={() => setScreen('adminSos')}
               onUserDetail={(userData) => {
