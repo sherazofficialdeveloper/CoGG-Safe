@@ -53,7 +53,10 @@ async function start() {
     console.log('[DEBUG 7] scheduler started');
 
     console.log('[DEBUG 8] starting HTTP server...');
-    server = app.listen(env.port, () => {
+
+    // Railway requires the server to listen on the provided PORT
+    // and bind to all network interfaces.
+    server = app.listen(env.port, '0.0.0.0', () => {
       console.log(`[DEBUG 9] SERVER LISTENING ON PORT ${env.port}`);
       logger.info(`${env.appName} listening on port ${env.port} [${env.nodeEnv}]`);
     });
@@ -105,11 +108,16 @@ process.on('SIGTERM', shutdown('SIGTERM'));
 process.on('SIGINT', shutdown('SIGINT'));
 
 process.on('unhandledRejection', (reason) => {
-  logger.error('Unhandled promise rejection', { reason: reason && reason.message ? reason.message : reason });
+  logger.error('Unhandled promise rejection', {
+    reason: reason && reason.message ? reason.message : reason,
+  });
 });
 
 process.on('uncaughtException', (err) => {
-  logger.error('Uncaught exception', { error: err.message, stack: err.stack });
+  logger.error('Uncaught exception', {
+    error: err.message,
+    stack: err.stack,
+  });
   process.exit(1);
 });
 
