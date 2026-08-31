@@ -19,65 +19,87 @@ const UserContactsScreen = ({token, onBack}) => {
   useEffect(() => {
     let mounted = true;
     setLoading(true);
+    setError('');
+
     listContacts(token)
-      .then(result => mounted && setContacts(result.contacts || []))
-      .catch(requestError => mounted && setError(requestError.message || 'Unable to load contacts.'))
-      .finally(() => mounted && setLoading(false));
+      .then(result => {
+        if (!mounted) return;
+        setContacts(result.contacts || []);
+      })
+      .catch(requestError => {
+        if (!mounted) return;
+        setError(requestError.message || 'Unable to load contacts.');
+      })
+      .finally(() => {
+        if (mounted) {
+          setLoading(false);
+        }
+      });
+
     return () => { mounted = false; };
   }, [token]);
+
+  const totalContactCount = contacts.length;
 
   return (
     <ScrollView
       showsVerticalScrollIndicator={false}
       contentContainerStyle={styles.scrollContent}>
 
-      {/* ================= BACK BUTTON ================= */}
       <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.8}>
         <Text style={styles.backIcon}>←</Text>
         <Text style={styles.backText}>Back</Text>
       </TouchableOpacity>
 
-      {/* ================= SECTION HEADER ================= */}
       <View style={styles.sectionHeader}>
         <View style={styles.sectionHeaderContent}>
-          <Text style={styles.sectionLabel}>EMERGENCY CONTACTS</Text>
-          <Text style={styles.sectionTitle}>Your trusted contacts</Text>
+          <Text style={styles.sectionLabel}>CONTACTS</Text>
+          <Text style={styles.sectionTitle}>Your collection members</Text>
           <Text style={styles.sectionDescription}>
-            These contacts will receive your emergency alert when an SOS is triggered.
+            Users assigned to your collection can be reached here.
           </Text>
         </View>
 
         <View style={styles.contactCountBadge}>
-          <Text style={styles.contactCountText}>{loading ? '-' : contacts.length}</Text>
+          <Text style={styles.contactCountText}>{loading ? '-' : totalContactCount}</Text>
           <Text style={styles.contactCountLabel}>TOTAL</Text>
         </View>
       </View>
 
-      {/* ================= CONTACTS LIST ================= */}
       <View style={styles.contactsContainer}>
-        {loading ? <ActivityIndicator color="#E4002B" /> : error ? <Text style={styles.emptyText}>{error}</Text> : contacts.length === 0 ? <Text style={styles.emptyText}>No other users are assigned to your collection.</Text> : contacts.map((contact, index) => (
+        {loading ? (
+          <View style={styles.stateCard}>
+            <ActivityIndicator color="#E4002B" />
+            <Text style={styles.stateText}>Loading collection members...</Text>
+          </View>
+        ) : error ? (
+          <View style={styles.stateCard}>
+            <Text style={styles.emptyText}>{error}</Text>
+          </View>
+        ) : totalContactCount === 0 ? (
+          <View style={styles.stateCard}>
+            <Text style={styles.emptyText}>No other users are assigned to your collection.</Text>
+          </View>
+        ) : contacts.map((contact, index) => (
           <TouchableOpacity key={contact._id} style={styles.contactCard} activeOpacity={0.82}>
             <View style={[styles.cardAccent, index === 0 && styles.primaryCardAccent]} />
 
-            <View style={[styles.contactAvatar, {backgroundColor: contact.color}]}>
-              <Text style={styles.contactAvatarText}>{contact.initials}</Text>
+            <View style={[styles.contactAvatar, {backgroundColor: '#F3F4F6'}]}>
+              <Text style={styles.contactAvatarText}>
+                {(contact.username || 'C').slice(0, 2).toUpperCase()}
+              </Text>
             </View>
 
             <View style={styles.contactInfo}>
               <View style={styles.contactNameRow}>
                 <Text style={styles.contactName} numberOfLines={1}>
-                  {contact.name}
+                  {contact.username || contact.name || 'Collection member'}
                 </Text>
-                {index === 0 && (
-                  <View style={styles.primaryBadge}>
-                    <Text style={styles.primaryBadgeText}>PRIMARY</Text>
-                  </View>
-                )}
               </View>
-              <Text style={styles.contactRelation}>{contact.email || 'Collection member'}</Text>
+              <Text style={styles.contactRelation}>{contact.email || 'No email on file'}</Text>
               <View style={styles.phoneRow}>
                 <Icon name="phone" size={16} color="#6B7280" />
-                <Text style={styles.contactPhone}>{contact.mobileNumber}</Text>
+                <Text style={styles.contactPhone}>{contact.mobileNumber || 'No phone number'}</Text>
               </View>
             </View>
 
@@ -94,15 +116,14 @@ const UserContactsScreen = ({token, onBack}) => {
         ))}
       </View>
 
-      {/* ================= SAFETY STATUS CARD ================= */}
-      {contacts.length > 0 ? <View style={styles.bottomInfoCard}>
+      {totalContactCount > 0 ? <View style={styles.bottomInfoCard}>
         <View style={styles.bottomInfoIconContainer}>
           <Text style={styles.bottomInfoIcon}>✓</Text>
         </View>
         <View style={styles.bottomInfoContent}>
-          <Text style={styles.bottomInfoTitle}>Your safety network is ready</Text>
+          <Text style={styles.bottomInfoTitle}>Your collection is ready</Text>
           <Text style={styles.bottomInfoDescription}>
-            All active contacts will be notified when an emergency SOS is triggered.
+            These users share the same collection access and contact record.
           </Text>
         </View>
         <View style={styles.readyBadge}>
@@ -110,11 +131,10 @@ const UserContactsScreen = ({token, onBack}) => {
         </View>
       </View> : null}
 
-      {/* ================= FOOTER ================= */}
       <View style={styles.footer}>
         <View style={styles.footerLine} />
         <Text style={styles.footerText}>
-          Keep your emergency contacts up to date for better safety.
+          Keep your collection members up to date for better safety.
         </Text>
       </View>
     </ScrollView>
@@ -220,6 +240,31 @@ const styles = StyleSheet.create({
   /* ================= CONTACTS ================= */
   contactsContainer: {
     gap: 12,
+  },
+
+  stateCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 18,
+    padding: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  stateText: {
+    marginTop: 12,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4B5563',
+    textAlign: 'center',
+  },
+
+  emptyText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#4B5563',
+    textAlign: 'center',
   },
 
   contactCard: {

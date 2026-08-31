@@ -1,6 +1,6 @@
 import {sosLocalStore} from './storage';
 import {enqueueSosJob} from './queue/queueWorker';
-import {hasLiveLocationExpired, isExpiresAtPast} from './services/liveLocationService';
+import {hasLiveLocationExpired} from './services/liveLocationService';
 
 const RECOVERABLE_SERVICES = {
   sms: 'SMS',
@@ -23,11 +23,9 @@ export async function recoverActiveSosWork(now = Date.now()) {
   for (const event of events) {
     if (event.status !== 'ACTIVE') continue;
 
-    const isExpired = event.liveLocationExpiresAt
-      ? isExpiresAtPast(event.liveLocationExpiresAt, now)
-      : event.liveLocationStartedAt
-        ? hasLiveLocationExpired(event.liveLocationStartedAt, now)
-        : false;
+    const isExpired = event.liveLocationStartedAt
+      ? hasLiveLocationExpired(event.liveLocationStartedAt, now)
+      : false;
 
     if (isExpired) {
       await sosLocalStore.updateSosServiceState(event.id, 'liveLocation', {

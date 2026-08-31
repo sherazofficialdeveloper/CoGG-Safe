@@ -4,11 +4,19 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Icon from '../../components/Icon';
 import {listNotifications, markNotificationRead} from '../../api/resources';
 
-const AdminNotificationScreen = ({token, onBack, onNotificationPress}) => {
+const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCountChange}) => {
   const insets = useSafeAreaInsets();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  const unreadCount = notifications.filter(item => !item.isRead).length;
+
+  useEffect(() => {
+    if (onBadgeCountChange) {
+      onBadgeCountChange(unreadCount);
+    }
+  }, [unreadCount, onBadgeCountChange]);
 
   useEffect(() => {
     let mounted = true;

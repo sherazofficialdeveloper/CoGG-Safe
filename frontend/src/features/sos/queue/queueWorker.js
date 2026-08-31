@@ -75,7 +75,22 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
       await sosLocalStore.updateSosServiceState(event.id, item.serviceName, servicePatch);
       if (result?.backendId) {
         const latestEvent = await sosLocalStore.getSosById(event.id);
-        await sosLocalStore.upsertSos({...latestEvent, backendId: result.backendId, emergencyLink: result.emergencyLink || null});
+        const syncedEvent = {...latestEvent, backendId: result.backendId, emergencyLink: result.emergencyLink || null};
+        await sosLocalStore.upsertSos(syncedEvent);
+        if (
+          syncedEvent.services?.camera?.frontImagePath ||
+          syncedEvent.services?.camera?.backImagePath ||
+          syncedEvent.services?.audio?.localPath ||
+          syncedEvent.services?.camera?.status === 'FAILED' ||
+          syncedEvent.services?.audio?.status === 'FAILED'
+        ) {
+          await enqueueSosJob({
+            sosId: event.id,
+            backendSosId: result.backendId,
+            type: 'MEDIA_UPLOAD',
+            serviceName: 'mediaUpload',
+          });
+        }
       }
       await sosLocalStore.removeQueueItem(item.id);
       processed.push({id: item.id, status: 'COMPLETED'});

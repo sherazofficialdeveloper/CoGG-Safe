@@ -28,6 +28,9 @@ import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.Executor
 
 /**
@@ -373,12 +376,12 @@ class EmergencyMediaModule(
         try {
             activity.startActivity(callIntent)
             val reason = if (preferredHandle != null) {
-                "Android launched the emergency call using a device-exposed telephony account."
+                "Android launched the emergency call intent using a device-exposed telephony account, but the final call status is not yet confirmed by the device."
             } else {
-                "Android launched the emergency call using the device default SIM because the OS did not expose a controllable SIM-1 selector."
+                "Android launched the emergency call intent using the default device telephony path, but the final call status is not yet confirmed by the device."
             }
             promise.resolve(Arguments.createMap().apply {
-                putString("status", "completed")
+                putString("status", "pending")
                 putString("reason", reason)
             })
         } catch (error: Exception) {
@@ -390,6 +393,47 @@ class EmergencyMediaModule(
         }
     }
 
+    /** Downloads a protected SOS audio stream with the current JWT into the
+     * app cache. react-native-sound cannot attach HTTP headers itself, so it
+     * must never be handed the protected backend URL directly. */
+    @ReactMethod
+    fun downloadAuthenticatedMedia(
+        mediaUrl: String,
+        token: String,
+        promise: Promise
+    ) {
+        if (mediaUrl.isBlank() || token.isBlank()) {
+            promise.reject("E_MEDIA_AUTH", "A media URL and authentication token are required.")
+            return
+        }
+
+        Thread {
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL(mediaUrl).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 15000
+                    readTimeout = 30000
+                    setRequestProperty("Authorization", "Bearer $token")
+                }
+                val status = connection.responseCode
+                if (status !in 200..299) {
+                    throw IllegalStateException("Media request was rejected (HTTP $status).")
+                }
+
+                val file = File(reactContext.cacheDir, "protected-sos-media/audio-${System.currentTimeMillis()}.m4a")
+                file.parentFile?.mkdirs()
+                connection.inputStream.use { input ->
+                    FileOutputStream(file).use { output -> input.copyTo(output) }
+                }
+                promise.resolve(file.absolutePath)
+            } catch (error: Exception) {
+                promise.reject("E_MEDIA_DOWNLOAD", "Unable to download protected SOS media.", error)
+            } finally {
+                connection?.disconnect()
+            }
+        }.start()
+    }
     @ReactMethod
     fun recordAudio(
         sosId: String,

@@ -7,11 +7,9 @@ import {
   StyleSheet,
 } from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import Icon from './Icon';
 
 const AdminHeader = ({
   user,
-  onProfile,
   onNotifications,
   onLogout,
   activeSosCount = 0,
@@ -39,15 +37,6 @@ const AdminHeader = ({
       {/* ================= RIGHT ================= */}
       <View style={styles.rightSection}>
 
-        {/* PROFILE */}
-        <TouchableOpacity
-          style={styles.headerButton}
-          onPress={onProfile}
-          activeOpacity={0.75}
-          accessibilityLabel="User profile">
-          <Icon name="user" size={22} color="#1A1A1A" />
-        </TouchableOpacity>
-
         {/* NOTIFICATION */}
         <TouchableOpacity
           style={styles.headerButton}
@@ -61,7 +50,7 @@ const AdminHeader = ({
           style={styles.headerButton}
           onPress={onNotifications}
           activeOpacity={0.75}>
-          <Icon name="notifications" size={22} color="#1A1A1A" />
+          <Text style={styles.iconText}>🔔</Text>
 
           {activeSosCount > 0 && (
             <View style={styles.notificationBadge}>
@@ -72,11 +61,11 @@ const AdminHeader = ({
           )}
         </TouchableOpacity>
 
+        {/* LOGOUT */}
         <TouchableOpacity
           style={[styles.headerButton, styles.logoutButton]}
           onPress={onLogout}
-          activeOpacity={0.75}
-          accessibilityLabel="Log out">
+          activeOpacity={0.75}>
           <Text style={styles.iconText}>🚪</Text>
         </TouchableOpacity>
 

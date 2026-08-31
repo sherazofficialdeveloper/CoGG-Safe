@@ -33,4 +33,3 @@ export async function request(path, {method = 'GET', body, token} = {}) {
 
   return payload.data;
 }
-

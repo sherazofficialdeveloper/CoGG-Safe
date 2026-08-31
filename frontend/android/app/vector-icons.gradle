@@ -1,0 +1,35 @@
+android.sourceSets.main.assets.srcDirs += file("$buildDir/intermediates/ReactNativeVectorIcons")
+
+afterEvaluate {
+    def config = project.hasProperty("vectoricons") ? project.vectoricons : [:]
+    def iconFontsDir = config.iconFontsDir ?: "../../node_modules/react-native-vector-icons/Fonts"
+    def iconFontNames = config.iconFontNames ?: ["*.ttf"]
+
+    def fontCopyTask = tasks.create(
+        name: "copyReactNativeVectorIconFonts",
+        type: Copy
+    ) {
+        description = "copy vector icon fonts."
+        into "$buildDir/intermediates/ReactNativeVectorIcons/fonts"
+
+        iconFontNames.each { fontName ->
+            from(iconFontsDir) {
+                include(fontName)
+            }
+        }
+    }
+
+    def addFontDependency = { taskName ->
+        def task = tasks.findByName(taskName)
+        if (task) {
+            task.dependsOn(fontCopyTask)
+        }
+    }
+
+    tasks.matching { task ->
+        def taskName = task.name.toLowerCase()
+        return taskName.startsWith("generate") && (taskName.endsWith("assets") || taskName.contains("lintmodel") || taskName.contains("lintreportmodel") || taskName.contains("lintvitalreportmodel") || taskName.contains("lintanalyze") || taskName.contains("lintvitalanalyze"))
+    }.all { task ->
+        task.dependsOn(fontCopyTask)
+    }
+}

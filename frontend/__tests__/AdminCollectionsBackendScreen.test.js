@@ -16,13 +16,12 @@ jest.mock('../src/api/resources', () => ({
 
 const renderScreen = async () => {
   let renderer;
-  await ReactTestRenderer.act(async () => {
+  ReactTestRenderer.act(() => {
     renderer = ReactTestRenderer.create(
       <SafeAreaProvider initialMetrics={{insets: {top: 0, right: 0, bottom: 0, left: 0}, frame: {x: 0, y: 0, width: 320, height: 640}}}>
         <AdminCollectionsBackendScreen token="admin-token" onBack={jest.fn()} onAddCollection={jest.fn()} />
       </SafeAreaProvider>,
     );
-    await Promise.resolve();
   });
   await ReactTestRenderer.act(async () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {

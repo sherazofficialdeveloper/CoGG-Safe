@@ -4,13 +4,13 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
+  SafeAreaView,
+  StatusBar,
   ScrollView,
   Alert,
-  TextInput,
 } from 'react-native';
-import {deleteUser, setUserPassword, setUserStatus, updateUser} from '../../api/resources';
-import {SafeAreaView} from 'react-native-safe-area-context';
-import Header from '../../components/Header';
+import {deleteUser, setUserStatus} from '../../api/resources';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 const AdminUserDetailScreen = ({
   user,
@@ -18,21 +18,14 @@ const AdminUserDetailScreen = ({
   onSosDetail,
   token,
 }) => {
+  const insets = useSafeAreaInsets();
   const [isBlocked, setIsBlocked] = useState(
     (user?.accountStatus || user?.status) !== 'active',
   );
   const [submitting, setSubmitting] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [resettingPassword, setResettingPassword] = useState(false);
-  const [newPassword, setNewPassword] = useState('');
-  const [editForm, setEditForm] = useState({
-    username: user?.username || user?.name || '',
-    mobileNumber: user?.mobileNumber || user?.phone || '',
-    email: user?.email === 'No email configured' ? '' : (user?.email || ''),
-  });
-  const [selectedUser, setSelectedUser] = useState(user);
 
   if (!user) return null;
+  const selectedUser = user;
   const sosHistory = [];
 
   const handleBlockUser = () => {
@@ -93,51 +86,38 @@ const AdminUserDetailScreen = ({
     );
   };
 
-  const handleSaveUser = async () => {
-    if (!editForm.username.trim() || !editForm.mobileNumber.trim()) {
-      Alert.alert('Check the form', 'Username and mobile number are required.');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const response = await updateUser(token, selectedUser._id || selectedUser.id, {
-        username: editForm.username.trim(),
-        mobileNumber: editForm.mobileNumber.trim(),
-        email: editForm.email.trim() || null,
-      });
-      if (response?.user) {
-        setSelectedUser(current => ({...current, ...response.user, name: response.user.username, phone: response.user.mobileNumber, email: response.user.email || 'No email configured'}));
-      }
-      setEditing(false);
-      Alert.alert('User updated', 'The user details were saved.');
-    } catch (error) {
-      Alert.alert('Unable to update user', error.message || 'Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleResetPassword = async () => {
-    if (newPassword.length < 8) {
-      Alert.alert('Check the password', 'The new password must be at least 8 characters.');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await setUserPassword(token, selectedUser._id || selectedUser.id, newPassword);
-      setNewPassword('');
-      setResettingPassword(false);
-      Alert.alert('Password updated', 'The new password was saved securely.');
-    } catch (error) {
-      Alert.alert('Unable to reset password', error.message || 'Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
-    <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
-      <Header title="User Details" subtitle="ADMIN VIEW" onBack={onBack} />
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar
+        barStyle="dark-content"
+        backgroundColor="#F7F7F8"
+      />
+
+      {/* Header */}
+      <View style={[styles.header, {paddingTop: insets.top + 10}]}>
+        <TouchableOpacity
+          style={styles.backButton}
+          activeOpacity={0.8}
+          onPress={onBack}>
+          <Text style={styles.backIcon}>‹</Text>
+        </TouchableOpacity>
+
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>
+            User Details
+          </Text>
+
+          <Text style={styles.headerSubtitle}>
+            ADMIN VIEW
+          </Text>
+        </View>
+
+        <TouchableOpacity
+          style={styles.moreButton}
+          activeOpacity={0.8}>
+          <Text style={styles.moreText}>•••</Text>
+        </TouchableOpacity>
+      </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -184,7 +164,7 @@ const AdminUserDetailScreen = ({
                   ? styles.blockedText
                   : styles.activeText,
               ]}>
-                  {isBlocked ? 'Inactive' : 'Active'}
+              {isBlocked ? 'Blocked' : selectedUser.status}
             </Text>
           </View>
 
@@ -253,36 +233,6 @@ const AdminUserDetailScreen = ({
             </View>
           </View>
         </View>
-
-        <Text style={styles.sectionTitle}>EDIT PROFILE</Text>
-        {editing ? (
-          <View style={styles.infoCard}>
-            <Text style={styles.editLabel}>USERNAME</Text>
-            <TextInput style={styles.editInput} value={editForm.username} onChangeText={username => setEditForm(current => ({...current, username}))} autoCapitalize="none" />
-            <Text style={styles.editLabel}>MOBILE NUMBER</Text>
-            <TextInput style={styles.editInput} value={editForm.mobileNumber} onChangeText={mobileNumber => setEditForm(current => ({...current, mobileNumber}))} keyboardType="phone-pad" />
-            <Text style={styles.editLabel}>EMAIL</Text>
-            <TextInput style={styles.editInput} value={editForm.email} onChangeText={email => setEditForm(current => ({...current, email}))} keyboardType="email-address" autoCapitalize="none" />
-            <View style={styles.editActions}>
-              <TouchableOpacity onPress={() => setEditing(false)} style={styles.editCancel}><Text>Cancel</Text></TouchableOpacity>
-              <TouchableOpacity onPress={handleSaveUser} disabled={submitting} style={styles.editSave}><Text style={styles.editSaveText}>{submitting ? 'Saving...' : 'Save changes'}</Text></TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <TouchableOpacity style={styles.editButton} onPress={() => setEditing(true)}><Text style={styles.editButtonText}>Edit user</Text></TouchableOpacity>
-        )}
-        {resettingPassword ? (
-          <View style={styles.infoCard}>
-            <Text style={styles.editLabel}>NEW PASSWORD</Text>
-            <TextInput style={styles.editInput} value={newPassword} onChangeText={setNewPassword} secureTextEntry autoCapitalize="none" placeholder="At least 8 characters" />
-            <View style={styles.editActions}>
-              <TouchableOpacity onPress={() => {setResettingPassword(false); setNewPassword('');}} style={styles.editCancel}><Text>Cancel</Text></TouchableOpacity>
-              <TouchableOpacity onPress={handleResetPassword} disabled={submitting} style={styles.editSave}><Text style={styles.editSaveText}>{submitting ? 'Updating...' : 'Reset password'}</Text></TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <TouchableOpacity style={styles.editButton} onPress={() => setResettingPassword(true)}><Text style={styles.editButtonText}>Reset password</Text></TouchableOpacity>
-        )}
 
         {/* Account Activity */}
         <Text style={styles.sectionTitle}>
@@ -701,39 +651,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 14,
   },
-
-  editButton: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 10,
-    minHeight: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
-  },
-
-  editButtonText: {color: '#FFFFFF', fontWeight: '900'},
-
-  editLabel: {
-    color: '#6E6E73',
-    fontSize: 10,
-    fontWeight: '900',
-    marginTop: 12,
-    marginBottom: 5,
-  },
-
-  editInput: {
-    minHeight: 46,
-    borderWidth: 1,
-    borderColor: '#D8DDE3',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    color: '#1A1A1A',
-  },
-
-  editActions: {flexDirection: 'row', gap: 10, marginVertical: 14},
-  editCancel: {flex: 1, minHeight: 46, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F1F2F4', borderRadius: 10},
-  editSave: {flex: 1, minHeight: 46, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E4002B', borderRadius: 10},
-  editSaveText: {color: '#FFFFFF', fontWeight: '900'},
 
   infoRow: {
     minHeight: 66,

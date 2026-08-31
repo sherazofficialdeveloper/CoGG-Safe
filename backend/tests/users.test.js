@@ -475,3 +475,60 @@ describe('DELETE /api/users/:id (hard delete)', () => {
     expect(stillThere.deletedAt).toBeNull();
   });
 });
+
+describe('GET /api/contacts', () => {
+  test('returns only same-collection users excluding the current user and hides sensitive fields', async () => {
+    const collectionA = await createCollection({ name: 'Alpha Group' });
+    const collectionB = await createCollection({ name: 'Beta Group' });
+
+    const currentUser = new User({
+      username: 'owneruser',
+      mobileNumber: '03008881111',
+      email: 'owner@example.com',
+      collectionId: collectionA._id,
+      role: ROLES.USER,
+    });
+    await currentUser.setPassword('Passw0rd!');
+    await currentUser.save();
+
+    const sameCollectionUser = new User({
+      username: 'samecollectionuser',
+      mobileNumber: '03008881112',
+      email: 'same@example.com',
+      collectionId: collectionA._id,
+      role: ROLES.USER,
+    });
+    await sameCollectionUser.setPassword('Passw0rd!');
+    await sameCollectionUser.save();
+
+    const otherCollectionUser = new User({
+      username: 'othercollectionuser',
+      mobileNumber: '03008881113',
+      email: 'other@example.com',
+      collectionId: collectionB._id,
+      role: ROLES.USER,
+    });
+    await otherCollectionUser.setPassword('Passw0rd!');
+    await otherCollectionUser.save();
+
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ identifier: 'owneruser', password: 'Passw0rd!' });
+
+    expect(loginRes.status).toBe(200);
+
+    const res = await request(app)
+      .get('/api/contacts')
+      .set('Authorization', `Bearer ${loginRes.body.data.token}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.contacts).toHaveLength(1);
+    expect(res.body.data.contacts[0]._id.toString()).toBe(sameCollectionUser._id.toString());
+    expect(res.body.data.contacts[0].username).toBe('samecollectionuser');
+    expect(res.body.data.contacts[0].mobileNumber).toBe('03008881112');
+    expect(res.body.data.contacts[0].email).toBe('same@example.com');
+    expect(res.body.data.contacts[0].passwordHash).toBeUndefined();
+    expect(res.body.data.contacts.some(c => c._id.toString() === currentUser._id.toString())).toBe(false);
+    expect(res.body.data.contacts.some(c => c._id.toString() === otherCollectionUser._id.toString())).toBe(false);
+  });
+});

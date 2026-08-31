@@ -109,12 +109,38 @@ async function enforceLiveLocationExpiry(sos) {
   return sos;
 }
 
+async function activateSosIfDue(sos) {
+  if (!sos || sos.status !== SOS_STATUS.PENDING) {
+    return sos;
+  }
+
+  const createdAt = sos.createdAt ? new Date(sos.createdAt).getTime() : 0;
+  const cancellationWindowMs = (env.sos.cancellationWindowSeconds || 0) * 1000;
+
+  if (!createdAt || cancellationWindowMs <= 0 || Date.now() < createdAt + cancellationWindowMs) {
+    return sos;
+  }
+
+  const activated = await Sos.findOneAndUpdate(
+    { _id: sos._id, status: SOS_STATUS.PENDING },
+    { $set: { status: SOS_STATUS.ACTIVE, activatedAt: new Date() } },
+    { new: true }
+  );
+
+  if (!activated) {
+    return sos;
+  }
+
+  await dispatchService.dispatchSos(activated);
+  return activated;
+}
+
 async function getSosOrThrow(id) {
   const sos = await Sos.findById(id);
   if (!sos) {
     throw ApiError.notFound('SOS not found');
   }
-  return sos;
+  return activateSosIfDue(sos);
 }
 
 /** Owner or admin — read access. */
@@ -495,7 +521,7 @@ async function getMediaFileStream(id, reqUser, componentName) {
   }
 
   return {
-    stream: storageProvider.readStream(component.storageRef),
+    stream: await storageProvider.readStream(component.storageRef),
     mimeType: component.mimeType || 'application/octet-stream',
   };
 }

@@ -11,14 +11,10 @@ const SHUTDOWN_FORCE_EXIT_MS = 10_000;
 let server;
 
 /**
- * Each provider already logs its own WARN + falls back to a stub on
- * every individual send when unconfigured (see each *.provider.js) —
- * that's sufficient for dev/test. This is a one-time, boot-level signal
- * specifically for production: an operator who deploys with
- * NODE_ENV=production but forgot to set real credentials should see
- * this immediately in their startup logs, not discover it only when a
- * real emergency's dispatch silently no-ops. Purely diagnostic — never
- * blocks boot, never changes any provider's runtime behavior.
+ * Each provider logs a warning when it is unconfigured and returns an
+ * explicit unsupported result instead of claiming delivery. This remains
+ * purely diagnostic for production boot: it makes missing credentials clear
+ * at startup without fabricating a working provider.
  */
 function warnIfProvidersUnconfiguredInProduction() {
   if (env.nodeEnv !== 'production') return;
@@ -30,7 +26,7 @@ function warnIfProvidersUnconfiguredInProduction() {
 
   if (unconfigured.length > 0) {
     logger.warn(
-      'Running with NODE_ENV=production but one or more dispatch providers are unconfigured — real SOS dispatch will silently fall back to a log-only stub for these channels',
+      'Running with NODE_ENV=production but one or more dispatch providers are unconfigured — real SOS delivery remains unavailable until credentials are supplied.',
       { unconfiguredProviders: unconfigured }
     );
   }

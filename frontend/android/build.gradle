@@ -7,15 +7,36 @@ buildscript {
         ndkVersion = "27.1.12297006"
         kotlinVersion = "2.2.0"
     }
+
     repositories {
         google()
         mavenCentral()
     }
+
     dependencies {
-        classpath("com.android.tools.build:gradle")
-        classpath("com.facebook.react:react-native-gradle-plugin")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        classpath("com.android.tools.build:gradle:9.2.1")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlinVersion}")
+
+        classpath("javax.xml.bind:jaxb-api:2.3.1")
+        classpath("org.glassfish.jaxb:jaxb-runtime:2.3.1")
+
+        if (file("${rootDir}/app/google-services.json").exists()) {
+            classpath("com.google.gms:google-services:4.4.2")
+        }
     }
 }
 
-apply plugin: "com.facebook.react.rootproject"
+plugins {
+    id("com.facebook.react.rootproject")
+}
+
+subprojects {
+    if (name == "react-native-async-storage_async-storage") {
+        afterEvaluate {
+            android.sourceSets.main.java.exclude("**/next/**")
+            tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+                exclude("**/next/**")
+            }
+        }
+    }
+}

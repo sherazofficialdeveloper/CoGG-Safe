@@ -23,8 +23,20 @@ const getEmergencyView = asyncHandler(async (req, res) => {
 const getEmergencyMedia = asyncHandler(async (req, res) => {
   const { stream, mimeType } = await getPublicMediaStream(req.params.token, req.params.component);
   res.setHeader('Content-Type', mimeType);
-  stream.on('error', () => res.status(httpStatus.INTERNAL_SERVER_ERROR).end());
-  stream.pipe(res);
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  
+  // Handle both Node.js streams (local) and web streams (R2)
+  if (stream && typeof stream.pipe === 'function') {
+    // Node.js Readable stream (local storage)
+    stream.on('error', () => res.status(httpStatus.INTERNAL_SERVER_ERROR).end());
+    stream.pipe(res);
+  } else if (stream && typeof stream[Symbol.asyncIterator] === 'function') {
+    // AWS SDK ReadableStream (R2 storage)
+    stream.on('error', () => res.status(httpStatus.INTERNAL_SERVER_ERROR).end());
+    stream.pipe(res);
+  } else {
+    res.status(httpStatus.INTERNAL_SERVER_ERROR).end();
+  }
 });
 
 module.exports = { getEmergencyView, getEmergencyMedia };

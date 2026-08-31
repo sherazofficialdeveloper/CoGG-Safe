@@ -47,6 +47,9 @@ async function listUsers(query = {}) {
 
   if (query.status) filter.status = query.status;
   if (query.collectionId) filter.collectionId = query.collectionId;
+  if (query.excludeUserId) {
+    filter._id = { $ne: query.excludeUserId };
+  }
   if (query.search) {
     const regex = new RegExp(escapeRegex(query.search), 'i');
     filter.$or = [{ username: regex }, { mobileNumber: regex }];
@@ -61,15 +64,21 @@ async function listUsers(query = {}) {
 }
 
 async function listContacts(userId) {
-  const currentUser = await User.findOne({_id: userId, ...NOT_DELETED}).select('collectionId');
-  if (!currentUser?.collectionId) return [];
+  const currentUser = await User.findOne({ _id: userId, ...NOT_DELETED });
+  if (!currentUser) {
+    throw ApiError.notFound('User not found');
+  }
 
-  return User.find({
-    ...NOT_DELETED,
+  if (!currentUser.collectionId) {
+    return [];
+  }
+
+  const { items } = await listUsers({
     collectionId: currentUser.collectionId,
-    role: ROLES.USER,
-    _id: {$ne: userId},
-  }).sort({username: 1});
+    excludeUserId: userId,
+  });
+
+  return items;
 }
 
 async function getUserById(id) {
@@ -89,7 +98,7 @@ async function getUserById(id) {
  * Email removal: passing `email: null` or `email: ''` clears it back to
  * "not configured" (field omitted, per the sparse-unique schema design).
  */
-async function updateUser(id, { username, mobileNumber, email, emergencyMessage }) {
+async function updateUser(id, { username, mobileNumber, email }) {
   const user = await getUserById(id);
 
   if (username !== undefined) user.username = username;
@@ -97,14 +106,9 @@ async function updateUser(id, { username, mobileNumber, email, emergencyMessage 
   if (email !== undefined) {
     user.email = email === null || email === '' ? undefined : email;
   }
-  if (emergencyMessage !== undefined) user.emergencyMessage = emergencyMessage || null;
 
   await user.save();
   return user;
-}
-
-async function updateOwnProfile(id, updates) {
-  return updateUser(id, updates);
 }
 
 async function setPassword(id, newPassword) {
@@ -155,7 +159,6 @@ module.exports = {
   listContacts,
   getUserById,
   updateUser,
-  updateOwnProfile,
   setPassword,
   activateUser,
   deactivateUser,

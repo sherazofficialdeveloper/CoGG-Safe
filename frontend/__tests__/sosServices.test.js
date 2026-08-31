@@ -7,10 +7,15 @@ import {captureNativeSosPhotos, recordNativeSosAudio} from '../src/features/sos/
 import {sendEmergencySms} from '../src/features/sos/services/smsService';
 import {initiateEmergencyCall} from '../src/features/sos/services/callService';
 import {stopLiveLocationSharing} from '../src/features/sos/services/liveLocationService';
+import {dispatchEmergencyNotifications} from '../src/features/sos/services/notificationService';
 import {enqueueSosJob, processSosQueue} from '../src/features/sos/queue/queueWorker';
+import {uploadCapturedSosMedia} from '../src/features/sos/services/backendSyncService';
 
 jest.mock('../src/api/resources', () => ({
+  createSos: jest.fn(),
+  reportSosMedia: jest.fn(),
   stopLiveLocation: jest.fn(),
+  uploadSosMedia: jest.fn(),
 }));
 
 jest.mock('../src/features/sos/services/nativeMedia', () => ({
@@ -62,20 +67,27 @@ describe('SOS media services', () => {
     PermissionsAndroid.request.mockImplementation(async () => 'granted');
   });
 
-  test('Android SOS SMS and call use native telephony and never fake success', async () => {
+  test('Android SOS SMS and call use native telephony without claiming false success', async () => {
     const {NativeModules} = require('react-native');
     connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
 
     NativeModules.EmergencyMedia.sendSms.mockResolvedValue({status: 'completed', reason: 'Android confirmed the SMS was sent.'});
-    NativeModules.EmergencyMedia.placeCall.mockResolvedValue({status: 'completed', reason: 'Android launched the emergency call.'});
+    NativeModules.EmergencyMedia.placeCall.mockResolvedValue({status: 'pending', reason: 'Android launched the emergency call intent but the final device status remains pending.'});
 
     const sms = await sendEmergencySms({phoneNumber: '+1234567890', message: 'help'});
     const call = await initiateEmergencyCall({emergencyNumber: '+1234567890'});
 
     expect(sms.status).toBe('SENT');
-    expect(call.status).toBe('INITIATED');
+    expect(call.status).toBe('PENDING');
     expect(NativeModules.EmergencyMedia.sendSms).toHaveBeenCalledWith('+1234567890', 'help');
     expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1234567890');
+  });
+
+  test('notification dispatch remains truthful when FCM is not configured', async () => {
+    const result = await dispatchEmergencyNotifications({sosId: 'sos_push_truthful'});
+
+    expect(result.status).toBe('PENDING');
+    expect(result.reason).toMatch(/FCM|Firebase|configured/i);
   });
 
   test('SMS and call are queued as retryable pending when cellular is unavailable', async () => {
@@ -262,6 +274,28 @@ describe('SOS media services', () => {
     expect((await sosLocalStore.getPendingQueue()).length).toBeGreaterThanOrEqual(0);
   });
 
+
+  test('captured device media is uploaded as multipart data and never used as a backend URL', async () => {
+    const {uploadSosMedia} = require('../src/api/resources');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true});
+    uploadSosMedia.mockResolvedValue({
+      sos: {components: {frontImage: {status: 'success', storageRef: 'sos/backend-1/front.jpg'}}},
+    });
+
+    const result = await uploadCapturedSosMedia({
+      token: 'jwt-token',
+      sosEvent: {
+        backendId: 'backend-1',
+        services: {camera: {status: 'COMPLETED', frontImagePath: '/data/user/0/com.coggsafe/cache/front.jpg'}, audio: {status: 'PENDING'}},
+      },
+    });
+
+    expect(result.status).toBe('COMPLETED');
+    expect(uploadSosMedia).toHaveBeenCalledWith('jwt-token', 'backend-1', 'frontImage', expect.objectContaining({
+      uri: 'file:///data/user/0/com.coggsafe/cache/front.jpg',
+    }));
+    expect(result.uploaded[0].storageRef).toBe('sos/backend-1/front.jpg');
+  });
   test('live-location stop preserves backend failures', async () => {
     const {stopLiveLocation} = require('../src/api/resources');
     stopLiveLocation.mockRejectedValueOnce(new Error('Stop request was rejected'));

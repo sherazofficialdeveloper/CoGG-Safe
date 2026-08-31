@@ -51,7 +51,7 @@ async function getPublicMediaStream(token, componentName) {
   }
 
   return {
-    stream: storageProvider.readStream(component.storageRef),
+    stream: await storageProvider.readStream(component.storageRef),
     mimeType: component.mimeType || 'application/octet-stream',
   };
 }

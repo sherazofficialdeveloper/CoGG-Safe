@@ -78,14 +78,20 @@ function stringifyDataPayload(data) {
 }
 
 async function sendToToken({ token, title, body, data }) {
-  if (env.nodeEnv === 'test' || !hasRealFirebaseConfig()) {
-    if (env.nodeEnv !== 'test') {
-      logger.warn(
-        'Push provider not configured (FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY)',
-        { token }
-      );
-    }
+  if (env.nodeEnv === 'test') {
     return { status: 'sent', providerMessageId: 'local-dev-simulated' };
+  }
+
+  if (!hasRealFirebaseConfig()) {
+    logger.warn(
+      'FCM provider not configured (FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY); device delivery remains unavailable until real project credentials are provided.',
+      { token }
+    );
+
+    return {
+      status: 'unsupported',
+      error: 'Firebase provider is not configured',
+    };
   }
 
   try {

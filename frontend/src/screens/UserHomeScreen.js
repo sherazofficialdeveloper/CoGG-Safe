@@ -1,6 +1,6 @@
 // UserHomeScreen.js - Professional content only, no header/bottom nav
 
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
+  Animated,
 } from 'react-native';
 import {
   checkSosPermissions,
@@ -17,6 +18,7 @@ import {
   subscribeToPermissionChanges,
 } from '../permissions/sosPermissions';
 import {listSos, stopLiveLocation} from '../api/resources';
+import {getHoldSnapshot, SOS_HOLD_DURATION_MS} from '../features/sos/holdState';
 
 const UserHomeScreen = ({
   user,
@@ -33,6 +35,13 @@ const UserHomeScreen = ({
   const [hasActiveSosSession, setHasActiveSosSession] = useState(false);
   const [sharingError, setSharingError] = useState('');
   const [stoppingSharing, setStoppingSharing] = useState(false);
+  const [holdPhase, setHoldPhase] = useState('idle');
+  const [countdown, setCountdown] = useState(3);
+  const [holdProgress, setHoldProgress] = useState(0);
+  const holdAnimationRef = useRef(null);
+  const holdStartedAtRef = useRef(0);
+  const ringRotation = useRef(new Animated.Value(0)).current;
+  const pulseScale = useRef(new Animated.Value(1)).current;
   const missingPermissions = [
     permissionState.location !== 'granted' && 'location',
     permissionState.camera !== 'granted' && 'camera',
@@ -95,22 +104,111 @@ const UserHomeScreen = ({
     }
   };
 
-  const handleSOS = async () => {
-    if (permissionState.isChecking || sosLoading || hasActiveSosSession) return;
+  const resetHoldState = () => {
+    if (holdAnimationRef.current) {
+      cancelAnimationFrame(holdAnimationRef.current);
+      holdAnimationRef.current = null;
+    }
+    holdStartedAtRef.current = 0;
+    setHoldProgress(0);
+    setCountdown(3);
+    setHoldPhase('idle');
+  };
 
-    const currentPermissionState = await checkSosPermissions();
-    setPermissionState(currentPermissionState);
+  const handleSosPressIn = () => {
+    if (permissionState.isChecking || sosLoading || hasActiveSosSession) return;
+    const currentPermissionState = permissionState;
     if (!currentPermissionState.allRequiredGranted) return;
 
-    if (onTriggerSos) {
-      onTriggerSos();
-    } else {
-      Alert.alert(
-        'Emergency SOS',
-        'Your emergency alert is being prepared.',
-      );
-    }
+    holdStartedAtRef.current = Date.now();
+    setHoldPhase('holding');
+    setCountdown(3);
+    setHoldProgress(0);
+
+    const tick = () => {
+      const snapshot = getHoldSnapshot({
+        startedAt: holdStartedAtRef.current,
+        now: Date.now(),
+        durationMs: SOS_HOLD_DURATION_MS,
+      });
+
+      setHoldProgress(snapshot.progress);
+      setCountdown(snapshot.countdown);
+
+      if (snapshot.shouldActivate) {
+        if (holdAnimationRef.current) {
+          cancelAnimationFrame(holdAnimationRef.current);
+          holdAnimationRef.current = null;
+        }
+        setHoldPhase('active');
+        setHoldProgress(1);
+        setCountdown(1);
+        if (onTriggerSos) {
+          onTriggerSos();
+        } else {
+          Alert.alert(
+            'Emergency SOS',
+            'Your emergency alert is being prepared.',
+          );
+        }
+        return;
+      }
+
+      holdAnimationRef.current = requestAnimationFrame(tick);
+    };
+
+    holdAnimationRef.current = requestAnimationFrame(tick);
   };
+
+  const handleSosPressOut = () => {
+    if (holdPhase !== 'holding') return;
+    resetHoldState();
+  };
+
+  useEffect(() => {
+    if (holdPhase !== 'holding') {
+      Animated.timing(ringRotation, {
+        toValue: 0,
+        duration: 120,
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+
+    Animated.timing(ringRotation, {
+      toValue: holdProgress * 360,
+      duration: 100,
+      useNativeDriver: true,
+    }).start();
+  }, [holdPhase, holdProgress, ringRotation]);
+
+  useEffect(() => {
+    if (holdPhase !== 'active') return undefined;
+
+    const animation = Animated.sequence([
+      Animated.timing(pulseScale, {
+        toValue: 1.08,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(pulseScale, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]);
+
+    animation.start();
+    return () => animation.stop();
+  }, [holdPhase, pulseScale]);
+
+  useEffect(() => {
+    return () => {
+      if (holdAnimationRef.current) {
+        cancelAnimationFrame(holdAnimationRef.current);
+      }
+    };
+  }, []);
 
   return (
     <ScrollView
@@ -139,7 +237,7 @@ const UserHomeScreen = ({
           </Text>
 
           <Text style={styles.description}>
-            Tap SOS once to instantly send your emergency alert and safety details.
+            Press and hold for 3 seconds to trigger the emergency alert.
           </Text>
         </View>
 
@@ -148,25 +246,39 @@ const UserHomeScreen = ({
           <View style={styles.sosOuterRing}>
             <View style={styles.sosMiddleRing}>
               <View style={styles.sosInnerRing}>
+                <Animated.View style={[
+                  styles.progressRing,
+                  {
+                    opacity: holdPhase === 'holding' || holdPhase === 'active' ? 1 : 0,
+                    transform: [{rotate: `${holdProgress * 360}deg`}],
+                  },
+                ]} />
                 <TouchableOpacity
                   style={[
                     styles.sosButton,
                     sosLoading && styles.sosButtonLoading,
+                    (holdPhase === 'active' || sosLoading) && styles.sosButtonActive,
                     (!permissionState.allRequiredGranted || permissionState.isChecking) && styles.sosButtonDisabled,
+                    {transform: [{scale: holdPhase === 'active' ? pulseScale : 1}]},
                   ]}
                   activeOpacity={0.85}
-                  onPress={handleSOS}
+                  onPressIn={handleSosPressIn}
+                  onPressOut={handleSosPressOut}
                   disabled={sosLoading || hasActiveSosSession || !permissionState.allRequiredGranted || permissionState.isChecking}>
 
-                  <Text style={styles.sosText}>
-                    {sosLoading ? '...' : 'SOS'}
-                  </Text>
-
-                  <View style={styles.sosDivider} />
-
-                  <Text style={styles.tapOnceText}>
-                    TAP ONCE
-                  </Text>
+                  {holdPhase === 'holding' ? (
+                    <>
+                      <Text style={styles.countdownText}>{countdown}</Text>
+                      <View style={styles.sosDivider} />
+                      <Text style={styles.tapOnceText}>HOLD</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.sosText}>{holdPhase === 'active' ? 'SOS' : 'SOS'}</Text>
+                      <View style={styles.sosDivider} />
+                      <Text style={styles.tapOnceText}>{holdPhase === 'active' ? 'ACTIVE' : 'PRESS & HOLD'}</Text>
+                    </>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
@@ -373,8 +485,27 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
 
+  progressRing: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    borderWidth: 4,
+    borderColor: '#E4002B',
+    borderTopColor: '#E4002B',
+    borderRightColor: '#E4002B',
+    borderLeftColor: 'rgba(228, 0, 43, 0.2)',
+    borderBottomColor: 'rgba(228, 0, 43, 0.2)',
+    zIndex: 1,
+  },
+
   sosButtonLoading: {
     opacity: 0.7,
+  },
+
+  sosButtonActive: {
+    backgroundColor: '#CC001F',
+    shadowColor: '#CC001F',
   },
 
   sosButtonDisabled: {
@@ -387,6 +518,14 @@ const styles = StyleSheet.create({
     fontSize: 50,
     fontWeight: '900',
     letterSpacing: 4,
+  },
+
+  countdownText: {
+    color: '#FFFFFF',
+    fontSize: 64,
+    fontWeight: '900',
+    letterSpacing: 2,
+    lineHeight: 64,
   },
 
   sosDivider: {

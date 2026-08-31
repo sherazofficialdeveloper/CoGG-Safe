@@ -16,6 +16,7 @@ const UserNotificationScreen = ({
   token,
   onBack,
   onNotificationDetail,
+  onBadgeCountChange,
 }) => {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -38,6 +39,12 @@ const UserNotificationScreen = ({
   const unreadCount = useMemo(() => {
     return notifications.filter(item => !item.isRead).length;
   }, [notifications]);
+
+  useEffect(() => {
+    if (onBadgeCountChange) {
+      onBadgeCountChange(unreadCount);
+    }
+  }, [unreadCount, onBadgeCountChange]);
 
   const filteredNotifications = useMemo(() => {
     if (filter === 'Unread') {

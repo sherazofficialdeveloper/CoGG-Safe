@@ -3,7 +3,10 @@ export async function dispatchEmergencyNotifications({sosId}) {
     throw new Error('Notification dispatch requires a local SOS identifier.');
   }
 
-  return {status: 'PENDING', reason: 'Backend notification delivery is queued.'};
+  return {
+    status: 'PENDING',
+    reason: 'Real device push delivery is not configured in this app build. Backend notification records are created, but no FCM delivery can be claimed until Firebase credentials and Android config are supplied.',
+  };
 }
 
 export default { dispatchEmergencyNotifications };

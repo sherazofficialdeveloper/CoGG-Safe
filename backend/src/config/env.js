@@ -71,6 +71,15 @@ const env = {
     provider: process.env.STORAGE_PROVIDER || 'local',
     localPath: process.env.STORAGE_LOCAL_PATH || 'uploads',
     baseUrl: process.env.STORAGE_BASE_URL || 'http://localhost:5000/uploads',
+    
+    // R2 configuration (optional - only used if provider === 'r2')
+    r2: {
+      accountId: process.env.R2_ACCOUNT_ID || undefined,
+      accessKeyId: process.env.R2_ACCESS_KEY_ID || undefined,
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || undefined,
+      bucketName: process.env.R2_BUCKET_NAME || undefined,
+      publicBaseUrl: process.env.R2_PUBLIC_BASE_URL || undefined,
+    },
   },
 
   emergencyLink: {

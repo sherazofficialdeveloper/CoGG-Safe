@@ -168,6 +168,23 @@ export async function activateSosFlow({userId, collectionId, serviceRunners = {}
   event.status = backendReady ? 'ACTIVE' : 'PENDING';
   await sosLocalStore.upsertSos(event);
 
+  // Capture completes locally. Queue the existing upload worker only after
+  // the backend record exists, so device paths never become backend URLs.
+  if (backendReady && (
+    event.services?.camera?.frontImagePath ||
+    event.services?.camera?.backImagePath ||
+    event.services?.audio?.localPath ||
+    event.services?.camera?.status === 'FAILED' ||
+    event.services?.audio?.status === 'FAILED'
+  )) {
+    await enqueueSosJob({
+      sosId: event.id,
+      backendSosId: event.backendId,
+      type: 'MEDIA_UPLOAD',
+      serviceName: 'mediaUpload',
+    });
+  }
+
   return {event, execution};
 }
 

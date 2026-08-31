@@ -1,6 +1,12 @@
+plugins {
+    id("com.facebook.react")
+}
 apply plugin: "com.android.application"
-apply plugin: "org.jetbrains.kotlin.android"
-apply plugin: "com.facebook.react"
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
+} else {
+    logger.warn("Firebase Android config missing: add frontend/android/app/google-services.json from your real Firebase project to enable FCM.")
+}
 apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
 
 /**
@@ -131,4 +137,4 @@ dependencies {
         implementation jscFlavor
     }
 }
-apply from: "../../node_modules/react-native-vector-icons/fonts.gradle"
+apply from: "./vector-icons.gradle"

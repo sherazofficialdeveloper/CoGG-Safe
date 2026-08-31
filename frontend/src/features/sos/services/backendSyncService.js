@@ -1,5 +1,10 @@
-import {createSos} from '../../../api/resources';
+import {createSos, reportSosMedia, uploadSosMedia} from '../../../api/resources';
 import {getConnectivityState} from '../connectivity';
+const MEDIA_COMPONENTS = [
+  {component: 'frontImage', service: 'camera', path: 'frontImagePath', mimeType: 'image/jpeg'},
+  {component: 'backImage', service: 'camera', path: 'backImagePath', mimeType: 'image/jpeg'},
+  {component: 'audio', service: 'audio', path: 'localPath', mimeType: 'audio/mp4'},
+];
 
 export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
   const connectivity = getConnectivityState();
@@ -37,4 +42,45 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
   };
 }
 
-export default { syncSosToBackend };
+/**
+ * Transfers captured device files only after the backend SOS exists. Local
+ * Android paths are never reported as storage references.
+ */
+export async function uploadCapturedSosMedia({token, sosEvent}) {
+  const backendId = sosEvent?.backendId;
+  if (!token || !backendId) {
+    return {status: 'PENDING', reason: 'Media upload is waiting for an authenticated backend SOS.'};
+  }
+
+  const connectivity = getConnectivityState();
+  if (!Boolean(connectivity.isInternetReachable || connectivity.isConnected)) {
+    return {status: 'PENDING', reason: 'Internet unavailable; media upload queued.'};
+  }
+
+  const uploaded = [];
+  for (const item of MEDIA_COMPONENTS) {
+    const capture = sosEvent.services?.[item.service] || {};
+    const localPath = capture[item.path];
+    if (localPath) {
+      const response = await uploadSosMedia(token, backendId, item.component, {
+        uri: localPath.startsWith('file://') ? localPath : `file://${localPath}`,
+        type: item.mimeType,
+        name: `${item.component}-${Date.now()}${item.component === 'audio' ? '.m4a' : '.jpg'}`,
+      });
+      const media = response?.sos?.components?.[item.component];
+      if (media?.status !== 'success' || !media.storageRef) {
+        throw new Error(`Backend did not confirm durable storage for ${item.component}.`);
+      }
+      uploaded.push({component: item.component, storageRef: media.storageRef});
+    } else if (capture.status === 'FAILED') {
+      await reportSosMedia(token, backendId, item.component, {
+        status: 'failed',
+        error: capture.error || `${item.component} capture failed on the device.`,
+      });
+    }
+  }
+
+  return {status: 'COMPLETED', uploaded};
+}
+
+export default {syncSosToBackend, uploadCapturedSosMedia};

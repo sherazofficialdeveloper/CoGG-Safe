@@ -9,7 +9,7 @@ import {
   TextInput,
 } from 'react-native';
 import {listUsers} from '../../api/resources';
-import {SafeAreaView as ContextSafeAreaView} from 'react-native-safe-area-context';
+import {SafeAreaView as ContextSafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 
 const AdminUsersScreen = ({
   token,
@@ -18,6 +18,7 @@ const AdminUsersScreen = ({
   onProfile,
   currentAdmin,
 }) => {
+  const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
 
@@ -108,7 +109,7 @@ const AdminUsersScreen = ({
   };
 
   return (
-    <ContextSafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
+    <ContextSafeAreaView style={[styles.safeArea, {paddingTop: insets.top}]}>
       <StatusBar
         barStyle="dark-content"
         backgroundColor="#F7F7F8"

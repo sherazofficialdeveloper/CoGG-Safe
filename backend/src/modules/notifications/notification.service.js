@@ -78,7 +78,7 @@ async function listForUser(userId, query = {}) {
 
   const [items, total] = await Promise.all([
     Notification.find(filter)
-      .populate({ path: 'sosId', select: 'status' })
+      .populate({ path: 'sosId', select: 'status emergencyMessage components' })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit),

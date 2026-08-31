@@ -15,6 +15,8 @@ import {
 } from 'react-native';
 import {deactivateSos, stopLiveLocation} from '../../api/resources';
 import {API_BASE_URL} from '../../api/config';
+import AudioPlayer from '../../components/AudioPlayer';
+import {buildMediaUrl} from '../../utils/media';
 
 const AdminSosDetailScreen = ({
   sos,
@@ -41,10 +43,7 @@ const AdminSosDetailScreen = ({
       return;
     }
     setIsPlayingAudio(true);
-    Alert.alert('Audio', 'Audio playback is not available in this view.');
-    setTimeout(() => {
-      setIsPlayingAudio(false);
-    }, 5000);
+    setTimeout(() => setIsPlayingAudio(false), 5000);
   };
 
   const handleMarkResolved = () => {
@@ -104,6 +103,15 @@ const AdminSosDetailScreen = ({
   const audio = record.components?.audio;
   const localCamera = record.services?.camera;
   const localAudio = record.services?.audio;
+  const frontMediaUrl = frontImage?.status === 'success' && frontImage.storageRef
+    ? buildMediaUrl(API_BASE_URL, record.id || record._id, 'frontImage')
+    : null;
+  const backMediaUrl = backImage?.status === 'success' && backImage.storageRef
+    ? buildMediaUrl(API_BASE_URL, record.id || record._id, 'backImage')
+    : null;
+  const audioMediaUrl = audio?.status === 'success' && audio.storageRef
+    ? buildMediaUrl(API_BASE_URL, record.id || record._id, 'audio')
+    : null;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -255,8 +263,8 @@ const AdminSosDetailScreen = ({
               <View style={styles.photoBadge}>
                 <Text style={styles.photoBadgeText}>Front</Text>
               </View>
-              {frontImage?.status === 'success' && frontImage.storageRef ? (
-                <Image source={{uri: `${API_BASE_URL}/sos/${record.id || record._id}/media/frontImage/file`, headers: {Authorization: `Bearer ${token}`}}} style={styles.photoImage} />
+              {frontMediaUrl ? (
+                <Image source={{uri: frontMediaUrl, headers: {Authorization: `Bearer ${token}`}}} style={styles.photoImage} />
               ) : frontImage?.error || localCamera?.frontError ? (
                 <Text style={styles.photoStatus}>Failed: {frontImage?.error || localCamera.frontError}</Text>
               ) : (
@@ -267,8 +275,8 @@ const AdminSosDetailScreen = ({
               <View style={styles.photoBadge}>
                 <Text style={styles.photoBadgeText}>Back</Text>
               </View>
-              {backImage?.status === 'success' && backImage.storageRef ? (
-                <Image source={{uri: `${API_BASE_URL}/sos/${record.id || record._id}/media/backImage/file`, headers: {Authorization: `Bearer ${token}`}}} style={styles.photoImage} />
+              {backMediaUrl ? (
+                <Image source={{uri: backMediaUrl, headers: {Authorization: `Bearer ${token}`}}} style={styles.photoImage} />
               ) : backImage?.error || localCamera?.backError ? (
                 <Text style={styles.photoStatus}>Failed: {backImage?.error || localCamera.backError}</Text>
               ) : (
@@ -282,45 +290,51 @@ const AdminSosDetailScreen = ({
         <View style={styles.audioSection}>
           <Text style={styles.audioLabel}>🎙️ VOICE RECORDING</Text>
           <View style={styles.audioCard}>
-            <TouchableOpacity
-              style={[
-                styles.audioButton,
-                isPlayingAudio && styles.audioButtonPlaying,
-              ]}
-              activeOpacity={0.7}
-              onPress={handlePlayAudio}>
-              <Text style={styles.audioButtonText}>
-                {isPlayingAudio ? '⏸' : '▶'}
-              </Text>
-            </TouchableOpacity>
+            {audioMediaUrl ? (
+              <AudioPlayer audioUrl={audioMediaUrl} token={token} style={styles.audioPlayer} />
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={[
+                    styles.audioButton,
+                    isPlayingAudio && styles.audioButtonPlaying,
+                  ]}
+                  activeOpacity={0.7}
+                  onPress={handlePlayAudio}>
+                  <Text style={styles.audioButtonText}>
+                    {isPlayingAudio ? '⏸' : '▶'}
+                  </Text>
+                </TouchableOpacity>
 
-            <View style={styles.waveformContainer}>
-              {audio?.status === 'failed' || localAudio?.status === 'FAILED' ? (
-                <Text style={styles.noAudioText}>Failed: {audio?.error || localAudio?.error || 'Audio capture failed'}</Text>
-              ) : audio?.status === 'success' && audio.storageRef ? (
-                <Text style={styles.noAudioText}>Audio recording available</Text>
-              ) : waveformHeights.length > 0 ? (
-                waveformHeights.map((h, i) => (
-                  <View
-                    key={i}
-                    style={[
-                      styles.waveformBar,
-                      {
-                        height: h,
-                        backgroundColor: isPlayingAudio ? '#E4002B' : '#E4002B',
-                        opacity: isPlayingAudio ? 1 : 0.5,
-                      },
-                    ]}
-                  />
-                ))
-              ) : (
-                <Text style={styles.noAudioText}>Status: {audio?.status || localAudio?.status || 'pending'}</Text>
-              )}
-            </View>
+                <View style={styles.waveformContainer}>
+                  {audio?.status === 'failed' || localAudio?.status === 'FAILED' ? (
+                    <Text style={styles.noAudioText}>Failed: {audio?.error || localAudio?.error || 'Audio capture failed'}</Text>
+                  ) : audio?.status === 'success' && audio.storageRef ? (
+                    <Text style={styles.noAudioText}>Audio recording available</Text>
+                  ) : waveformHeights.length > 0 ? (
+                    waveformHeights.map((h, i) => (
+                      <View
+                        key={i}
+                        style={[
+                          styles.waveformBar,
+                          {
+                            height: h,
+                            backgroundColor: isPlayingAudio ? '#E4002B' : '#E4002B',
+                            opacity: isPlayingAudio ? 1 : 0.5,
+                          },
+                        ]}
+                      />
+                    ))
+                  ) : (
+                    <Text style={styles.noAudioText}>Status: {audio?.status || localAudio?.status || 'pending'}</Text>
+                  )}
+                </View>
 
-            <Text style={styles.audioDuration}>
-              {isPlayingAudio ? '00:05' : '00:00'}
-            </Text>
+                <Text style={styles.audioDuration}>
+                  {isPlayingAudio ? '00:05' : '00:00'}
+                </Text>
+              </>
+            )}
           </View>
         </View>
 
