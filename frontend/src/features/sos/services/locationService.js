@@ -1,13 +1,12 @@
-export async function getCurrentLocation() {
-  const navigatorRef = typeof navigator !== 'undefined' ? navigator : undefined;
-  const geolocation = navigatorRef && navigatorRef.geolocation;
+import Geolocation from '@react-native-community/geolocation';
 
-  if (!geolocation || typeof geolocation.getCurrentPosition !== 'function') {
+export async function getCurrentLocation() {
+  if (!Geolocation || typeof Geolocation.getCurrentPosition !== 'function') {
     throw new Error('Location services are not available on this device.');
   }
 
   return new Promise((resolve, reject) => {
-    geolocation.getCurrentPosition(
+    Geolocation.getCurrentPosition(
       (position) => {
         resolve({
           latitude: position?.coords?.latitude ?? null,
@@ -23,7 +22,7 @@ export async function getCurrentLocation() {
         enableHighAccuracy: true,
         timeout: 20000,
         maximumAge: 60000,
-      }
+      },
     );
   });
 }

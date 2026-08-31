@@ -15,6 +15,7 @@ export const iconNames = Object.freeze({
   notifications: 'bell-outline',
   sos: 'alarm-light-outline',
   settings: 'cog-outline',
+  logout: 'logout',
   add: 'plus',
   close: 'close',
   save: 'content-save-outline',

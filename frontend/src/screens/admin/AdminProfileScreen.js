@@ -10,6 +10,7 @@ import {
   StatusBar,
   SafeAreaView,
 } from 'react-native';
+import Icon from '../../components/Icon';
 
 const AdminProfileScreen = ({
   user,
@@ -137,7 +138,10 @@ const AdminProfileScreen = ({
             activeOpacity={0.7}
             style={styles.logoutButton}
             onPress={handleLogout}>
-            <Text style={styles.logoutText}>🚪 Log Out</Text>
+            <View style={styles.logoutLabel}>
+              <Icon name="logout" size={18} color="#E4002B" />
+              <Text style={styles.logoutText}>Log Out</Text>
+            </View>
           </TouchableOpacity>
 
           <View style={styles.bottomSpace} />
@@ -408,6 +412,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 6,
+  },
+
+  logoutLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
 
   logoutText: {

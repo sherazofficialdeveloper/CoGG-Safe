@@ -20,11 +20,38 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCou
 
   useEffect(() => {
     let mounted = true;
-    listNotifications(token)
-      .then(result => mounted && setNotifications(result.notifications || []))
-      .catch(requestError => mounted && setError(requestError.message))
-      .finally(() => mounted && setLoading(false));
-    return () => { mounted = false; };
+
+    const loadNotifications = async () => {
+      if (!token) {
+        setNotifications([]);
+        setError('');
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError('');
+
+      try {
+        const result = await listNotifications(token);
+        if (!mounted) return;
+        setNotifications(result.notifications || []);
+      } catch (requestError) {
+        if (!mounted) return;
+        setNotifications([]);
+        setError(requestError.message || 'Unable to load notifications. Please try again later.');
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadNotifications();
+
+    return () => {
+      mounted = false;
+    };
   }, [token]);
 
   const readNotification = notification => {

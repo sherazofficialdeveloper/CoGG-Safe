@@ -26,10 +26,14 @@ afterEvaluate {
         }
     }
 
-    tasks.matching { task ->
+    tasks.configureEach { task ->
         def taskName = task.name.toLowerCase()
-        return taskName.startsWith("generate") && (taskName.endsWith("assets") || taskName.contains("lintmodel") || taskName.contains("lintreportmodel") || taskName.contains("lintvitalreportmodel") || taskName.contains("lintanalyze") || taskName.contains("lintvitalanalyze"))
-    }.all { task ->
-        task.dependsOn(fontCopyTask)
+        if (task.name == "lintVitalAnalyzeRelease" ||
+                (taskName.startsWith("generate") && (taskName.endsWith("assets") ||
+                        taskName.contains("lintmodel") || taskName.contains("lintreportmodel") ||
+                        taskName.contains("lintvitalreportmodel") || taskName.contains("lintanalyze") ||
+                        taskName.contains("lintvitalanalyze")))) {
+            task.dependsOn(fontCopyTask)
+        }
     }
 }

@@ -78,7 +78,7 @@ const AppHeader = ({
             style={[styles.headerButton, styles.logoutButton]}
             onPress={onLogout}
             activeOpacity={0.75}>
-            <Text style={[styles.iconText, styles.logoutIcon]}>🚪</Text>
+            <Icon name="logout" size={22} color="#E4002B" style={styles.logoutIcon} />
           </TouchableOpacity>
         )}
 

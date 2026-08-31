@@ -112,6 +112,16 @@ const AdminSosDetailScreen = ({
   const audioMediaUrl = audio?.status === 'success' && audio.storageRef
     ? buildMediaUrl(API_BASE_URL, record.id || record._id, 'audio')
     : null;
+  const hasLiveLocationData = [liveLocation, record.liveLocation, record.location].some((entry) => {
+    if (!entry || typeof entry !== 'object') return false;
+    const latitude = Number(entry.lat ?? entry.latitude ?? 'NaN');
+    const longitude = Number(entry.lng ?? entry.longitude ?? 'NaN');
+    return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
+  });
+  const hasImageData = [frontMediaUrl, backMediaUrl, frontImage?.storageRef, backImage?.storageRef, localCamera?.frontImagePath, localCamera?.backImagePath].some(Boolean) || [frontImage, backImage].some((entry) => {
+    const status = String(entry?.status || '').toLowerCase();
+    return ['success', 'uploaded', 'ready', 'completed'].includes(status);
+  });
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -190,101 +200,101 @@ const AdminSosDetailScreen = ({
         </View>
         {actionError ? <Text style={styles.serviceResultError}>{actionError}</Text> : null}
 
-        {/* ================= LIVE LOCATION ================= */}
-        <View style={styles.locationSection}>
-          <View style={styles.locationHeader}>
-            <Text style={styles.locationLabel}>📍 LIVE LOCATION</Text>
-            {isActive && (
-              <View style={styles.liveBadge}>
-                <View style={styles.liveDot} />
-                <Text style={styles.liveText}>LIVE</Text>
-              </View>
-            )}
-          </View>
-
-          <TouchableOpacity
-            style={styles.mapContainer}
-            activeOpacity={0.8}
-            onPress={handleOpenLocation}>
-            <View style={styles.mapPlaceholder}>
-              {/* Grid lines */}
-              <View style={styles.mapGridLine1} />
-              <View style={styles.mapGridLine2} />
-              <View style={styles.mapGridLine3} />
-              <View style={styles.mapGridLine4} />
-              
-              {/* Pulsing pin for live location */}
-              <View style={styles.mapPinOuter}>
-                <View style={styles.mapPinMiddle}>
-                  <View style={styles.mapPinInner} />
-                </View>
-              </View>
-
+        {hasLiveLocationData ? (
+          <View style={styles.locationSection}>
+            <View style={styles.locationHeader}>
+              <Text style={styles.locationLabel}>📍 LIVE LOCATION</Text>
               {isActive && (
-                <View style={styles.mapPulseRing1} />
-              )}
-              {isActive && (
-                <View style={styles.mapPulseRing2} />
-              )}
-            </View>
-          </TouchableOpacity>
-
-          <View style={styles.locationDetails}>
-            <View style={styles.locationRow}>
-              <Text style={styles.locationAddress}>{displayAddress}</Text>
-            </View>
-            <View style={styles.locationRow}>
-              <Text style={styles.locationCoords}>
-                {displayLat != null && displayLng != null ? `${Number(displayLat).toFixed(4)}°, ${Number(displayLng).toFixed(4)}°` : 'Location unavailable'}
-              </Text>
-              <Text style={styles.locationAccuracy}>
-                ±{displayAccuracy}m
-              </Text>
-            </View>
-            <View style={styles.locationRow}>
-              <Text style={styles.locationUpdate}>
-                Updated {locationUpdateTime}
-              </Text>
-              {isActive && (
-                <View style={styles.locationRefresh}>
-                  <Text style={styles.locationRefreshText}>●</Text>
-                  <Text style={styles.locationRefreshLabel}>Auto-updating</Text>
+                <View style={styles.liveBadge}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.liveText}>LIVE</Text>
                 </View>
               )}
             </View>
-          </View>
-        </View>
 
-        {/* ================= PHOTOS ================= */}
-        <View style={styles.photosSection}>
-          <Text style={styles.photosLabel}>📷 CAMERA SNAPS</Text>
-          <View style={styles.photosGrid}>
-            <View style={styles.photoBox}>
-              <View style={styles.photoBadge}>
-                <Text style={styles.photoBadgeText}>Front</Text>
+            <TouchableOpacity
+              style={styles.mapContainer}
+              activeOpacity={0.8}
+              onPress={handleOpenLocation}>
+              <View style={styles.mapPlaceholder}>
+                <View style={styles.mapGridLine1} />
+                <View style={styles.mapGridLine2} />
+                <View style={styles.mapGridLine3} />
+                <View style={styles.mapGridLine4} />
+                <View style={styles.mapPinOuter}>
+                  <View style={styles.mapPinMiddle}>
+                    <View style={styles.mapPinInner} />
+                  </View>
+                </View>
+
+                {isActive && <View style={styles.mapPulseRing1} />}
+                {isActive && <View style={styles.mapPulseRing2} />}
               </View>
-              {frontMediaUrl ? (
-                <Image source={{uri: frontMediaUrl, headers: {Authorization: `Bearer ${token}`}}} style={styles.photoImage} />
-              ) : frontImage?.error || localCamera?.frontError ? (
-                <Text style={styles.photoStatus}>Failed: {frontImage?.error || localCamera.frontError}</Text>
-              ) : (
-                <Text style={styles.photoStatus}>Status: {frontImage?.status || localCamera?.status || 'pending'}{frontImage?.error ? `\nReason: ${frontImage.error}` : ''}</Text>
-              )}
-            </View>
-            <View style={styles.photoBox}>
-              <View style={styles.photoBadge}>
-                <Text style={styles.photoBadgeText}>Back</Text>
+            </TouchableOpacity>
+
+            <View style={styles.locationDetails}>
+              <View style={styles.locationRow}>
+                <Text style={styles.locationAddress}>{displayAddress}</Text>
               </View>
-              {backMediaUrl ? (
-                <Image source={{uri: backMediaUrl, headers: {Authorization: `Bearer ${token}`}}} style={styles.photoImage} />
-              ) : backImage?.error || localCamera?.backError ? (
-                <Text style={styles.photoStatus}>Failed: {backImage?.error || localCamera.backError}</Text>
-              ) : (
-                <Text style={styles.photoStatus}>Status: {backImage?.status || localCamera?.status || 'pending'}{backImage?.error ? `\nReason: ${backImage.error}` : ''}</Text>
-              )}
+              <View style={styles.locationRow}>
+                <Text style={styles.locationCoords}>
+                  {displayLat != null && displayLng != null ? `${Number(displayLat).toFixed(4)}°, ${Number(displayLng).toFixed(4)}°` : 'Location unavailable'}
+                </Text>
+                <Text style={styles.locationAccuracy}>
+                  ±{displayAccuracy}m
+                </Text>
+              </View>
+              <View style={styles.locationRow}>
+                <Text style={styles.locationUpdate}>
+                  Updated {locationUpdateTime}
+                </Text>
+                {isActive && (
+                  <View style={styles.locationRefresh}>
+                    <Text style={styles.locationRefreshText}>●</Text>
+                    <Text style={styles.locationRefreshLabel}>Auto-updating</Text>
+                  </View>
+                )}
+              </View>
             </View>
           </View>
-        </View>
+        ) : null}
+
+        {hasImageData ? (
+          <View style={styles.photosSection}>
+            <Text style={styles.photosLabel}>📷 CAMERA SNAPS</Text>
+            <View style={styles.photosGrid}>
+              <View style={styles.photoBox}>
+                <View style={styles.photoBadge}>
+                  <Text style={styles.photoBadgeText}>Front</Text>
+                </View>
+                {frontMediaUrl ? (
+                  <Image source={{uri: frontMediaUrl, headers: {Authorization: `Bearer ${token}`}}} style={styles.photoImage} />
+                ) : frontImage?.error || localCamera?.frontError ? (
+                  <Text style={styles.photoStatus}>Failed: {frontImage?.error || localCamera.frontError}</Text>
+                ) : (
+                  <Text style={styles.photoStatus}>Status: {frontImage?.status || localCamera?.status || 'pending'}{frontImage?.error ? `\nReason: ${frontImage.error}` : ''}</Text>
+                )}
+              </View>
+              <View style={styles.photoBox}>
+                <View style={styles.photoBadge}>
+                  <Text style={styles.photoBadgeText}>Back</Text>
+                </View>
+                {backMediaUrl ? (
+                  <Image source={{uri: backMediaUrl, headers: {Authorization: `Bearer ${token}`}}} style={styles.photoImage} />
+                ) : backImage?.error || localCamera?.backError ? (
+                  <Text style={styles.photoStatus}>Failed: {backImage?.error || localCamera.backError}</Text>
+                ) : (
+                  <Text style={styles.photoStatus}>Status: {backImage?.status || localCamera?.status || 'pending'}{backImage?.error ? `\nReason: ${backImage.error}` : ''}</Text>
+                )}
+              </View>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.photosSection}>
+            <Text style={styles.photosLabel}>📷 CAMERA SNAPS</Text>
+            <Text style={styles.photoStatus}>No camera images were captured for this SOS.</Text>
+          </View>
+        )}
 
         {/* ================= VOICE RECORDING ================= */}
         <View style={styles.audioSection}>

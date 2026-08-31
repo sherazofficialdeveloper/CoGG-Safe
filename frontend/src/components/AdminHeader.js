@@ -7,6 +7,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import Icon from './Icon';
 
 const AdminHeader = ({
   user,
@@ -66,7 +67,7 @@ const AdminHeader = ({
           style={[styles.headerButton, styles.logoutButton]}
           onPress={onLogout}
           activeOpacity={0.75}>
-          <Text style={styles.iconText}>🚪</Text>
+          <Icon name="logout" size={22} color="#E4002B" style={styles.logoutIcon} />
         </TouchableOpacity>
 
       </View>
@@ -165,8 +166,8 @@ const styles = StyleSheet.create({
     borderColor: '#FFD7DE',
   },
 
-  iconText: {
-    fontSize: 21,
+  logoutIcon: {
+    marginTop: 1,
   },
 
   switchText: {

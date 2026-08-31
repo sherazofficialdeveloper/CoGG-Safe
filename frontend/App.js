@@ -854,6 +854,7 @@ function AppContent() {
               />
             }>
             <AdminDashboardScreen
+              token={token}
               user={user}
               onNavigate={handleAdminNavigation}
               onCollections={() =>
@@ -1103,6 +1104,7 @@ function AppContent() {
               />
             }>
             <AdminDashboardScreen
+              token={token}
               user={user}
               onNavigate={handleAdminNavigation}
               onCollections={() =>
