@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Text,
   BackHandler,
+  DeviceEventEmitter,
 } from 'react-native';
 
 import {SafeAreaProvider} from 'react-native-safe-area-context';
@@ -408,7 +409,11 @@ function AppContent() {
   // SOS HANDLER
   // ============================================================
 
-  const handleTriggerSos = async () => {
+  const handleTriggerSos = useCallback(async () => {
+    if (sosLoading) {
+      return;
+    }
+
     setSosError('');
     setSosLoading(true);
     sosCancelSignalRef.current = {cancelled: false};
@@ -438,12 +443,8 @@ function AppContent() {
         },
 
         serviceRunners: {
-          // ------------------------------------------------------
-          // SMS
-          // ------------------------------------------------------
           sms: async event => {
             const location = await getCurrentLocation().catch(() => null);
-
             const message = location
               ? `Emergency assistance requested. Location: ${location.latitude}, ${location.longitude}`
               : 'Emergency assistance requested.';
@@ -454,38 +455,23 @@ function AppContent() {
             });
           },
 
-          // ------------------------------------------------------
-          // EMERGENCY CALL
-          // ------------------------------------------------------
           call: async () =>
             initiateEmergencyCall({
               emergencyNumber: collection?.emergencyCallNumber,
             }),
 
-          // ------------------------------------------------------
-          // CAMERA
-          // ------------------------------------------------------
           camera: async event =>
             captureEmergencyPhotos({
               sosId: event.id,
             }),
 
-          // ------------------------------------------------------
-          // AUDIO
-          // ------------------------------------------------------
           audio: async event =>
             recordEmergencyAudio({
               sosId: event.id,
             }),
 
-          // ------------------------------------------------------
-          // LOCATION
-          // ------------------------------------------------------
           location: async () => getCurrentLocation(),
 
-          // ------------------------------------------------------
-          // LIVE LOCATION
-          // ------------------------------------------------------
           liveLocation: async event =>
             startLiveLocationSharing({
               token,
@@ -493,9 +479,6 @@ function AppContent() {
               backendId: event.backendId,
             }),
 
-          // ------------------------------------------------------
-          // BACKEND
-          // ------------------------------------------------------
           backend: async event =>
             syncSosToBackend({
               token,
@@ -503,17 +486,11 @@ function AppContent() {
               idempotencyKey: event.id,
             }),
 
-          // ------------------------------------------------------
-          // EMAIL
-          // ------------------------------------------------------
           email: async () => ({
             status: 'COMPLETED',
             reason: 'Email dispatch is handled by the backend after activation.',
           }),
 
-          // ------------------------------------------------------
-          // NOTIFICATIONS
-          // ------------------------------------------------------
           notifications: async () => ({
             status: 'COMPLETED',
             reason: 'Notification dispatch is handled by the backend after activation.',
@@ -537,12 +514,28 @@ function AppContent() {
         error?.message || 'Unable to trigger the SOS alert.';
 
       setSosError(message);
-
       showToast('Failed to trigger SOS', 'error');
     } finally {
       setSosLoading(false);
     }
-  };
+  }, [sosLoading, showToast, token, user, setScreen]);
+
+  useEffect(() => {
+    if (!user || user.role !== 'user') {
+      return undefined;
+    }
+
+    const listener = DeviceEventEmitter.addListener(
+      'powerButtonSosTrigger',
+      () => {
+        if (!sosLoading) {
+          handleTriggerSos();
+        }
+      },
+    );
+
+    return () => listener.remove();
+  }, [handleTriggerSos, sosLoading, user]);
 
   // ============================================================
   // LOADING SCREEN

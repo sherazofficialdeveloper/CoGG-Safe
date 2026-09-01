@@ -10,6 +10,7 @@ import {
   ScrollView,
   TextInput,
   Platform,
+  Alert,
 } from 'react-native';
 import {deleteSos, deactivateSos, listSos} from '../../api/resources';
 import Icon from '../../components/Icon';
@@ -179,15 +180,18 @@ const AdminSosScreen = ({
               </Text>
             </View>
           ) : (
-            filteredAlerts.map(alert => (
-              <TouchableOpacity
-                key={alert.id}
-                style={[
-                  styles.alertCard,
-                  alert.status === 'Active' && styles.activeCardBorder,
-                ]}
-                activeOpacity={0.8}
-                onPress={() => onSosDetail?.(alert)}>
+            filteredAlerts.map(alert => {
+              const sosId = alert._id || alert.id;
+
+              return (
+                <TouchableOpacity
+                  key={sosId || `${alert.userName}-${alert.time}`}
+                  style={[
+                    styles.alertCard,
+                    alert.status === 'Active' && styles.activeCardBorder,
+                  ]}
+                  activeOpacity={0.8}
+                  onPress={() => onSosDetail?.(alert)}>
 
                 {/* ===== HEADER ===== */}
                 <View style={styles.alertHeader}>
@@ -260,14 +264,20 @@ const AdminSosScreen = ({
                 </View>
                 <View style={styles.actionRow}>
                   {alert.status === 'Active' ? <>
-                    <TouchableOpacity style={styles.deactivateButton} onPress={() => runAdminAction(deactivateSos, alert.id)}><Text style={styles.actionText}>Deactivate</Text></TouchableOpacity>
-                    <TouchableOpacity style={styles.resolveButton} onPress={() => runAdminAction(deactivateSos, alert.id)}><Text style={styles.resolveText}>Resolve</Text></TouchableOpacity>
+                    <TouchableOpacity style={styles.deactivateButton} onPress={() => runAdminAction(deactivateSos, sosId)}><Text style={styles.actionText}>Deactivate</Text></TouchableOpacity>
+                    <TouchableOpacity style={styles.resolveButton} onPress={() => runAdminAction(deactivateSos, sosId)}><Text style={styles.resolveText}>Resolve</Text></TouchableOpacity>
                   </> : null}
-                  <TouchableOpacity style={styles.deleteButton} onPress={() => runAdminAction(deleteSos, alert.id)}><Text style={styles.deleteText}>Delete</Text></TouchableOpacity>
+                  <TouchableOpacity style={styles.deleteButton} onPress={() => {
+                    Alert.alert('Delete SOS alert', 'This will permanently remove the SOS record from the admin list.', [
+                      {text: 'Cancel', style: 'cancel'},
+                      {text: 'Delete', style: 'destructive', onPress: () => runAdminAction(deleteSos, sosId)},
+                    ]);
+                  }}><Text style={styles.deleteText}>Delete</Text></TouchableOpacity>
                 </View>
 
               </TouchableOpacity>
-            ))
+              );
+            })
           )}
 
           <View style={styles.bottomSpace} />

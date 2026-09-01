@@ -73,8 +73,28 @@ export function resolveSosServiceStatus(serviceName, networkState) {
   return 'PENDING';
 }
 
-export async function activateSosFlow({userId, collectionId, serviceRunners = {}}) {
+export async function activateSosFlow({
+  userId,
+  collectionId,
+  serviceRunners = {},
+  cancelSignal = null,
+  onPending = null,
+  countdownMs = null,
+} = {}) {
+  if (cancelSignal?.cancelled) {
+    return {event: null, execution: [], cancelled: true};
+  }
+
   const event = await createSosLocalEvent({userId, collectionId});
+  if (typeof onPending === 'function') {
+    onPending(event);
+  }
+
+  if (cancelSignal?.cancelled) {
+    event.status = 'CANCELLED';
+    await sosLocalStore.upsertSos(event);
+    return {event, execution: [], cancelled: true};
+  }
 
   const defaultRunners = {
     sms: async () => 'sms',
@@ -97,6 +117,12 @@ export async function activateSosFlow({userId, collectionId, serviceRunners = {}
   let backendReady = false;
 
   for (const serviceName of names) {
+    if (cancelSignal?.cancelled) {
+      event.status = 'CANCELLED';
+      await sosLocalStore.upsertSos(event);
+      return {event, execution, cancelled: true};
+    }
+
     const serviceState = event.services[serviceName];
     try {
       const result = await runners[serviceName](event);
@@ -163,6 +189,12 @@ export async function activateSosFlow({userId, collectionId, serviceRunners = {}
         return {event, execution};
       }
     }
+  }
+
+  if (cancelSignal?.cancelled) {
+    event.status = 'CANCELLED';
+    await sosLocalStore.upsertSos(event);
+    return {event, execution, cancelled: true};
   }
 
   event.status = backendReady ? 'ACTIVE' : 'PENDING';

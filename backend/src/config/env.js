@@ -17,6 +17,12 @@ if (missing.length > 0 && process.env.NODE_ENV !== 'test') {
   process.exit(1);
 }
 
+const storageProvider = (() => {
+  const hasR2Config = ['R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET_NAME']
+    .every((key) => Boolean(process.env[key]));
+  return process.env.STORAGE_PROVIDER === 'r2' && hasR2Config ? 'r2' : 'local';
+})();
+
 const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   port: parseInt(process.env.PORT, 10) || 5000,
@@ -68,10 +74,10 @@ const env = {
   },
 
   storage: {
-    provider: process.env.STORAGE_PROVIDER || 'local',
+    provider: storageProvider,
     localPath: process.env.STORAGE_LOCAL_PATH || 'uploads',
     baseUrl: process.env.STORAGE_BASE_URL || 'http://localhost:5000/uploads',
-    
+
     // R2 configuration (optional - only used if provider === 'r2')
     r2: {
       accountId: process.env.R2_ACCOUNT_ID || undefined,

@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {ActivityIndicator, FlatList, SafeAreaView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Icon from '../../components/Icon';
@@ -9,6 +9,7 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCou
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const requestIdRef = useRef(0);
 
   const unreadCount = notifications.filter(item => !item.isRead).length;
 
@@ -20,12 +21,15 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCou
 
   useEffect(() => {
     let mounted = true;
+    const requestId = ++requestIdRef.current;
 
     const loadNotifications = async () => {
       if (!token) {
-        setNotifications([]);
-        setError('');
-        setLoading(false);
+        if (mounted) {
+          setNotifications([]);
+          setError('');
+          setLoading(false);
+        }
         return;
       }
 
@@ -34,14 +38,18 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCou
 
       try {
         const result = await listNotifications(token);
-        if (!mounted) return;
+        if (!mounted || requestId !== requestIdRef.current) {
+          return;
+        }
         setNotifications(result.notifications || []);
       } catch (requestError) {
-        if (!mounted) return;
+        if (!mounted || requestId !== requestIdRef.current) {
+          return;
+        }
         setNotifications([]);
         setError(requestError.message || 'Unable to load notifications. Please try again later.');
       } finally {
-        if (mounted) {
+        if (mounted && requestId === requestIdRef.current) {
           setLoading(false);
         }
       }
@@ -51,6 +59,7 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCou
 
     return () => {
       mounted = false;
+      requestIdRef.current += 1;
     };
   }, [token]);
 
