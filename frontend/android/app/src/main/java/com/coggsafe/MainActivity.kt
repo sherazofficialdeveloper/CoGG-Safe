@@ -40,6 +40,7 @@ class MainActivity : ReactActivity() {
       if (powerPressTimestamps.size >= requiredPowerPresses) {
         powerPressTimestamps.clear()
         emitPowerButtonTrigger()
+        return true
       }
     }
 

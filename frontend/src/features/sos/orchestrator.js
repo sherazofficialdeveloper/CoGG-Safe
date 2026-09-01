@@ -87,7 +87,7 @@ export async function activateSosFlow({
 
   const event = await createSosLocalEvent({userId, collectionId});
   if (typeof onPending === 'function') {
-    onPending(event);
+    await onPending(event);
   }
 
   if (cancelSignal?.cancelled) {
@@ -116,17 +116,35 @@ export async function activateSosFlow({
   const execution = [];
   let backendReady = false;
 
-  for (const serviceName of names) {
-    if (cancelSignal?.cancelled) {
-      event.status = 'CANCELLED';
-      await sosLocalStore.upsertSos(event);
-      return {event, execution, cancelled: true};
+  if (__DEV__) {
+    console.log('SOS_ORCHESTRATOR_STARTED', {names, userId, collectionId, eventId: event.id});
+  }
+
+  const runService = async serviceName => {
+    const serviceState = event.services[serviceName];
+    const tagPrefix = {
+      backend: 'SOS_SYNC',
+      location: 'SOS_LOCATION',
+      camera: 'SOS_CAMERA',
+      audio: 'SOS_AUDIO',
+      sms: 'SOS_SMS',
+      call: 'SOS_CALL',
+      notifications: 'SOS_NOTIFICATION',
+      liveLocation: 'SOS_LOCATION',
+      email: 'SOS_NOTIFICATION',
+    }[serviceName] || 'SOS_SERVICE';
+
+    if (__DEV__) {
+      console.log(`${tagPrefix}_STARTED`, {eventId: event.id, serviceName});
     }
 
-    const serviceState = event.services[serviceName];
     try {
       const result = await runners[serviceName](event);
       const resultStatus = result?.status || 'COMPLETED';
+
+      if (__DEV__) {
+        console.log(`${tagPrefix}_FINISHED`, {eventId: event.id, serviceName, resultStatus, result});
+      }
 
       if (serviceName === 'backend') {
         if (resultStatus === 'FAILED') {
@@ -145,9 +163,7 @@ export async function activateSosFlow({
       const next = {
         ...serviceState,
         status: resultStatus,
-        ...(resultStatus === 'COMPLETED' || resultStatus === 'NOT_CONFIGURED'
-          ? {completedAt: new Date().toISOString()}
-          : {}),
+        ...(resultStatus === 'COMPLETED' || resultStatus === 'NOT_CONFIGURED' ? {completedAt: new Date().toISOString()} : {}),
         ...(result && typeof result === 'object' ? {
           lastResult: result,
           ...(result.frontImagePath !== undefined ? {frontImagePath: result.frontImagePath} : {}),
@@ -156,6 +172,7 @@ export async function activateSosFlow({
           ...(result.error !== undefined ? {error: result.error} : {}),
         } : {}),
       };
+
       if (serviceName === 'location' && result?.latitude != null && result?.longitude != null) {
         event.location = {...event.location, ...result};
       }
@@ -163,13 +180,19 @@ export async function activateSosFlow({
         event.liveLocationStartedAt = result.startedAt;
         event.liveLocationStatus = 'ACTIVE';
       }
+
       event.services[serviceName] = next;
       await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
       if (resultStatus === 'PENDING' && RETRYABLE_SERVICES.has(serviceName)) {
         await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
       }
-      execution.push({serviceName, status: resultStatus, result});
+
+      return {serviceName, status: resultStatus, result};
     } catch (error) {
+      if (__DEV__) {
+        console.log(`${tagPrefix}_FAILED`, {eventId: event.id, serviceName, error: error?.message || error});
+      }
+
       const next = {
         ...serviceState,
         status: 'FAILED',
@@ -181,23 +204,50 @@ export async function activateSosFlow({
       if (RETRYABLE_SERVICES.has(serviceName)) {
         await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
       }
-      execution.push({serviceName, status: 'FAILED', error: error?.message || 'Service failed'});
-
-      if (serviceName === 'backend') {
-        event.status = 'PENDING';
-        await sosLocalStore.upsertSos(event);
-        return {event, execution};
-      }
+      return {serviceName, status: 'FAILED', error: error?.message || 'Service failed'};
     }
-  }
+  };
+
+  const settled = await Promise.allSettled(names.map(serviceName => runService(serviceName)));
+  execution.push(...settled.map(result => result.status === 'fulfilled' ? result.value : {
+    serviceName: result.reason?.serviceName || 'unknown',
+    status: 'FAILED',
+    error: result.reason?.message || 'Service failed',
+  }));
 
   if (cancelSignal?.cancelled) {
     event.status = 'CANCELLED';
     await sosLocalStore.upsertSos(event);
-    return {event, execution, cancelled: true};
+    return {event, execution, cancelled: true, result: {
+      call: false,
+      sms: false,
+      location: false,
+      camera: false,
+      audio: false,
+      upload: false,
+      notification: false,
+    }};
   }
 
   event.status = backendReady ? 'ACTIVE' : 'PENDING';
+  const summary = {
+    call: Boolean(event.services?.call?.status === 'COMPLETED' || event.services?.call?.status === 'INITIATED' || event.services?.call?.status === 'SENT'),
+    sms: Boolean(event.services?.sms?.status === 'COMPLETED' || event.services?.sms?.status === 'SENT'),
+    location: Boolean(event.services?.location?.status === 'COMPLETED' || (event.location?.latitude != null && event.location?.longitude != null)),
+    camera: Boolean(event.services?.camera?.status === 'COMPLETED' || (event.services?.camera?.frontImagePath || event.services?.camera?.backImagePath)),
+    audio: Boolean(event.services?.audio?.status === 'COMPLETED' || event.services?.audio?.localPath),
+    upload: Boolean(event.services?.camera?.status === 'COMPLETED' || event.services?.audio?.status === 'COMPLETED' || event.services?.backend?.status === 'COMPLETED'),
+    notification: Boolean(event.services?.notifications?.status === 'COMPLETED' || event.services?.notifications?.status === 'PENDING'),
+  };
+  if (__DEV__) {
+    console.log('SOS_ACTIVATION_FINISHED', {
+      eventId: event.id,
+      status: event.status,
+      backendReady,
+      serviceResults: execution,
+      summary,
+    });
+  }
   await sosLocalStore.upsertSos(event);
 
   // Capture completes locally. Queue the existing upload worker only after
@@ -217,7 +267,7 @@ export async function activateSosFlow({
     });
   }
 
-  return {event, execution};
+  return {event, execution, result: summary};
 }
 
 export default {

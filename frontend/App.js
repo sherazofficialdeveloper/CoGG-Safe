@@ -99,6 +99,7 @@ function AppContent() {
   const [userNotificationCount, setUserNotificationCount] = useState(0);
   const [adminNotificationCount, setAdminNotificationCount] = useState(0);
   const sosCancelSignalRef = useRef({cancelled: false});
+  const sosTriggerInFlightRef = useRef(false);
 
   // Toast State
   const [toast, setToast] = useState({
@@ -409,14 +410,27 @@ function AppContent() {
   // SOS HANDLER
   // ============================================================
 
-  const handleTriggerSos = useCallback(async () => {
-    if (sosLoading) {
+  const handleTriggerSos = useCallback(async ({skipNavigation = false} = {}) => {
+    if (__DEV__) {
+      console.log('SOS_ACTIVATION_REQUESTED', {
+        sosLoading,
+        userId: user?._id || user?.id,
+        skipNavigation,
+      });
+    }
+
+    if (sosLoading || sosTriggerInFlightRef.current) {
       return;
     }
 
+    sosTriggerInFlightRef.current = true;
     setSosError('');
     setSosLoading(true);
     sosCancelSignalRef.current = {cancelled: false};
+
+    if (__DEV__) {
+      console.log('SOS_ORCHESTRATOR_STARTED', {source: 'app-trigger', skipNavigation});
+    }
 
     try {
       let collection = null;
@@ -425,21 +439,30 @@ function AppContent() {
         collectionId: user?.collectionId,
         countdownMs: 10000,
         cancelSignal: sosCancelSignalRef.current,
-        onPending: event => {
-          setSelectedSos(event);
-          setScreen('userSosActive');
-          getCollection(token, user?.collectionId)
-            .then(collectionResponse => {
-              collection = collectionResponse.collection;
+        onPending: async event => {
+          if (!skipNavigation) {
+            setSelectedSos(event);
+            setScreen('userSosActive');
+          }
+
+          try {
+            const collectionResponse = await getCollection(token, user?.collectionId);
+            collection = collectionResponse?.collection || null;
+            const emergencyNumber = collection?.emergencyCallNumber || event?.meta?.emergencyNumber;
+            if (emergencyNumber) {
               sosLocalStore.upsertSos({
                 ...event,
                 meta: {
                   ...event.meta,
-                  emergencyNumber: collection.emergencyCallNumber,
+                  emergencyNumber,
                 },
               });
-            })
-            .catch(() => undefined);
+            }
+          } catch (error) {
+            if (__DEV__) {
+              console.log('SOS_COLLECTION_LOAD_FAILED', {error: error?.message || error});
+            }
+          }
         },
 
         serviceRunners: {
@@ -449,15 +472,16 @@ function AppContent() {
               ? `Emergency assistance requested. Location: ${location.latitude}, ${location.longitude}`
               : 'Emergency assistance requested.';
 
+            const emergencyNumber = collection?.emergencyCallNumber || event?.meta?.emergencyNumber;
             return sendEmergencySms({
-              phoneNumber: collection?.emergencyCallNumber,
+              phoneNumber: emergencyNumber,
               message,
             });
           },
 
-          call: async () =>
+          call: async event =>
             initiateEmergencyCall({
-              emergencyNumber: collection?.emergencyCallNumber,
+              emergencyNumber: collection?.emergencyCallNumber || event?.meta?.emergencyNumber,
             }),
 
           camera: async event =>
@@ -501,8 +525,10 @@ function AppContent() {
       if (result?.cancelled) {
         showToast('SOS cancelled before dispatch.', 'info');
       } else if (result?.event) {
-        setSelectedSos(result.event);
-        setScreen('userSosActive');
+        if (!skipNavigation) {
+          setSelectedSos(result.event);
+          setScreen('userSosActive');
+        }
 
         showToast(
           'SOS alert triggered locally and queued for delivery.',
@@ -517,6 +543,7 @@ function AppContent() {
       showToast('Failed to trigger SOS', 'error');
     } finally {
       setSosLoading(false);
+      sosTriggerInFlightRef.current = false;
     }
   }, [sosLoading, showToast, token, user, setScreen]);
 
@@ -529,7 +556,7 @@ function AppContent() {
       'powerButtonSosTrigger',
       () => {
         if (!sosLoading) {
-          handleTriggerSos();
+          handleTriggerSos({skipNavigation: true});
         }
       },
     );

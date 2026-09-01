@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "618962567452",
+    "project_id": "cogg-safe",
+    "storage_bucket": "cogg-safe.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:618962567452:android:69d2ac164b6f69eb5c7ad9",
+        "android_client_info": {
+          "package_name": "com.coggsafe.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAN5pwB_8EuqD6zLy2S7zNHH3VFOtd4c-E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

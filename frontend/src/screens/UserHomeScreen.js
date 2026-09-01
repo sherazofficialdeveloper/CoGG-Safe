@@ -35,7 +35,7 @@ const UserHomeScreen = ({
   const [hasActiveSosSession, setHasActiveSosSession] = useState(false);
   const [sharingError, setSharingError] = useState('');
   const [stoppingSharing, setStoppingSharing] = useState(false);
-  const [holdPhase, setHoldPhase] = useState('idle');
+  const [holdPhase, setHoldPhase] = useState('IDLE');
   const [countdown, setCountdown] = useState(3);
   const [holdProgress, setHoldProgress] = useState(0);
   const holdAnimationRef = useRef(null);
@@ -119,21 +119,58 @@ const UserHomeScreen = ({
     holdStartedAtRef.current = 0;
     setHoldProgress(0);
     setCountdown(3);
-    setHoldPhase('idle');
+    setHoldPhase('IDLE');
   };
 
   const handleSosPressIn = () => {
-    if (permissionState.isChecking || sosLoading || hasActiveSosSession) return;
-    const currentPermissionState = permissionState;
-    const canStartHold = Boolean(currentPermissionState.allRequiredGranted || currentPermissionState.triggerPermissionsGranted);
-    if (!canStartHold) return;
-    if (activationStartedRef.current) return;
+    if (__DEV__) {
+      console.log('SOS_BUTTON_PRESS_IN', {
+        permissionState,
+        sosLoading,
+        hasActiveSosSession,
+        holdPhase,
+        activationStarted: activationStartedRef.current,
+      });
+    }
+
+    if (permissionState.isChecking || sosLoading || hasActiveSosSession) {
+      if (__DEV__) {
+        console.log('SOS_HOLD_CANCELLED', 'button unavailable due to app state');
+      }
+      return;
+    }
+
+    if (holdPhase === 'HOLDING' || holdPhase === 'ACTIVATING' || holdPhase === 'ACTIVE' || activationStartedRef.current) {
+      if (__DEV__) {
+        console.log('SOS_HOLD_CANCELLED', 'duplicate hold already active');
+      }
+      return;
+    }
+
+    const canStartHold = Boolean(
+      permissionState.allRequiredGranted || permissionState.triggerPermissionsGranted,
+    );
+
+    if (!canStartHold) {
+      if (__DEV__) {
+        console.log('SOS_HOLD_CANCELLED', 'permissions missing; hold blocked until granted');
+      }
+      setHoldPhase('IDLE');
+      setHoldProgress(0);
+      setCountdown(3);
+      return;
+    }
 
     holdStartedAtRef.current = Date.now();
     activationStartedRef.current = false;
-    setHoldPhase('holding');
+    setHoldPhase('HOLDING');
     setCountdown(3);
     setHoldProgress(0);
+
+    if (__DEV__) {
+      console.log('SOS_HOLD_STARTED', {startedAt: holdStartedAtRef.current, durationMs: SOS_HOLD_DURATION_MS});
+      console.log('SOS_COUNTDOWN_3', {countdown: 3});
+    }
 
     const tick = () => {
       const snapshot = getHoldSnapshot({
@@ -145,27 +182,36 @@ const UserHomeScreen = ({
       setHoldProgress(snapshot.progress);
       setCountdown(snapshot.countdown);
 
+      if (__DEV__) {
+        if (snapshot.countdown === 3) console.log('SOS_COUNTDOWN_3', {countdown: 3});
+        if (snapshot.countdown === 2) console.log('SOS_COUNTDOWN_2', {countdown: 2});
+        if (snapshot.countdown === 1) console.log('SOS_COUNTDOWN_1', {countdown: 1});
+      }
+
       if (snapshot.shouldActivate) {
-        if (holdAnimationRef.current) {
-          cancelAnimationFrame(holdAnimationRef.current);
-          holdAnimationRef.current = null;
-        }
         if (holdTimeoutRef.current) {
           clearTimeout(holdTimeoutRef.current);
           holdTimeoutRef.current = null;
         }
         activationStartedRef.current = true;
-        setHoldPhase('active');
+        setHoldPhase('ACTIVATING');
         setHoldProgress(1);
-        setCountdown(1);
+        setCountdown(0);
+
+        if (__DEV__) {
+          console.log('SOS_HOLD_COMPLETED', {startedAt: holdStartedAtRef.current, progress: snapshot.progress});
+          console.log('SOS_ACTIVATION_STARTED', {source: 'home-button-hold'});
+        }
+
         if (onTriggerSos) {
           onTriggerSos();
         } else {
-          Alert.alert(
-            'Emergency SOS',
-            'Your emergency alert is being prepared.',
-          );
+          Alert.alert('Emergency SOS', 'Your emergency alert is being prepared.');
         }
+
+        setTimeout(() => {
+          setHoldPhase('ACTIVE');
+        }, 150);
         return;
       }
 
@@ -177,12 +223,22 @@ const UserHomeScreen = ({
   };
 
   const handleSosPressOut = () => {
-    if (holdPhase !== 'holding' || activationStartedRef.current) return;
+    if (__DEV__) {
+      console.log('SOS_BUTTON_PRESS_OUT', {holdPhase, activationStarted: activationStartedRef.current});
+    }
+
+    if (holdPhase !== 'HOLDING' || activationStartedRef.current) {
+      return;
+    }
+
+    if (__DEV__) {
+      console.log('SOS_HOLD_CANCELLED', {elapsedMs: Date.now() - holdStartedAtRef.current});
+    }
     resetHoldState();
   };
 
   useEffect(() => {
-    if (holdPhase !== 'holding') {
+    if (holdPhase !== 'HOLDING') {
       Animated.timing(ringRotation, {
         toValue: 0,
         duration: 120,
@@ -199,7 +255,7 @@ const UserHomeScreen = ({
   }, [holdPhase, holdProgress, ringRotation]);
 
   useEffect(() => {
-    if (holdPhase !== 'active') return undefined;
+    if (holdPhase !== 'ACTIVE') return undefined;
 
     const animation = Animated.sequence([
       Animated.timing(pulseScale, {
@@ -268,7 +324,7 @@ const UserHomeScreen = ({
                 <Animated.View style={[
                   styles.progressRing,
                   {
-                    opacity: holdPhase === 'holding' || holdPhase === 'active' ? 1 : 0,
+                    opacity: holdPhase === 'HOLDING' || holdPhase === 'ACTIVE' ? 1 : 0,
                     transform: [{rotate: `${holdProgress * 360}deg`}],
                   },
                 ]} />
@@ -276,16 +332,16 @@ const UserHomeScreen = ({
                   style={[
                     styles.sosButton,
                     sosLoading && styles.sosButtonLoading,
-                    (holdPhase === 'active' || sosLoading) && styles.sosButtonActive,
-                    (!permissionState.allRequiredGranted || permissionState.isChecking) && styles.sosButtonDisabled,
-                    {transform: [{scale: holdPhase === 'active' ? pulseScale : 1}]},
+                    (holdPhase === 'ACTIVE' || sosLoading) && styles.sosButtonActive,
+                    !permissionState.allRequiredGranted && styles.sosButtonDisabled,
+                    {transform: [{scale: holdPhase === 'ACTIVE' ? pulseScale : 1}]},
                   ]}
                   activeOpacity={0.85}
                   onPressIn={handleSosPressIn}
                   onPressOut={handleSosPressOut}
-                  disabled={sosLoading || hasActiveSosSession || !permissionState.allRequiredGranted || permissionState.isChecking}>
+                  disabled={sosLoading || hasActiveSosSession || permissionState.isChecking}>
 
-                  {holdPhase === 'holding' ? (
+                  {holdPhase === 'HOLDING' ? (
                     <>
                       <Text style={styles.countdownText}>{countdown}</Text>
                       <View style={styles.sosDivider} />
@@ -293,9 +349,9 @@ const UserHomeScreen = ({
                     </>
                   ) : (
                     <>
-                      <Text style={styles.sosText}>{holdPhase === 'active' ? 'SOS' : 'SOS'}</Text>
+                      <Text style={styles.sosText}>{holdPhase === 'ACTIVE' ? 'SOS' : 'SOS'}</Text>
                       <View style={styles.sosDivider} />
-                      <Text style={styles.tapOnceText}>{holdPhase === 'active' ? 'ACTIVE' : 'PRESS & HOLD'}</Text>
+                      <Text style={styles.tapOnceText}>{holdPhase === 'ACTIVE' ? 'ACTIVE' : 'PRESS & HOLD'}</Text>
                     </>
                   )}
                 </TouchableOpacity>
