@@ -13,6 +13,8 @@ class MainActivity : ReactActivity() {
   private val powerPressWindowMs = 5000L
   private val requiredPowerPresses = 3
   private val powerPressTimestamps = ArrayDeque<Long>()
+  private var lastPowerKeyEventTimeMs = 0L
+  private val powerKeyDebounceMs = 200L
 
   /**
    * Returns the name of the main component registered from JavaScript. This is used to schedule
@@ -30,15 +32,26 @@ class MainActivity : ReactActivity() {
   override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
     if (keyCode == KeyEvent.KEYCODE_POWER) {
       val now = SystemClock.elapsedRealtime()
+      
+      // Debounce: ignore key events that come too quickly after the last one
+      // to avoid counting repeated key events from a single physical press
+      if (now - lastPowerKeyEventTimeMs < powerKeyDebounceMs) {
+        return super.onKeyDown(keyCode, event)
+      }
+      lastPowerKeyEventTimeMs = now
 
+      // Remove stale timestamps outside the window
       while (powerPressTimestamps.isNotEmpty() && now - powerPressTimestamps.first() > powerPressWindowMs) {
         powerPressTimestamps.removeFirst()
       }
 
+      // Add current press
       powerPressTimestamps.addLast(now)
 
+      // Check if we've reached the threshold
       if (powerPressTimestamps.size >= requiredPowerPresses) {
         powerPressTimestamps.clear()
+        lastPowerKeyEventTimeMs = 0L
         emitPowerButtonTrigger()
         return true
       }
@@ -54,3 +67,4 @@ class MainActivity : ReactActivity() {
       .emit("powerButtonSosTrigger", Arguments.createMap())
   }
 }
+

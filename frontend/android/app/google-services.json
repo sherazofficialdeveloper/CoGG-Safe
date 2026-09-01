@@ -7,6 +7,25 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:618962567452:android:049f0823c00789f15c7ad9",
+        "android_client_info": {
+          "package_name": "com.coggsafe"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAN5pwB_8EuqD6zLy2S7zNHH3VFOtd4c-E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:618962567452:android:69d2ac164b6f69eb5c7ad9",
         "android_client_info": {
           "package_name": "com.coggsafe.app"
@@ -27,3 +46,4 @@
   ],
   "configuration_version": "1"
 }
+
