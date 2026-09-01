@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
  * - CAMERA: Required for front/back emergency photos
  * - RECORD_AUDIO: Required for 5-second emergency audio
  * - POST_NOTIFICATIONS: Required for in-app notification badge updates
+ * - SMS: Direct SMS is intentionally not requested; Android opens the system composer instead.
  * 
  * SERVICE INTERACTION:
  * - All required permissions must be granted before SOS activation
@@ -23,13 +24,12 @@ export const REQUIRED_PERMISSIONS = Object.freeze([
   {key: 'location', permission: PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION, title: 'Location', description: 'Location access is required to share your current location during an emergency.'},
   {key: 'camera', permission: PermissionsAndroid.PERMISSIONS.CAMERA, title: 'Camera', description: 'Camera access is required to capture emergency evidence when SOS is activated.'},
   {key: 'audio', permission: PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, title: 'Microphone', description: 'Microphone access is required to record emergency audio during SOS.'},
-  {key: 'sms', permission: PermissionsAndroid.PERMISSIONS.SEND_SMS, title: 'SMS', description: 'SMS access is required to send the emergency message from the user device.'},
   {key: 'call', permission: PermissionsAndroid.PERMISSIONS.CALL_PHONE, title: 'Phone', description: 'Phone access is required to place the emergency call from the user device.'},
   ...(Platform.Version >= 33 && PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS ? [{key: 'notifications', permission: PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS, title: 'Notifications', description: 'Notifications are required to keep you informed about emergency activity.'}] : []),
 ]);
 
 export const SOS_TRIGGER_PERMISSIONS = REQUIRED_PERMISSIONS.filter(item => ['location', 'camera', 'audio', 'notifications'].includes(item.key));
-export const COMMUNICATION_PERMISSIONS = REQUIRED_PERMISSIONS.filter(item => ['sms', 'call'].includes(item.key));
+export const COMMUNICATION_PERMISSIONS = REQUIRED_PERMISSIONS.filter(item => item.key === 'call');
 
 const REQUIRED_ANDROID_PERMISSIONS = REQUIRED_PERMISSIONS
   .map(item => item.permission)
@@ -39,7 +39,9 @@ const EMPTY_PERMISSION_STATE = Object.freeze({
   location: PermissionsAndroid.RESULTS.DENIED,
   camera: PermissionsAndroid.RESULTS.DENIED,
   audio: PermissionsAndroid.RESULTS.DENIED,
-  sms: PermissionsAndroid.RESULTS.DENIED,
+  sms: 'composer_required',
+  smsDeliveryMode: 'composer',
+  smsAutomaticSendAvailable: false,
   call: PermissionsAndroid.RESULTS.DENIED,
   notifications: PermissionsAndroid.RESULTS.DENIED,
   allRequiredGranted: false,
@@ -56,7 +58,7 @@ function buildPermissionState(permissions) {
   const location = permissions[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] || PermissionsAndroid.RESULTS.DENIED;
   const camera = permissions[PermissionsAndroid.PERMISSIONS.CAMERA] || PermissionsAndroid.RESULTS.DENIED;
   const audio = permissions[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] || PermissionsAndroid.RESULTS.DENIED;
-  const sms = permissions[PermissionsAndroid.PERMISSIONS.SEND_SMS] || PermissionsAndroid.RESULTS.DENIED;
+  const sms = 'composer_required';
   const call = permissions[PermissionsAndroid.PERMISSIONS.CALL_PHONE] || PermissionsAndroid.RESULTS.DENIED;
   const notifPerm = PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS;
   const notifications = Platform.Version >= 33 && notifPerm
@@ -70,7 +72,6 @@ function buildPermissionState(permissions) {
     notifications === PermissionsAndroid.RESULTS.GRANTED;
 
   const communicationPermissionsGranted =
-    sms === PermissionsAndroid.RESULTS.GRANTED &&
     call === PermissionsAndroid.RESULTS.GRANTED;
 
   // Manual SOS remains available when the trigger protections are granted even if
@@ -83,7 +84,6 @@ function buildPermissionState(permissions) {
     location !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
     camera !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
     audio !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
-    sms !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
     call !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
     notifications !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN;
 
@@ -92,6 +92,8 @@ function buildPermissionState(permissions) {
     camera,
     audio,
     sms,
+    smsDeliveryMode: 'composer',
+    smsAutomaticSendAvailable: false,
     call,
     notifications,
     allRequiredGranted,
@@ -132,7 +134,9 @@ export function createInitialSosPermissionState() {
       location: PermissionsAndroid.RESULTS.DENIED,
       camera: PermissionsAndroid.RESULTS.DENIED,
       audio: PermissionsAndroid.RESULTS.DENIED,
-      sms: PermissionsAndroid.RESULTS.DENIED,
+      sms: 'composer_required',
+      smsDeliveryMode: 'composer',
+      smsAutomaticSendAvailable: false,
       call: PermissionsAndroid.RESULTS.DENIED,
       notifications: PermissionsAndroid.RESULTS.DENIED,
       allRequiredGranted: false,
@@ -175,20 +179,49 @@ export async function requestRequiredPermissions() {
   }
 
   try {
+    if (__DEV__) console.log('PERMISSION_CHECK_STARTED');
     const current = await checkRequiredAndroidPermissions();
-    const missing = REQUIRED_ANDROID_PERMISSIONS.filter(permission => current[permission] !== PermissionsAndroid.RESULTS.GRANTED);
-    if (missing.length === 0) return buildPermissionState(current);
-    const results = await PermissionsAndroid.requestMultiple(missing);
+    const results = {};
+
+    // Android displays runtime prompts one at a time. Await every response before
+    // moving on so a denial never masks the next permission's real result.
+    for (const item of REQUIRED_PERMISSIONS) {
+      if (current[item.permission] === PermissionsAndroid.RESULTS.GRANTED) continue;
+      const result = await PermissionsAndroid.request(item.permission);
+      results[item.permission] = result;
+      if (__DEV__) console.log(`PERMISSION_RESULT_${item.key.toUpperCase()}`, {result});
+    }
+
     const verifiedState = await checkSosPermissions();
-    return buildPermissionStateFromCheckedResults(
+    const nextState = buildPermissionStateFromCheckedResults(
       Object.fromEntries(REQUIRED_PERMISSIONS.map(item => [item.permission, verifiedState[item.key]])),
       results,
     );
+    if (__DEV__ && nextState.allRequiredGranted) console.log('ALL_REQUIRED_PERMISSIONS_GRANTED');
+    return nextState;
   } catch (error) {
     return {...buildPermissionState({}), error: error?.message || 'Unable to request SOS permissions.'};
   }
 }
 
+export async function requestSosPermission(key) {
+  const item = REQUIRED_PERMISSIONS.find(candidate => candidate.key === key);
+  if (!item || Platform.OS !== 'android') return createInitialSosPermissionState();
+
+  try {
+    const alreadyGranted = await PermissionsAndroid.check(item.permission);
+    if (alreadyGranted) return checkSosPermissions();
+    const result = await PermissionsAndroid.request(item.permission);
+    if (__DEV__) console.log(`PERMISSION_RESULT_${item.key.toUpperCase()}`, {result});
+    const verifiedState = await checkSosPermissions();
+    return buildPermissionStateFromCheckedResults(
+      Object.fromEntries(REQUIRED_PERMISSIONS.map(candidate => [candidate.permission, verifiedState[candidate.key]])),
+      {[item.permission]: result},
+    );
+  } catch (error) {
+    return {...buildPermissionState({}), error: error?.message || `Unable to request ${item.title} permission.`};
+  }
+}
 export async function openSosPermissionSettings() {
   try {
     await Linking.openSettings();

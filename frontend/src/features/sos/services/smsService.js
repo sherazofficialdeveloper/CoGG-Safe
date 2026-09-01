@@ -1,24 +1,4 @@
-import {NativeModules, PermissionsAndroid, Platform} from 'react-native';
-import {getConnectivityState} from '../connectivity';
-
-function normalizeSmsResult(result) {
-  const status = String(result?.status || '').toUpperCase();
-  const reason = result?.reason || '';
-
-  if (status === 'COMPLETED' || status === 'SENT') {
-    return {status: 'SENT', reason: reason || 'Android confirmed the SMS was sent.'};
-  }
-
-  if (status === 'PENDING' || /no service|cellular service|cellular.*unavailable|signal|radio off|temporary/i.test(reason)) {
-    return {status: 'PENDING', reason: reason || 'Cellular service is temporarily unavailable; SMS will retry automatically.'};
-  }
-
-  if (status === 'UNSUPPORTED' || /SIM|subscription|carrier|telephony/i.test(reason)) {
-    return {status: 'UNSUPPORTED', reason: reason || 'No active SIM subscription is available for SMS.'};
-  }
-
-  return {status: 'FAILED', reason: reason || 'Emergency SMS failed.'};
-}
+import {NativeModules, Platform} from 'react-native';
 
 export async function sendEmergencySms({phoneNumber, message}) {
   if (!phoneNumber) {
@@ -26,47 +6,38 @@ export async function sendEmergencySms({phoneNumber, message}) {
   }
 
   if (Platform.OS !== 'android') {
-    return {status: 'UNSUPPORTED', reason: 'SMS is only supported on Android devices.'};
-  }
-
-  const connectivity = getConnectivityState();
-  const cellularAvailable = Boolean(connectivity.isCellularAvailable || connectivity.details?.type === 'cellular');
-  if (!cellularAvailable) {
-    return {status: 'PENDING', reason: 'Cellular service is unavailable; SMS is queued for retry.'};
-  }
-
-  const smsPermission = PermissionsAndroid.PERMISSIONS.SEND_SMS;
-  let hasPermission = await PermissionsAndroid.check(smsPermission);
-
-  if (hasPermission === false || hasPermission === PermissionsAndroid.RESULTS.DENIED || hasPermission === PermissionsAndroid.RESULTS.BLOCKED || hasPermission === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
-    const isJestMock = typeof PermissionsAndroid.request === 'function' && !!PermissionsAndroid.request._isMockFunction;
-    if (isJestMock) {
-      return {status: 'FAILED', reason: 'SMS permission denied. Emergency SMS cannot be sent.'};
-    }
-
-    const permissionResult = await PermissionsAndroid.request(smsPermission);
-    hasPermission = permissionResult === PermissionsAndroid.RESULTS.GRANTED;
-  }
-
-  if (!hasPermission) {
-    return {status: 'FAILED', reason: 'SMS permission denied. Emergency SMS cannot be sent.'};
+    return {status: 'UNSUPPORTED', reason: 'The system SMS composer is only supported on Android devices.'};
   }
 
   const emergencyMedia = NativeModules?.EmergencyMedia;
-  if (!emergencyMedia || typeof emergencyMedia.sendSms !== 'function') {
-    return {status: 'FAILED', reason: 'Native Android SMS module is unavailable.'};
+  if (!emergencyMedia || typeof emergencyMedia.openSmsComposer !== 'function') {
+    return {
+      status: 'UNSUPPORTED',
+      reason: 'The Android system SMS composer is unavailable on this device.',
+    };
   }
 
   try {
-    const result = await emergencyMedia.sendSms(phoneNumber, message || 'Emergency assistance requested.');
-    return normalizeSmsResult(result);
-  } catch (error) {
-    const reason = error?.message || 'Emergency SMS failed.';
-    if (/no service|cellular service|radio off|temporary|signal|unavailable/i.test(reason)) {
-      return {status: 'PENDING', reason};
+    const result = await emergencyMedia.openSmsComposer(
+      phoneNumber,
+      message || 'Emergency assistance requested.',
+    );
+    if (String(result?.status || '').toUpperCase() === 'UNSUPPORTED') {
+      return {
+        status: 'UNSUPPORTED',
+        reason: result?.reason || 'No Android SMS application is available to compose the emergency message.',
+      };
     }
-    return normalizeSmsResult({status: 'FAILED', reason});
+    return {
+      status: 'PENDING',
+      reason: result?.reason || 'Android opened the system SMS composer. User confirmation is required before the message is sent.',
+    };
+  } catch (error) {
+    return {
+      status: 'UNSUPPORTED',
+      reason: error?.message || 'Android could not open an SMS application for the emergency message.',
+    };
   }
 }
 
-export default { sendEmergencySms };
+export default {sendEmergencySms};

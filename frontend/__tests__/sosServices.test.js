@@ -32,7 +32,7 @@ jest.mock('react-native', () => ({
     EmergencyMedia: {
       capturePhotos: jest.fn(),
       recordAudio: jest.fn(),
-      sendSms: jest.fn(),
+      openSmsComposer: jest.fn(),
       placeCall: jest.fn(),
     },
   },
@@ -67,19 +67,19 @@ describe('SOS media services', () => {
     PermissionsAndroid.request.mockImplementation(async () => 'granted');
   });
 
-  test('Android SOS SMS and call use native telephony without claiming false success', async () => {
+  test('SMS opens the system composer and remains pending until user confirmation', async () => {
     const {NativeModules} = require('react-native');
     connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
 
-    NativeModules.EmergencyMedia.sendSms.mockResolvedValue({status: 'completed', reason: 'Android confirmed the SMS was sent.'});
+    NativeModules.EmergencyMedia.openSmsComposer.mockResolvedValue({status: 'pending', reason: 'Android opened the system SMS composer. User confirmation is required before the message is sent.'});
     NativeModules.EmergencyMedia.placeCall.mockResolvedValue({status: 'pending', reason: 'Android launched the emergency call intent but the final device status remains pending.'});
 
     const sms = await sendEmergencySms({phoneNumber: '+1234567890', message: 'help'});
     const call = await initiateEmergencyCall({emergencyNumber: '+1234567890'});
 
-    expect(sms.status).toBe('SENT');
+    expect(sms.status).toBe('PENDING');
     expect(call.status).toBe('PENDING');
-    expect(NativeModules.EmergencyMedia.sendSms).toHaveBeenCalledWith('+1234567890', 'help');
+    expect(NativeModules.EmergencyMedia.openSmsComposer).toHaveBeenCalledWith('+1234567890', 'help');
     expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1234567890');
   });
 
@@ -99,26 +99,24 @@ describe('SOS media services', () => {
 
     expect(sms.status).toBe('PENDING');
     expect(call.status).toBe('PENDING');
-    expect(NativeModules.EmergencyMedia.sendSms).not.toHaveBeenCalled();
+    expect(NativeModules.EmergencyMedia.openSmsComposer).toHaveBeenCalledWith('+1234567890', 'help');
     expect(NativeModules.EmergencyMedia.placeCall).not.toHaveBeenCalled();
   });
 
-  test('SMS permission denial is reported as real failure, not success', async () => {
-    const {NativeModules, PermissionsAndroid} = require('react-native');
-    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
-    PermissionsAndroid.check.mockResolvedValue(false);
+  test('SMS composer failure is reported as unsupported, never sent', async () => {
+    const {NativeModules} = require('react-native');
+    NativeModules.EmergencyMedia.openSmsComposer.mockRejectedValue(new Error('No SMS application available'));
 
     const result = await sendEmergencySms({phoneNumber: '+1234567890', message: 'help'});
 
-    expect(result.status).toBe('FAILED');
-    expect(result.reason || result.error).toMatch(/permission/i);
-    expect(NativeModules.EmergencyMedia.sendSms).not.toHaveBeenCalled();
+    expect(result.status).toBe('UNSUPPORTED');
+    expect(result.reason).toMatch(/SMS application|composer/i);
   });
 
   test('SMS no-SIM response stays unsupported and is not treated as success', async () => {
     const {NativeModules} = require('react-native');
     connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
-    NativeModules.EmergencyMedia.sendSms.mockResolvedValue({status: 'unsupported', reason: 'No active SIM subscription available for SMS.'});
+    NativeModules.EmergencyMedia.openSmsComposer.mockResolvedValue({status: 'unsupported', reason: 'No active SIM subscription available for SMS.'});
 
     const result = await sendEmergencySms({phoneNumber: '+1234567890', message: 'help'});
 

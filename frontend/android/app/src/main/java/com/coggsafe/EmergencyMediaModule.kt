@@ -2,11 +2,8 @@ package com.coggsafe
 
 import android.Manifest
 import android.app.Activity
-import android.app.PendingIntent
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -14,7 +11,6 @@ import android.os.Handler
 import android.os.Looper
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
-import android.telephony.SmsManager
 import android.telephony.SubscriptionManager
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -211,9 +207,8 @@ class EmergencyMediaModule(
             )
         }
     }
-
     @ReactMethod
-    fun sendSms(
+    fun openSmsComposer(
         phoneNumber: String,
         message: String,
         promise: Promise
@@ -224,110 +219,30 @@ class EmergencyMediaModule(
             return
         }
 
-        if (ContextCompat.checkSelfPermission(
-                reactContext,
-                Manifest.permission.SEND_SMS
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
+        val activity = reactContext.currentActivity
+        if (activity == null) {
             promise.reject(
-                "E_SMS_PERMISSION",
-                "SEND_SMS permission is required to send an emergency message from the user device."
+                "E_SMS_NO_ACTIVITY",
+                "Opening the system SMS composer requires an active Android activity."
             )
             return
         }
 
+        val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
+            data = Uri.parse("smsto:${Uri.encode(cleanNumber)}")
+            putExtra("sms_body", message.ifBlank { "Emergency assistance requested." })
+        }
+
         try {
-            val smsManager = resolveSmsManager()
-            val requestCode = System.nanoTime().toInt() and Int.MAX_VALUE
-            val sentAction = "com.coggsafe.SMS_SENT_$requestCode"
-            val deliveredAction = "com.coggsafe.SMS_DELIVERED_$requestCode"
-
-            val sentIntent = PendingIntent.getBroadcast(
-                reactContext,
-                requestCode,
-                Intent(sentAction).setPackage(reactContext.packageName),
-                PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    PendingIntent.FLAG_IMMUTABLE
-                } else {
-                    0
-                }
-            )
-            val deliveredIntent = PendingIntent.getBroadcast(
-                reactContext,
-                requestCode + 1,
-                Intent(deliveredAction).setPackage(reactContext.packageName),
-                PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    PendingIntent.FLAG_IMMUTABLE
-                } else {
-                    0
-                }
-            )
-
-            val filter = IntentFilter(sentAction).apply {
-                addAction(deliveredAction)
-            }
-
-            val receiver = object : BroadcastReceiver() {
-                override fun onReceive(context: Context, intent: Intent) {
-                    val resultCode = resultCode
-                    val status = when (resultCode) {
-                        Activity.RESULT_OK -> "completed"
-                        SmsManager.RESULT_ERROR_GENERIC_FAILURE,
-                        SmsManager.RESULT_ERROR_NO_SERVICE,
-                        SmsManager.RESULT_ERROR_NULL_PDU,
-                        SmsManager.RESULT_ERROR_RADIO_OFF -> "failed"
-                        else -> "pending"
-                    }
-
-                    val reason = when (resultCode) {
-                        Activity.RESULT_OK -> "Android confirmed the SMS was sent."
-                        SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "Android reported a generic SMS send failure."
-                        SmsManager.RESULT_ERROR_NO_SERVICE -> "Android reported that cellular service was unavailable for SMS."
-                        SmsManager.RESULT_ERROR_NULL_PDU -> "Android reported a null SMS payload."
-                        SmsManager.RESULT_ERROR_RADIO_OFF -> "Android reported that cellular radio was off."
-                        else -> "Android SMS delivery is still pending confirmation."
-                    }
-
-                    try {
-                        context.unregisterReceiver(this)
-                    } catch (_: Exception) {
-                        // Ignore receiver cleanup failure.
-                    }
-
-                    if (status == "completed") {
-                        promise.resolve(Arguments.createMap().apply {
-                            putString("status", status)
-                            putString("reason", reason)
-                        })
-                    } else {
-                        promise.reject("E_SMS_SEND", reason)
-                    }
-                }
-            }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                reactContext.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
-            } else {
-                reactContext.registerReceiver(receiver, filter)
-            }
-
-            smsManager.sendTextMessage(
-                cleanNumber,
-                null,
-                message.ifBlank { "Emergency assistance requested." },
-                sentIntent,
-                deliveredIntent
-            )
-        } catch (error: SecurityException) {
-            promise.reject(
-                "E_SMS_PERMISSION",
-                "Android blocked direct SMS sending. The app is not allowed to send SMS from this device or SIM configuration.",
-                error
-            )
+            activity.startActivity(smsIntent)
+            promise.resolve(Arguments.createMap().apply {
+                putString("status", "pending")
+                putString("reason", "Android opened the system SMS composer. User confirmation is required before the message is sent.")
+            })
         } catch (error: Exception) {
             promise.reject(
-                "E_SMS_SEND",
-                "Android could not send the emergency SMS.",
+                "E_SMS_COMPOSER",
+                "Android could not open an SMS application for the emergency message.",
                 error
             )
         }
@@ -503,26 +418,6 @@ class EmergencyMediaModule(
                 "Unable to start SOS audio recording.",
                 error
             )
-        }
-    }
-
-    private fun resolveSmsManager(): SmsManager {
-        val subscriptionManager = reactContext.getSystemService(SubscriptionManager::class.java)
-        val preferredSubscriptionId = subscriptionManager?.activeSubscriptionInfoList
-            ?.firstOrNull { it.simSlotIndex == 0 }
-            ?.subscriptionId
-            ?: subscriptionManager?.activeSubscriptionInfoList
-                ?.firstOrNull()
-                ?.subscriptionId
-
-        return if (preferredSubscriptionId != null) {
-            try {
-                SmsManager.getSmsManagerForSubscriptionId(preferredSubscriptionId)
-            } catch (_: Exception) {
-                SmsManager.getDefault()
-            }
-        } else {
-            SmsManager.getDefault()
         }
     }
 

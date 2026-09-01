@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Alert,
   Animated,
 } from 'react-native';
 import {
@@ -15,6 +14,8 @@ import {
   createInitialSosPermissionState,
   openSosPermissionSettings,
   requestRequiredPermissions,
+  requestSosPermission,
+  REQUIRED_PERMISSIONS,
   subscribeToPermissionChanges,
 } from '../permissions/sosPermissions';
 import {listSos, stopLiveLocation} from '../api/resources';
@@ -41,17 +42,13 @@ const UserHomeScreen = ({
   const holdAnimationRef = useRef(null);
   const holdTimeoutRef = useRef(null);
   const holdStartedAtRef = useRef(0);
+  const holdPhaseRef = useRef('IDLE');
   const activationStartedRef = useRef(false);
+  const initialPermissionRequestStartedRef = useRef(false);
   const ringRotation = useRef(new Animated.Value(0)).current;
   const pulseScale = useRef(new Animated.Value(1)).current;
-  const missingPermissions = [
-    permissionState.location !== 'granted' && 'location',
-    permissionState.camera !== 'granted' && 'camera',
-    permissionState.audio !== 'granted' && 'microphone',
-    permissionState.sms !== 'granted' && 'SMS',
-    permissionState.call !== 'granted' && 'Phone',
-    permissionState.notifications !== 'granted' && 'notifications',
-  ].filter(Boolean);
+  const smsRequiresUserConfirmation = permissionState.smsDeliveryMode === 'composer';
+  const sosButtonDisabled = permissionState.isChecking || !permissionState.allRequiredGranted || sosLoading || hasActiveSosSession;
 
   useEffect(() => {
     let mounted = true;
@@ -60,7 +57,21 @@ const UserHomeScreen = ({
       if (!mounted) return;
       setPermissionState(current => ({...current, isChecking: true}));
       const nextState = await checkSosPermissions();
-      if (mounted) setPermissionState(nextState);
+      if (!mounted) return;
+      setPermissionState(nextState);
+
+      // The first authenticated Home load owns the real Android permission setup.
+      // requestRequiredPermissions awaits each platform dialog before requesting the next.
+      if (user && !initialPermissionRequestStartedRef.current && !nextState.allRequiredGranted && nextState.canRequest) {
+        initialPermissionRequestStartedRef.current = true;
+        setRequestingPermissions(true);
+        try {
+          const requestedState = await requestRequiredPermissions();
+          if (mounted) setPermissionState(requestedState);
+        } finally {
+          if (mounted) setRequestingPermissions(false);
+        }
+      }
     };
 
     const unsubscribe = subscribeToPermissionChanges(refreshPermissions);
@@ -106,7 +117,7 @@ const UserHomeScreen = ({
     }
   };
 
-  const resetHoldState = () => {
+  const clearHoldTimer = () => {
     if (holdAnimationRef.current) {
       cancelAnimationFrame(holdAnimationRef.current);
       holdAnimationRef.current = null;
@@ -115,14 +126,26 @@ const UserHomeScreen = ({
       clearTimeout(holdTimeoutRef.current);
       holdTimeoutRef.current = null;
     }
+  };
+
+  const resetHoldState = () => {
+    clearHoldTimer();
     activationStartedRef.current = false;
     holdStartedAtRef.current = 0;
+    holdPhaseRef.current = 'IDLE';
     setHoldProgress(0);
     setCountdown(3);
     setHoldPhase('IDLE');
   };
 
+  const logSosButtonRuntimeState = event => {
+    if (__DEV__) {
+      console.log('SOS_TOUCH_START', {event, permissionState, sosLoading, hasActiveSosSession, holdPhase: holdPhaseRef.current, activationStarted: activationStartedRef.current});
+    }
+  };
+
   const handleSosPressIn = () => {
+    logSosButtonRuntimeState('press-in');
     if (__DEV__) {
       console.log('SOS_BUTTON_PRESS_IN', {
         permissionState,
@@ -133,35 +156,31 @@ const UserHomeScreen = ({
       });
     }
 
-    if (permissionState.isChecking || sosLoading || hasActiveSosSession) {
+    if (sosLoading || hasActiveSosSession) {
       if (__DEV__) {
         console.log('SOS_HOLD_CANCELLED', 'button unavailable due to app state');
       }
       return;
     }
 
-    if (holdPhase === 'HOLDING' || holdPhase === 'ACTIVATING' || holdPhase === 'ACTIVE' || activationStartedRef.current) {
+    if (holdPhaseRef.current !== 'IDLE' || activationStartedRef.current) {
       if (__DEV__) {
         console.log('SOS_HOLD_CANCELLED', 'duplicate hold already active');
       }
       return;
     }
 
-    const canStartHold = Boolean(
-      permissionState.allRequiredGranted || permissionState.triggerPermissionsGranted,
-    );
+    const canStartHold = !sosButtonDisabled;
 
     if (!canStartHold) {
       if (__DEV__) {
         console.log('SOS_HOLD_CANCELLED', 'permissions missing; hold blocked until granted');
       }
-      setHoldPhase('IDLE');
-      setHoldProgress(0);
-      setCountdown(3);
       return;
     }
 
     holdStartedAtRef.current = Date.now();
+    holdPhaseRef.current = 'HOLDING';
     activationStartedRef.current = false;
     setHoldPhase('HOLDING');
     setCountdown(3);
@@ -169,10 +188,13 @@ const UserHomeScreen = ({
 
     if (__DEV__) {
       console.log('SOS_HOLD_STARTED', {startedAt: holdStartedAtRef.current, durationMs: SOS_HOLD_DURATION_MS});
-      console.log('SOS_COUNTDOWN_3', {countdown: 3});
     }
 
     const tick = () => {
+      if (holdPhaseRef.current !== 'HOLDING' || activationStartedRef.current) {
+        return;
+      }
+
       const snapshot = getHoldSnapshot({
         startedAt: holdStartedAtRef.current,
         now: Date.now(),
@@ -181,19 +203,12 @@ const UserHomeScreen = ({
 
       setHoldProgress(snapshot.progress);
       setCountdown(snapshot.countdown);
-
-      if (__DEV__) {
-        if (snapshot.countdown === 3) console.log('SOS_COUNTDOWN_3', {countdown: 3});
-        if (snapshot.countdown === 2) console.log('SOS_COUNTDOWN_2', {countdown: 2});
-        if (snapshot.countdown === 1) console.log('SOS_COUNTDOWN_1', {countdown: 1});
-      }
+      if (__DEV__) console.log('SOS_COUNTDOWN', {countdown: snapshot.countdown, progress: snapshot.progress});
 
       if (snapshot.shouldActivate) {
-        if (holdTimeoutRef.current) {
-          clearTimeout(holdTimeoutRef.current);
-          holdTimeoutRef.current = null;
-        }
+        clearHoldTimer();
         activationStartedRef.current = true;
+        holdPhaseRef.current = 'ACTIVATING';
         setHoldPhase('ACTIVATING');
         setHoldProgress(1);
         setCountdown(0);
@@ -203,37 +218,33 @@ const UserHomeScreen = ({
           console.log('SOS_ACTIVATION_STARTED', {source: 'home-button-hold'});
         }
 
-        if (onTriggerSos) {
-          onTriggerSos();
-        } else {
-          Alert.alert('Emergency SOS', 'Your emergency alert is being prepared.');
-        }
-
-        setTimeout(() => {
-          setHoldPhase('ACTIVE');
-        }, 150);
+        if (__DEV__) console.log('SOS_ON_TRIGGER_SOS_CALLED', {source: 'home-button-hold'});
+        onTriggerSos?.();
         return;
       }
 
       holdTimeoutRef.current = setTimeout(tick, 100);
     };
 
-    clearTimeout(holdTimeoutRef.current);
+    clearHoldTimer();
     holdTimeoutRef.current = setTimeout(tick, 100);
   };
 
   const handleSosPressOut = () => {
+    logSosButtonRuntimeState('press-out');
     if (__DEV__) {
       console.log('SOS_BUTTON_PRESS_OUT', {holdPhase, activationStarted: activationStartedRef.current});
     }
 
-    if (holdPhase !== 'HOLDING' || activationStartedRef.current) {
+    if (holdPhaseRef.current !== 'HOLDING' || activationStartedRef.current) {
       return;
     }
 
     if (__DEV__) {
       console.log('SOS_HOLD_CANCELLED', {elapsedMs: Date.now() - holdStartedAtRef.current});
     }
+    holdPhaseRef.current = 'CANCELLED';
+    setHoldPhase('CANCELLED');
     resetHoldState();
   };
 
@@ -255,7 +266,7 @@ const UserHomeScreen = ({
   }, [holdPhase, holdProgress, ringRotation]);
 
   useEffect(() => {
-    if (holdPhase !== 'ACTIVE') return undefined;
+    if (holdPhase !== 'ACTIVATING') return undefined;
 
     const animation = Animated.sequence([
       Animated.timing(pulseScale, {
@@ -280,7 +291,7 @@ const UserHomeScreen = ({
         cancelAnimationFrame(holdAnimationRef.current);
       }
       if (holdTimeoutRef.current) {
-        clearTimeout(holdTimeoutRef.current);
+        clearHoldTimer();
       }
     };
   }, []);
@@ -314,32 +325,46 @@ const UserHomeScreen = ({
           <Text style={styles.description}>
             Press and hold for 3 seconds to trigger the emergency alert.
           </Text>
+          {holdPhase === 'HOLDING' ? (
+            <Text style={styles.holdStatusText} accessibilityLiveRegion="polite">
+              Keep holding · {countdown}
+            </Text>
+          ) : null}
         </View>
 
         {/* SOS Button */}
-        <View style={styles.sosSection}>
+        <View
+          style={styles.sosSection}
+          pointerEvents="box-none"
+          onStartShouldSetResponderCapture={() => {
+            if (__DEV__) {
+              console.log('SOS_BUTTON_CONTAINER_TOUCH_START');
+            }
+            return false;
+          }}>
           <View style={styles.sosOuterRing}>
             <View style={styles.sosMiddleRing}>
               <View style={styles.sosInnerRing}>
                 <Animated.View style={[
                   styles.progressRing,
                   {
-                    opacity: holdPhase === 'HOLDING' || holdPhase === 'ACTIVE' ? 1 : 0,
+                    opacity: holdPhase === 'HOLDING' || holdPhase === 'ACTIVATING' ? 1 : 0,
                     transform: [{rotate: `${holdProgress * 360}deg`}],
                   },
-                ]} />
+                ]} pointerEvents="none" />
                 <TouchableOpacity
                   style={[
                     styles.sosButton,
                     sosLoading && styles.sosButtonLoading,
-                    (holdPhase === 'ACTIVE' || sosLoading) && styles.sosButtonActive,
+                    (holdPhase === 'ACTIVATING' || sosLoading) && styles.sosButtonActive,
                     !permissionState.allRequiredGranted && styles.sosButtonDisabled,
-                    {transform: [{scale: holdPhase === 'ACTIVE' ? pulseScale : 1}]},
+                    {transform: [{scale: holdPhase === 'ACTIVATING' ? pulseScale : 1}]},
                   ]}
                   activeOpacity={0.85}
                   onPressIn={handleSosPressIn}
                   onPressOut={handleSosPressOut}
-                  disabled={sosLoading || hasActiveSosSession || permissionState.isChecking}>
+                  testID="home-sos-button"
+                  disabled={sosButtonDisabled}>
 
                   {holdPhase === 'HOLDING' ? (
                     <>
@@ -349,9 +374,9 @@ const UserHomeScreen = ({
                     </>
                   ) : (
                     <>
-                      <Text style={styles.sosText}>{holdPhase === 'ACTIVE' ? 'SOS' : 'SOS'}</Text>
+                      <Text style={styles.sosText}>SOS</Text>
                       <View style={styles.sosDivider} />
-                      <Text style={styles.tapOnceText}>{holdPhase === 'ACTIVE' ? 'ACTIVE' : 'PRESS & HOLD'}</Text>
+                      <Text style={styles.tapOnceText}>{holdPhase === 'ACTIVATING' ? 'ACTIVATING' : 'PRESS & HOLD'}</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -403,39 +428,46 @@ const UserHomeScreen = ({
           </View>
         ) : null}
 
-        {!permissionState.isChecking && !permissionState.allRequiredGranted && (
-          <View style={styles.permissionWarning}>
-            <Text style={styles.permissionWarningTitle}>
-              Permission required
+        {smsRequiresUserConfirmation ? (
+          <View style={styles.smsComposerNotice}>
+            <Text style={styles.smsComposerNoticeTitle}>SMS requires your confirmation</Text>
+            <Text style={styles.smsComposerNoticeText}>
+              Android restricts automatic SMS for this app. During SOS, the system SMS app opens with the emergency message ready; it is not sent until you confirm Send.
             </Text>
-            <Text style={styles.permissionWarningText}>
-              {permissionState.canRequest
-                ? `Allow ${missingPermissions.join(', ')} access before using SOS.`
-                : `Required access (${missingPermissions.join(', ')}) is blocked. Enable it in your device settings before using SOS.`}
-            </Text>
-            <TouchableOpacity
-              style={styles.permissionButton}
-              disabled={requestingPermissions}
-              onPress={async () => {
-                if (requestingPermissions) return;
-                setRequestingPermissions(true);
-                setPermissionState(current => ({...current, isChecking: true}));
-                try {
-                  const nextState = await requestRequiredPermissions();
-                  setPermissionState(nextState);
-                  if (!nextState.allRequiredGranted && !nextState.canRequest) {
-                    await openSosPermissionSettings();
-                  }
-                } finally {
-                  setRequestingPermissions(false);
-                }
-              }}>
-              <Text style={styles.permissionButtonText}>
-                {requestingPermissions ? 'Requesting...' : 'Allow Permissions'}
-              </Text>
-            </TouchableOpacity>
           </View>
-        )}
+        ) : null}
+
+        {!permissionState.isChecking && REQUIRED_PERMISSIONS
+          .filter(item => permissionState[item.key] !== 'granted')
+          .map(item => {
+            const blocked = permissionState[item.key] === 'never_ask_again';
+            return (
+              <View key={item.key} style={styles.permissionWarning}>
+                <Text style={styles.permissionWarningTitle}>{item.title} permission required</Text>
+                <Text style={styles.permissionWarningText}>{item.description}</Text>
+                <TouchableOpacity
+                  style={styles.permissionButton}
+                  disabled={requestingPermissions}
+                  onPress={async () => {
+                    if (requestingPermissions) return;
+                    if (blocked) {
+                      await openSosPermissionSettings();
+                      return;
+                    }
+                    setRequestingPermissions(true);
+                    try {
+                      setPermissionState(await requestSosPermission(item.key));
+                    } finally {
+                      setRequestingPermissions(false);
+                    }
+                  }}>
+                  <Text style={styles.permissionButtonText}>
+                    {blocked ? 'Open Settings' : requestingPermissions ? 'Requesting...' : 'Allow'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
       </View>
     </ScrollView>
   );
@@ -508,6 +540,13 @@ const styles = StyleSheet.create({
   },
 
   /* ================= SOS BUTTON ================= */
+
+  holdStatusText: {
+    marginTop: 12,
+    color: '#E4002B',
+    fontSize: 15,
+    fontWeight: '900',
+  },
 
   sosSection: {
     alignItems: 'center',
@@ -713,6 +752,31 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
+  smsComposerNotice: {
+    width: '100%',
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FDBA74',
+  },
+
+  smsComposerNoticeTitle: {
+    color: '#9A3412',
+    fontSize: 14,
+    fontWeight: '900',
+    textAlign: 'center',
+  },
+
+  smsComposerNoticeText: {
+    color: '#9A3412',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 19,
+    marginTop: 5,
+    textAlign: 'center',
+  },
   permissionWarning: {
     width: '100%',
     marginTop: 24,

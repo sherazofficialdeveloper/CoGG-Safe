@@ -1,5 +1,6 @@
 const mockCheck = jest.fn();
 const mockRequestMultiple = jest.fn();
+const mockRequest = jest.fn();
 const mockAddEventListener = jest.fn();
 const mockOpenSettings = jest.fn();
 
@@ -25,6 +26,7 @@ jest.mock('react-native', () => ({
     RESULTS: {GRANTED: 'granted', DENIED: 'denied', NEVER_ASK_AGAIN: 'never_ask_again'},
     check: mockCheck,
     requestMultiple: mockRequestMultiple,
+    request: mockRequest,
   },
   Platform: {OS: 'android', Version: 34},
 }));
@@ -66,6 +68,7 @@ test('reports all required permissions granted', async () => {
   expect(mockCheck).toHaveBeenCalledWith(CAMERA);
   expect(mockCheck).toHaveBeenCalledWith(AUDIO);
   expect(mockCheck).toHaveBeenCalledWith(NOTIFICATIONS);
+  expect(mockCheck).not.toHaveBeenCalledWith(SMS);
 });
 
 test('reports partial permissions as not ready', async () => {
@@ -77,7 +80,7 @@ test('reports partial permissions as not ready', async () => {
 
 test('preserves permanently blocked state after a request', async () => {
   mockCheck.mockResolvedValue(false);
-  mockRequestMultiple.mockResolvedValue({...granted, [AUDIO]: 'never_ask_again'});
+  mockRequest.mockResolvedValue('never_ask_again');
   await expect(requestRequiredPermissions()).resolves.toMatchObject({
     audio: 'never_ask_again', allRequiredGranted: false, canRequest: false,
   });
@@ -85,11 +88,12 @@ test('preserves permanently blocked state after a request', async () => {
 
 test('requests only permissions that are not already granted', async () => {
   mockCheck.mockImplementation(permission => Promise.resolve(permission !== CAMERA));
-  mockRequestMultiple.mockResolvedValue({[CAMERA]: 'granted'});
+  mockRequest.mockResolvedValue('granted');
 
   await requestSosPermissions();
 
-  expect(mockRequestMultiple).toHaveBeenCalledWith([CAMERA]);
+  expect(mockRequest).toHaveBeenCalledWith(CAMERA);
+  expect(mockRequest).not.toHaveBeenCalledWith(SMS);
 });
 
 test('does not trust completed onboarding when native permissions are missing', async () => {
