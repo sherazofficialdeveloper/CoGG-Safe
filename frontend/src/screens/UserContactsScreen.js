@@ -309,7 +309,7 @@ const styles = StyleSheet.create({
   },
 
   contactAvatarText: {
-    color: '#FFFFFF',
+    color: '#E4002B',
     fontSize: 17,
     fontWeight: '900',
     letterSpacing: 0.5,

@@ -39,7 +39,9 @@ const UserHomeScreen = ({
   const [countdown, setCountdown] = useState(3);
   const [holdProgress, setHoldProgress] = useState(0);
   const holdAnimationRef = useRef(null);
+  const holdTimeoutRef = useRef(null);
   const holdStartedAtRef = useRef(0);
+  const activationStartedRef = useRef(false);
   const ringRotation = useRef(new Animated.Value(0)).current;
   const pulseScale = useRef(new Animated.Value(1)).current;
   const missingPermissions = [
@@ -109,6 +111,11 @@ const UserHomeScreen = ({
       cancelAnimationFrame(holdAnimationRef.current);
       holdAnimationRef.current = null;
     }
+    if (holdTimeoutRef.current) {
+      clearTimeout(holdTimeoutRef.current);
+      holdTimeoutRef.current = null;
+    }
+    activationStartedRef.current = false;
     holdStartedAtRef.current = 0;
     setHoldProgress(0);
     setCountdown(3);
@@ -118,9 +125,12 @@ const UserHomeScreen = ({
   const handleSosPressIn = () => {
     if (permissionState.isChecking || sosLoading || hasActiveSosSession) return;
     const currentPermissionState = permissionState;
-    if (!currentPermissionState.allRequiredGranted) return;
+    const canStartHold = Boolean(currentPermissionState.allRequiredGranted || currentPermissionState.triggerPermissionsGranted);
+    if (!canStartHold) return;
+    if (activationStartedRef.current) return;
 
     holdStartedAtRef.current = Date.now();
+    activationStartedRef.current = false;
     setHoldPhase('holding');
     setCountdown(3);
     setHoldProgress(0);
@@ -140,6 +150,11 @@ const UserHomeScreen = ({
           cancelAnimationFrame(holdAnimationRef.current);
           holdAnimationRef.current = null;
         }
+        if (holdTimeoutRef.current) {
+          clearTimeout(holdTimeoutRef.current);
+          holdTimeoutRef.current = null;
+        }
+        activationStartedRef.current = true;
         setHoldPhase('active');
         setHoldProgress(1);
         setCountdown(1);
@@ -154,14 +169,15 @@ const UserHomeScreen = ({
         return;
       }
 
-      holdAnimationRef.current = requestAnimationFrame(tick);
+      holdTimeoutRef.current = setTimeout(tick, 100);
     };
 
-    holdAnimationRef.current = requestAnimationFrame(tick);
+    clearTimeout(holdTimeoutRef.current);
+    holdTimeoutRef.current = setTimeout(tick, 100);
   };
 
   const handleSosPressOut = () => {
-    if (holdPhase !== 'holding') return;
+    if (holdPhase !== 'holding' || activationStartedRef.current) return;
     resetHoldState();
   };
 
@@ -206,6 +222,9 @@ const UserHomeScreen = ({
     return () => {
       if (holdAnimationRef.current) {
         cancelAnimationFrame(holdAnimationRef.current);
+      }
+      if (holdTimeoutRef.current) {
+        clearTimeout(holdTimeoutRef.current);
       }
     };
   }, []);

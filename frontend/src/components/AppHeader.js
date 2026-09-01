@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Platform,
   StatusBar,
+  Image,
 } from 'react-native';
 import Icon from './Icon';
 
@@ -30,7 +31,7 @@ const AppHeader = ({
         {!hideLogo && (
           <View style={styles.logoContainer}>
             <View style={styles.logoWrapper}>
-              <Text style={styles.logoText}>🛡</Text>
+              <Image source={require('../public/logo.png')} style={styles.logoImage} />
             </View>
 
             <View style={styles.logoTextContainer}>
@@ -138,6 +139,12 @@ const styles = StyleSheet.create({
   logoText: {
     color: '#FFFFFF',
     fontSize: 22,
+  },
+
+  logoImage: {
+    width: 22,
+    height: 22,
+    resizeMode: 'contain',
   },
 
   logoTextContainer: {

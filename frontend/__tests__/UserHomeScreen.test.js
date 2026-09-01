@@ -69,6 +69,32 @@ test('SOS Home Allow Permissions requests native permissions and hides warning o
   expect(findButtonWithText(renderer, 'Allow Permissions')).toBeUndefined();
 });
 
+test('SOS home hold starts immediately and triggers once after three seconds', async () => {
+  jest.useFakeTimers();
+  checkSosPermissions.mockResolvedValue(grantedState);
+  const onTriggerSos = jest.fn();
+  let renderer;
+
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(
+      <UserHomeScreen onTriggerSos={onTriggerSos} />,
+    );
+  });
+
+  const button = renderer.root.findAll(node => typeof node.props.onPressIn === 'function')[0];
+
+  await ReactTestRenderer.act(async () => {
+    button.props.onPressIn();
+  });
+
+  await ReactTestRenderer.act(async () => {
+    jest.advanceTimersByTime(3100);
+  });
+
+  expect(onTriggerSos).toHaveBeenCalledTimes(1);
+  jest.useRealTimers();
+});
+
 test('SOS Home Allow Permissions opens Settings after native blocked result', async () => {
   requestRequiredPermissions.mockResolvedValue({...deniedState, canRequest: false});
   let renderer;
