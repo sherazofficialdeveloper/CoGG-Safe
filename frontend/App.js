@@ -337,6 +337,28 @@ function AppContent() {
     return () => subscription.remove();
   }, [showToast]);
 
+  useEffect(() => {
+    const smsStatusSubscription = DeviceEventEmitter.addListener('sosSmsStatus', payload => {
+      const stage = payload?.stage || 'sent';
+      const status = payload?.status || 'success';
+      const reason = payload?.reason || 'SMS status updated';
+
+      if (stage === 'delivered') {
+        showToast('SMS delivered', 'success');
+        return;
+      }
+
+      if (status === 'failed') {
+        showToast('SMS failed', 'error');
+        return;
+      }
+
+      showToast('SMS sent', 'success');
+    });
+
+    return () => smsStatusSubscription.remove();
+  }, [showToast]);
+
   // ============================================================
   // HANDLE ANDROID BACK BUTTON
   // ============================================================

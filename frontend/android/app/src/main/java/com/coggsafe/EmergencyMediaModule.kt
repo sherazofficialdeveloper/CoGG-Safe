@@ -3,8 +3,10 @@ package com.coggsafe
 import android.Manifest
 import android.app.Activity
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -25,6 +27,7 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -44,7 +47,61 @@ class EmergencyMediaModule(
     private val executor: Executor =
         ContextCompat.getMainExecutor(reactContext)
 
+    private val smsStatusReceiver by lazy {
+        object : BroadcastReceiver() {
+            override fun onReceive(context: Context, intent: Intent) {
+                val action = intent.action ?: return
+                val resultCode = getResultCode()
+                val stage = when (action) {
+                    "SOS_SMS_SENT" -> "sent"
+                    "SOS_SMS_DELIVERED" -> "delivered"
+                    else -> "unknown"
+                }
+
+                val status = when (resultCode) {
+                    Activity.RESULT_OK -> "success"
+                    SmsManager.RESULT_ERROR_GENERIC_FAILURE,
+                    SmsManager.RESULT_ERROR_NO_SERVICE,
+                    SmsManager.RESULT_ERROR_NULL_PDU,
+                    SmsManager.RESULT_ERROR_RADIO_OFF -> "failed"
+                    else -> "failed"
+                }
+
+                val reason = when (resultCode) {
+                    Activity.RESULT_OK -> "SMS ${stage} successfully."
+                    SmsManager.RESULT_ERROR_GENERIC_FAILURE -> "SMS ${stage} failed: generic failure."
+                    SmsManager.RESULT_ERROR_NO_SERVICE -> "SMS ${stage} failed: no cellular service."
+                    SmsManager.RESULT_ERROR_NULL_PDU -> "SMS ${stage} failed: null PDU."
+                    SmsManager.RESULT_ERROR_RADIO_OFF -> "SMS ${stage} failed: radio is off."
+                    else -> "SMS ${stage} failed."
+                }
+
+                val payload = Arguments.createMap().apply {
+                    putString("stage", stage)
+                    putString("status", status)
+                    putString("reason", reason)
+                    putInt("resultCode", resultCode)
+                }
+                reactContext
+                    .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+                    .emit("sosSmsStatus", payload)
+            }
+        }
+    }
+
+    private var smsStatusReceiverRegistered = false
+
     override fun getName(): String = "EmergencyMedia"
+
+    private fun ensureSmsStatusReceiverRegistered() {
+        if (smsStatusReceiverRegistered) return
+        val filter = IntentFilter().apply {
+            addAction("SOS_SMS_SENT")
+            addAction("SOS_SMS_DELIVERED")
+        }
+        reactContext.applicationContext.registerReceiver(smsStatusReceiver, filter)
+        smsStatusReceiverRegistered = true
+    }
 
     @ReactMethod
     fun capturePhotos(
@@ -235,9 +292,10 @@ class EmergencyMediaModule(
         }
 
         try {
+            ensureSmsStatusReceiverRegistered()
+
             val subscriptionId = resolvePreferredSubscriptionId()
             val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // Android 12+: Use subscription-aware SmsManager
                 if (subscriptionId > 0) {
                     android.telephony.SmsManager.getSmsManagerForSubscriptionId(subscriptionId)
                 } else {
@@ -247,22 +305,27 @@ class EmergencyMediaModule(
                 android.telephony.SmsManager.getDefault()
             }
 
-            // Prepare PendingIntent callbacks for SENT and DELIVERED
+            val sentAction = Intent("SOS_SMS_SENT").apply {
+                setPackage(reactContext.packageName)
+            }
+            val deliveredAction = Intent("SOS_SMS_DELIVERED").apply {
+                setPackage(reactContext.packageName)
+            }
+
             val sentIntent = PendingIntent.getBroadcast(
                 reactContext,
                 (System.currentTimeMillis() % 10000).toInt(),
-                Intent("SOS_SMS_SENT"),
+                sentAction,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
             val deliveredIntent = PendingIntent.getBroadcast(
                 reactContext,
                 (System.currentTimeMillis() % 10000).toInt() + 1,
-                Intent("SOS_SMS_DELIVERED"),
+                deliveredAction,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
-            // Send SMS with callbacks
             smsManager.sendTextMessage(
                 cleanNumber,
                 null,
