@@ -23,10 +23,16 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
         }
       : undefined,
   };
+  if (__DEV__) {
+    console.log('[SOS_DEBUG] CREATE_START', {eventId: sosEvent?.id});
+  }
 
   const response = await createSos(token, payload);
   const sosRecord = response?.sos || response;
   const backendId = sosRecord?._id || sosRecord?.id || null;
+  if (__DEV__) {
+    console.log('[SOS_DEBUG] CREATE_RESPONSE', {status: 'received', backendId});
+  }
 
   if (!backendId) {
     return {

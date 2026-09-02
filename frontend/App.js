@@ -73,7 +73,7 @@ import {connectivityService} from './src/features/sos/connectivity';
 import {processSosQueue} from './src/features/sos/queue/queueWorker';
 import {recoverActiveSosWork} from './src/features/sos/recovery';
 import {sosLocalStore} from './src/features/sos/storage';
-import {subscribeSosToasts} from './src/features/sos/services/sosToastService';
+import {emitSosToast} from './src/features/sos/services/sosToastService';
 import {
   observeFirebaseNotifications,
   registerDeviceToken,
@@ -102,26 +102,8 @@ function AppContent() {
   const sosCancelSignalRef = useRef({cancelled: false});
   const sosTriggerInFlightRef = useRef(false);
 
-  // Toast State
-  const [toast, setToast] = useState({
-    visible: false,
-    message: '',
-    type: 'success',
-  });
-
   const showToast = useCallback((message, type = 'success') => {
-    setToast({
-      visible: true,
-      message,
-      type,
-    });
-  }, []);
-
-  const hideToast = useCallback(() => {
-    setToast(prev => ({
-      ...prev,
-      visible: false,
-    }));
+    emitSosToast(message, type);
   }, []);
 
   const handleUserNotificationCountChange = useCallback((count) => {
@@ -330,14 +312,6 @@ function AppContent() {
   // ============================================================
 
   useEffect(() => {
-    const subscription = subscribeSosToasts(({message, type, duration}) => {
-      showToast(message, type);
-    });
-
-    return () => subscription.remove();
-  }, [showToast]);
-
-  useEffect(() => {
     const smsStatusSubscription = DeviceEventEmitter.addListener('sosSmsStatus', payload => {
       const stage = payload?.stage || 'sent';
       const status = payload?.status || 'success';
@@ -457,7 +431,7 @@ function AppContent() {
    * Wait for backend to confirm ACTIVE status (after cancellation window).
    * Polls with exponential backoff, times out after 30 seconds.
    */
-  const waitForSosActive = async (sosId, maxWaitMs = 30000, initialDelayMs = 500) => {
+  const waitForSosActive = useCallback(async (sosId, maxWaitMs = 30000, initialDelayMs = 500) => {
     const startTime = Date.now();
     let delayMs = initialDelayMs;
     
@@ -465,6 +439,9 @@ function AppContent() {
       try {
         const sosResponse = await getSos(token, sosId);
         const sos = sosResponse?.sos || sosResponse;
+        if (__DEV__) {
+          console.log('[SOS_DEBUG] POLL_RESPONSE', {backendId: sosId, status: sos?.status});
+        }
         if (sos?.status === 'active') {
           return {success: true, sos};
         }
@@ -481,7 +458,7 @@ function AppContent() {
     }
     
     return {success: false, reason: 'Timeout waiting for backend to activate SOS'};
-  };
+  }, [token]);
 
   const handleTriggerSos = useCallback(async ({skipNavigation = false} = {}) => {
     if (__DEV__) {
@@ -513,6 +490,7 @@ function AppContent() {
         countdownMs: 10000,
         cancelSignal: sosCancelSignalRef.current,
         onPending: async event => {
+          if (__DEV__) console.log('[SOS_DEBUG] LOCAL_EVENT', {eventId: event.id});
           if (!skipNavigation) {
             setSelectedSos(event);
             setScreen('userSosActive');
@@ -657,10 +635,8 @@ location: async event => {
             setSelectedSos({...result.event, ...activationResult.sos});
             setScreen('userHome');
           } else {
-            // Timeout, but still navigate - show toast about pending status
-            showToast('Emergency alert triggered (backend confirmation pending)', 'info');
-            setSelectedSos(result.event);
-            setScreen('userHome');
+            showToast(`Backend confirmation was not received: ${activationResult.reason}`, 'error');
+            setSelectedSos({...result.event, status: 'PENDING', activationError: activationResult.reason});
           }
         } else {
           showToast('SOS alert triggered and queued for delivery.', 'success');
@@ -682,7 +658,7 @@ location: async event => {
       setSosLoading(false);
       sosTriggerInFlightRef.current = false;
     }
-  }, [sosLoading, showToast, token, user, setScreen]);
+  }, [sosLoading, showToast, token, user, waitForSosActive]);
 
   useEffect(() => {
     if (!user || user.role !== 'user') {
@@ -959,6 +935,7 @@ location: async event => {
 
     const AdminLayoutNoHeader = ({children, bottomNav}) => (
       <View style={styles.adminContainer}>
+        <Toast />
         <View style={styles.adminContent}>
           {children}
         </View>
@@ -974,6 +951,7 @@ location: async event => {
 
     const AdminLayoutWithHeader = ({children, bottomNav}) => (
       <View style={styles.adminContainer}>
+        <Toast />
         <AdminHeader
           user={user}
           onNotifications={() =>

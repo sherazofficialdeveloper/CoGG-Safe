@@ -130,6 +130,7 @@ function start() {
   pollTimer = setInterval(processDueJobs, env.scheduler.pollIntervalMs);
   pollTimer.unref();
   logger.info('Scheduler started', { pollIntervalMs: env.scheduler.pollIntervalMs });
+  console.log('[SOS_DEBUG] SCHEDULER_STARTED', { pollIntervalMs: env.scheduler.pollIntervalMs });
 }
 
 function stop() {

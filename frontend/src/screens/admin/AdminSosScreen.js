@@ -11,6 +11,7 @@ import {
   TextInput,
   Platform,
   Alert,
+  AppState,
 } from 'react-native';
 import {deleteSos, deactivateSos, listSos} from '../../api/resources';
 import Icon from '../../components/Icon';
@@ -47,6 +48,10 @@ const AdminSosScreen = ({
 
   useEffect(() => {
     refresh().catch(() => undefined);
+    const subscription = AppState.addEventListener('change', nextState => {
+      if (nextState === 'active') refresh().catch(() => undefined);
+    });
+    return () => subscription.remove();
   }, [refresh]);
 
   const runAdminAction = async (action, id) => {

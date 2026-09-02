@@ -1,11 +1,13 @@
-import React, {useCallback, useEffect, useRef} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   Animated,
   Text,
   View,
   StyleSheet,
   TouchableOpacity,
+  DeviceEventEmitter,
 } from 'react-native';
+import {SOS_TOAST_EVENT} from '../features/sos/services/sosToastService';
 
 const Toast = ({
   visible = false,
@@ -14,6 +16,7 @@ const Toast = ({
   duration = 3000,
   onHide,
 }) => {
+  const [eventToast, setEventToast] = useState(null);
   const translateY = useRef(
     new Animated.Value(-100),
   ).current;
@@ -23,6 +26,7 @@ const Toast = ({
   ).current;
 
   const hideToast = useCallback(() => {
+    setEventToast(null);
     Animated.parallel([
       Animated.timing(translateY, {
         toValue: -100,
@@ -40,7 +44,19 @@ const Toast = ({
   }, [onHide, opacity, translateY]);
 
   useEffect(() => {
-    if (!visible) {
+    const subscription = DeviceEventEmitter.addListener(SOS_TOAST_EVENT, payload => {
+      setEventToast(payload);
+    });
+    return () => subscription.remove();
+  }, []);
+
+  const isVisible = Boolean(eventToast) || visible;
+  const displayMessage = eventToast?.message || message;
+  const displayType = eventToast?.type || type;
+  const displayDuration = eventToast?.duration || duration;
+
+  useEffect(() => {
+    if (!isVisible) {
       Animated.parallel([
         Animated.timing(translateY, {
           toValue: -100,
@@ -72,17 +88,17 @@ const Toast = ({
 
     const timer = setTimeout(() => {
       hideToast();
-    }, duration);
+    }, displayDuration);
 
     return () => clearTimeout(timer);
-  }, [duration, hideToast, opacity, translateY, visible]);
+  }, [displayDuration, hideToast, opacity, translateY, isVisible]);
 
-  if (!visible) {
+  if (!isVisible) {
     return null;
   }
 
   const getTypeStyle = () => {
-    switch (type) {
+    switch (displayType) {
       case 'error':
         return {
           container: styles.errorContainer,
@@ -143,7 +159,7 @@ const Toast = ({
         <Text
           style={styles.message}
           numberOfLines={3}>
-          {message}
+          {displayMessage}
         </Text>
 
         <TouchableOpacity

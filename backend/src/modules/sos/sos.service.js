@@ -52,11 +52,16 @@ function resolveEmergencyMessage(user) {
  * activation/dispatch.
  */
 async function activateSosIfPending({ sosId, dispatch = true }) {
+  console.log('[SOS_DEBUG] ACTIVATION_STARTED', { sosId: String(sosId) });
   const activated = await Sos.findOneAndUpdate(
     { _id: sosId, status: SOS_STATUS.PENDING },
     { $set: { status: SOS_STATUS.ACTIVE, activatedAt: new Date() } },
     { new: true }
   );
+  console.log('[SOS_DEBUG] ACTIVATION_RESULT', {
+    sosId: String(sosId),
+    status: activated ? activated.status : 'not_updated',
+  });
   if (activated && dispatch) {
     await dispatchService.dispatchSos(activated);
   }
@@ -210,6 +215,7 @@ async function createSos({ userId, idempotencyKey, location }) {
       idempotencyKey: idempotencyKey || undefined,
       status: SOS_STATUS.PENDING,
     });
+    console.log('[SOS_DEBUG] MONGO_CREATED', { sosId: String(sos._id) });
   } catch (err) {
     if (err.code === 11000 && idempotencyKey) {
       const existing = await Sos.findOne({ userId, idempotencyKey });
@@ -230,6 +236,10 @@ async function createSos({ userId, idempotencyKey, location }) {
   }
 
   const runAt = new Date(Date.now() + env.sos.cancellationWindowSeconds * 1000);
+  console.log('[SOS_DEBUG] ACTIVATION_SCHEDULED', {
+    sosId: String(sos._id),
+    runAt: runAt.toISOString(),
+  });
   await schedulerService.scheduleJob(JOB_TYPE_SOS_ACTIVATION, { sosId: String(sos._id) }, runAt);
 
   return { sos, alreadyExisted: false };

@@ -23,13 +23,16 @@ function withEmergencyLink(sos) {
  */
 const createSos = asyncHandler(async (req, res) => {
   const { idempotencyKey, location } = req.body;
+  console.log('[SOS_DEBUG] CREATE_RECEIVED', { userId: req.user.id });
   const { sos, alreadyExisted } = await sosService.createSos({ userId: req.user.id, idempotencyKey, location });
+  console.log('[SOS_DEBUG] CREATE_RESULT', { sosId: String(sos._id), alreadyExisted });
 
   ApiResponse.send(res, {
     statusCode: alreadyExisted ? httpStatus.OK : httpStatus.CREATED,
     message: alreadyExisted ? 'SOS already exists for this idempotency key' : 'SOS created',
     data: { sos: withEmergencyLink(sos) },
   });
+  console.log('[SOS_DEBUG] RESPONSE_SENT', { sosId: String(sos._id) });
 });
 
 const dispatchSosAfterPersistence = asyncHandler(async (req, res) => {

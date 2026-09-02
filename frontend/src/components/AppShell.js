@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 
 import AppHeader from './AppHeader';
+import Toast from './Toast';
 
 const AppShell = ({
   children,
@@ -41,6 +42,7 @@ const AppShell = ({
       />
 
       <View style={[styles.container, {backgroundColor}]}>
+        <Toast />
 
         {/* ========== HEADER ========== */}
         {!hideHeader && (
