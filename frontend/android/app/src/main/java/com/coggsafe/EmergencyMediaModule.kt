@@ -2,6 +2,7 @@ package com.coggsafe
 
 import android.Manifest
 import android.app.Activity
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -11,6 +12,7 @@ import android.os.Handler
 import android.os.Looper
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
+import android.telephony.SmsManager
 import android.telephony.SubscriptionManager
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -207,6 +209,82 @@ class EmergencyMediaModule(
             )
         }
     }
+    @ReactMethod
+    fun sendEmergencySms(
+        phoneNumber: String,
+        message: String,
+        promise: Promise
+    ) {
+        val cleanNumber = phoneNumber.trim()
+        if (cleanNumber.isEmpty()) {
+            promise.reject("E_SMS_NUMBER", "Emergency SMS number is missing.")
+            return
+        }
+
+        // Check SEND_SMS permission
+        if (ContextCompat.checkSelfPermission(
+                reactContext,
+                Manifest.permission.SEND_SMS
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            promise.reject(
+                "E_SMS_PERMISSION",
+                "SEND_SMS permission is required to send the emergency message."
+            )
+            return
+        }
+
+        try {
+            val subscriptionId = resolvePreferredSubscriptionId()
+            val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Android 12+: Use subscription-aware SmsManager
+                if (subscriptionId > 0) {
+                    android.telephony.SmsManager.getSmsManagerForSubscriptionId(subscriptionId)
+                } else {
+                    android.telephony.SmsManager.getDefault()
+                }
+            } else {
+                android.telephony.SmsManager.getDefault()
+            }
+
+            // Prepare PendingIntent callbacks for SENT and DELIVERED
+            val sentIntent = PendingIntent.getBroadcast(
+                reactContext,
+                (System.currentTimeMillis() % 10000).toInt(),
+                Intent("SOS_SMS_SENT"),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val deliveredIntent = PendingIntent.getBroadcast(
+                reactContext,
+                (System.currentTimeMillis() % 10000).toInt() + 1,
+                Intent("SOS_SMS_DELIVERED"),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            // Send SMS with callbacks
+            smsManager.sendTextMessage(
+                cleanNumber,
+                null,
+                message.ifBlank { "Emergency assistance requested." },
+                sentIntent,
+                deliveredIntent
+            )
+
+            promise.resolve(Arguments.createMap().apply {
+                putString("status", "sent")
+                putString("reason", "Emergency SMS queued for delivery via carrier network.")
+                putInt("subscriptionId", subscriptionId)
+            })
+        } catch (error: Exception) {
+            promise.reject(
+                "E_SMS_SEND",
+                "Android could not send the emergency SMS: ${error.message}",
+                error
+            )
+        }
+    }
+
     @ReactMethod
     fun openSmsComposer(
         phoneNumber: String,
@@ -418,6 +496,31 @@ class EmergencyMediaModule(
                 "Unable to start SOS audio recording.",
                 error
             )
+        }
+    }
+
+    private fun resolvePreferredSubscriptionId(): Int {
+        return try {
+            val subscriptionManager = reactContext.getSystemService(SubscriptionManager::class.java)
+            if (subscriptionManager == null) return -1
+
+            val activeSubscriptions = subscriptionManager.activeSubscriptionInfoList
+            if (activeSubscriptions == null || activeSubscriptions.isEmpty()) return -1
+
+            // If only one SIM, use it
+            if (activeSubscriptions.size == 1) {
+                return activeSubscriptions[0].subscriptionId
+            }
+
+            // Multiple SIMs: prefer SIM slot 0, or first active
+            val preferred = activeSubscriptions
+                .filter { it.simSlotIndex >= 0 }
+                .minByOrNull { it.simSlotIndex }
+                ?: activeSubscriptions.firstOrNull()
+
+            preferred?.subscriptionId ?: -1
+        } catch (e: Exception) {
+            -1
         }
     }
 

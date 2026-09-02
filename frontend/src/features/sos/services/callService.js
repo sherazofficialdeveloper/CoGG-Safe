@@ -5,11 +5,16 @@ function normalizeCallResult(result) {
   const status = String(result?.status || '').toUpperCase();
   const reason = result?.reason || '';
 
+  // If Android launched the call intent successfully, treat as INITIATED
+  if (/android launched/i.test(reason)) {
+    return {status: 'INITIATED', reason: reason || 'Android launched the emergency call.'};
+  }
+
   if (status === 'COMPLETED' || status === 'INITIATED') {
     return {status: 'INITIATED', reason: reason || 'Android launched the emergency call.'};
   }
 
-  if (status === 'PENDING' || /no service|cellular service|cellular.*unavailable|signal|radio off|temporary/i.test(reason)) {
+  if (status === 'PENDING' && !/launched/.test(reason)) {
     return {status: 'PENDING', reason: reason || 'Cellular service is temporarily unavailable; emergency call will retry automatically.'};
   }
 

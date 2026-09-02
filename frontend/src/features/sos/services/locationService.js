@@ -6,21 +6,35 @@ export async function getCurrentLocation() {
   }
 
   return new Promise((resolve, reject) => {
+    let timedOut = false;
+
+    // Timeout after 10 seconds to not block SOS flow
+    const timeoutHandle = setTimeout(() => {
+      timedOut = true;
+      reject(new Error('Location acquisition timed out (10 seconds).'));
+    }, 10000);
+
     Geolocation.getCurrentPosition(
       (position) => {
-        resolve({
-          latitude: position?.coords?.latitude ?? null,
-          longitude: position?.coords?.longitude ?? null,
-          accuracy: position?.coords?.accuracy ?? null,
-          capturedAt: new Date().toISOString(),
-        });
+        if (!timedOut) {
+          clearTimeout(timeoutHandle);
+          resolve({
+            latitude: position?.coords?.latitude ?? null,
+            longitude: position?.coords?.longitude ?? null,
+            accuracy: position?.coords?.accuracy ?? null,
+            capturedAt: new Date().toISOString(),
+          });
+        }
       },
       (error) => {
-        reject(new Error(error?.message || 'Location capture failed.'));
+        if (!timedOut) {
+          clearTimeout(timeoutHandle);
+          reject(new Error(error?.message || 'Location capture failed.'));
+        }
       },
       {
         enableHighAccuracy: true,
-        timeout: 20000,
+        timeout: 10000,
         maximumAge: 60000,
       },
     );

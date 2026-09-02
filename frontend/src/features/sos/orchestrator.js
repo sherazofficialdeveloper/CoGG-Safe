@@ -1,6 +1,8 @@
 import {sosLocalStore} from './storage';
 import {connectivityService} from './connectivity';
 import {enqueueSosJob} from './queue/queueWorker';
+import {emitSosToast} from './services/sosToastService';
+import {reportServiceResult} from './services/backendSyncService';
 
 const RETRYABLE_SERVICES = new Set(['sms', 'call', 'backend', 'email', 'notifications', 'liveLocation']);
 
@@ -86,6 +88,8 @@ export async function activateSosFlow({
   }
 
   const event = await createSosLocalEvent({userId, collectionId});
+  emitSosToast('SOS activated', 'info', 2000);
+  
   if (typeof onPending === 'function') {
     await onPending(event);
   }
@@ -184,6 +188,27 @@ export async function activateSosFlow({
 
       event.services[serviceName] = next;
       await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
+      
+      // Emit toast for critical services
+      if (resultStatus === 'COMPLETED') {
+        if (serviceName === 'location') {
+          const lat = result?.latitude;
+          const lng = result?.longitude;
+          const acc = result?.accuracy;
+          emitSosToast(`Location acquired (${acc?.toFixed(1) || 'unknown'}m accuracy)`, 'success', 2000);
+        } else if (serviceName === 'camera' && result?.frontImagePath) {
+          emitSosToast('Front camera captured', 'success', 2000);
+        } else if (serviceName === 'camera' && result?.backImagePath) {
+          emitSosToast('Back camera captured', 'success', 2000);
+        } else if (serviceName === 'audio' && result?.localPath) {
+          emitSosToast('Audio recorded (5 seconds)', 'success', 2000);
+        }
+      } else if (serviceName === 'sms' && resultStatus === 'COMPLETED') {
+        emitSosToast('Emergency SMS sent', 'success', 2000);
+      } else if (serviceName === 'call' && resultStatus === 'INITIATED') {
+        emitSosToast('Emergency call initiated', 'success', 2000);
+      }
+      
       if (resultStatus === 'PENDING' && RETRYABLE_SERVICES.has(serviceName)) {
         await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
       }

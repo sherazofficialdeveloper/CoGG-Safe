@@ -55,7 +55,7 @@ import {
   syncSosToBackend,
   uploadCapturedSosMedia,
 } from './src/features/sos/services/backendSyncService';
-import {getCollection, reportLocation, reportSosService, dispatchSosAfterPersistence} from './src/api/resources';
+import {getCollection, reportLocation, reportSosService, dispatchSosAfterPersistence, getSos} from './src/api/resources';
 
 import {getCurrentLocation} from './src/features/sos/services/locationService';
 import {sendEmergencySms} from './src/features/sos/services/smsService';
@@ -73,6 +73,7 @@ import {connectivityService} from './src/features/sos/connectivity';
 import {processSosQueue} from './src/features/sos/queue/queueWorker';
 import {recoverActiveSosWork} from './src/features/sos/recovery';
 import {sosLocalStore} from './src/features/sos/storage';
+import {subscribeSosToasts} from './src/features/sos/services/sosToastService';
 import {
   observeFirebaseNotifications,
   registerDeviceToken,
@@ -325,6 +326,18 @@ function AppContent() {
   }, [handleIncomingNotification, showToast, signOut, token, user]);
 
   // ============================================================
+  // SOS GLOBAL TOAST LISTENER
+  // ============================================================
+
+  useEffect(() => {
+    const subscription = subscribeSosToasts(({message, type, duration}) => {
+      showToast(message, type);
+    });
+
+    return () => subscription.remove();
+  }, [showToast]);
+
+  // ============================================================
   // HANDLE ANDROID BACK BUTTON
   // ============================================================
 
@@ -418,6 +431,36 @@ function AppContent() {
   // SOS HANDLER
   // ============================================================
 
+  /**
+   * Wait for backend to confirm ACTIVE status (after cancellation window).
+   * Polls with exponential backoff, times out after 30 seconds.
+   */
+  const waitForSosActive = async (sosId, maxWaitMs = 30000, initialDelayMs = 500) => {
+    const startTime = Date.now();
+    let delayMs = initialDelayMs;
+    
+    while (Date.now() - startTime < maxWaitMs) {
+      try {
+        const sosResponse = await getSos(token, sosId);
+        const sos = sosResponse?.sos || sosResponse;
+        if (sos?.status === 'active') {
+          return {success: true, sos};
+        }
+      } catch (err) {
+        // Network error, retry
+        if (__DEV__) {
+          console.log('WAIT_FOR_ACTIVE_POLL_ERROR', {sosId, error: err?.message});
+        }
+      }
+      
+      // Exponential backoff with cap
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      delayMs = Math.min(delayMs * 1.5, 2000);
+    }
+    
+    return {success: false, reason: 'Timeout waiting for backend to activate SOS'};
+  };
+
   const handleTriggerSos = useCallback(async ({skipNavigation = false} = {}) => {
     if (__DEV__) {
       console.log('SOS_ACTIVATION_REQUESTED', {
@@ -476,17 +519,27 @@ function AppContent() {
         serviceRunners: {
           sms: async event => {
             const location = await getCurrentLocation().catch(() => null);
+            const mapsLink = location 
+              ? `https://maps.google.com/?q=${location.latitude},${location.longitude}`
+              : '';
             const message = location
-              ? `Emergency assistance requested. Location: ${location.latitude}, ${location.longitude}`
-              : 'Emergency assistance requested.';
+              ? `Emergency SOS Alert! I need help. Location: ${mapsLink}`
+              : 'Emergency SOS Alert! I need help.';
             const result = await sendEmergencySms({
               phoneNumber: collection?.emergencyCallNumber || event?.meta?.emergencyNumber,
               message,
             });
             if (event.backendId) {
+              // Map result status to COMPONENT_STATUS values
+              const statusMap = {
+                'COMPLETED': 'success',
+                'PENDING': 'pending',
+                'FAILED': 'failed',
+                'UNSUPPORTED': 'unsupported',
+              };
               await reportSosService(token, event.backendId, 'sms', {
-                status: String(result.status || 'failed').toLowerCase(),
-                ...(result.reason ? {error: result.reason} : {}),
+                status: statusMap[result.status] || 'failed',
+                ...(result.error ? {error: result.error} : {}),
               });
             }
             return result;
@@ -497,9 +550,16 @@ function AppContent() {
               emergencyNumber: collection?.emergencyCallNumber || event?.meta?.emergencyNumber,
             });
             if (event.backendId) {
+              // Map result status to COMPONENT_STATUS values
+              const statusMap = {
+                'INITIATED': 'success',
+                'PENDING': 'pending',
+                'FAILED': 'failed',
+                'UNSUPPORTED': 'unsupported',
+              };
               await reportSosService(token, event.backendId, 'call', {
-                status: result.status === 'INITIATED' ? 'success' : String(result.status || 'failed').toLowerCase(),
-                ...(result.reason ? {error: result.reason} : {}),
+                status: statusMap[result.status] || 'failed',
+                ...(result.error ? {error: result.error} : {}),
               });
             }
             return result;
@@ -564,16 +624,31 @@ location: async event => {
 
       if (result?.cancelled) {
         showToast('SOS cancelled before dispatch.', 'info');
+      } else if (result?.event && result.event.backendId) {
+        // Wait for backend to confirm ACTIVE status
+        if (!skipNavigation) {
+          showToast('Waiting for server confirmation...', 'info');
+          const activationResult = await waitForSosActive(result.event.backendId);
+          
+          if (activationResult.success) {
+            showToast('Emergency alert activated!', 'success');
+            setSelectedSos({...result.event, ...activationResult.sos});
+            setScreen('userHome');
+          } else {
+            // Timeout, but still navigate - show toast about pending status
+            showToast('Emergency alert triggered (backend confirmation pending)', 'info');
+            setSelectedSos(result.event);
+            setScreen('userHome');
+          }
+        } else {
+          showToast('SOS alert triggered and queued for delivery.', 'success');
+        }
       } else if (result?.event) {
         if (!skipNavigation) {
           setSelectedSos(result.event);
           setScreen('userHome');
         }
-
-        showToast(
-          'SOS alert triggered locally and queued for delivery.',
-          'success',
-        );
+        showToast('SOS alert triggered locally and queued for delivery.', 'success');
       }
     } catch (error) {
       const message =

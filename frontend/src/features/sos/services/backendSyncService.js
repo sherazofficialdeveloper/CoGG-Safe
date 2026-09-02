@@ -1,4 +1,4 @@
-import {createSos, reportSosMedia, uploadSosMedia} from '../../../api/resources';
+import {createSos, reportSosMedia, uploadSosMedia, reportSosService} from '../../../api/resources';
 import {getConnectivityState} from '../connectivity';
 const MEDIA_COMPONENTS = [
   {component: 'frontImage', service: 'camera', path: 'frontImagePath', mimeType: 'image/jpeg'},
@@ -83,4 +83,30 @@ export async function uploadCapturedSosMedia({token, sosEvent}) {
   return {status: 'COMPLETED', uploaded};
 }
 
-export default {syncSosToBackend, uploadCapturedSosMedia};
+/**
+ * Report a service result (SMS, CALL, location, etc.) to the backend.
+ * These results are reported as they complete in parallel, independent of media upload.
+ */
+export async function reportServiceResult({token, sosId, component, status, error}) {
+  if (!token || !sosId) {
+    return {status: 'PENDING', reason: 'Service result reporting is waiting for authentication/backend SOS.'};
+  }
+
+  const connectivity = getConnectivityState();
+  if (!Boolean(connectivity.isInternetReachable || connectivity.isConnected)) {
+    // Queue retry instead of hard fail
+    return {status: 'PENDING', reason: 'Internet unavailable; service result reporting queued.'};
+  }
+
+  try {
+    const response = await reportSosService(token, sosId, component, {
+      status,
+      error: error || null,
+    });
+    return {status: 'COMPLETED', response};
+  } catch (err) {
+    return {status: 'FAILED', error: err?.message || 'Failed to report service result to backend.'};
+  }
+}
+
+export default {syncSosToBackend, uploadCapturedSosMedia, reportServiceResult};
