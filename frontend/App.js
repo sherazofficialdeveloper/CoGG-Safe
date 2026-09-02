@@ -488,9 +488,12 @@ function AppContent() {
 
         serviceRunners: {
           sms: async event => {
+            if (__DEV__) console.log('SOS_SMS_START', {eventId: event.id});
             if (!event?.meta?.emergencyNumber) {
               await collectionPromise;
             }
+            const phoneNumber = collection?.emergencyCallNumber || event?.meta?.emergencyNumber;
+            if (__DEV__) console.log('SOS_SMS_RECIPIENT_RESOLVED', {eventId: event.id, hasNumber: Boolean(phoneNumber)});
             const location = event.location?.latitude != null && event.location?.longitude != null
               ? event.location
               : null;
@@ -500,10 +503,12 @@ function AppContent() {
             const message = location
               ? `Emergency SOS Alert! I need help. Location: ${mapsLink}`
               : 'Emergency SOS Alert! I need help.';
+            if (__DEV__) console.log('SOS_SMS_SEND_CALLED', {eventId: event.id});
             const result = await sendEmergencySms({
-              phoneNumber: collection?.emergencyCallNumber || event?.meta?.emergencyNumber,
+              phoneNumber,
               message,
             });
+            if (__DEV__) console.log(result.status === 'COMPLETED' ? 'SOS_SMS_SENT' : 'SOS_SMS_FAILED', {eventId: event.id, status: result.status, reason: result.reason});
             if (event.backendId) {
               // Map result status to COMPONENT_STATUS values
               const statusMap = {
@@ -514,19 +519,23 @@ function AppContent() {
               };
               await reportSosService(token, event.backendId, 'sms', {
                 status: statusMap[result.status] || 'failed',
-                ...(result.error ? {error: result.error} : {}),
+                ...((result.error || result.reason) ? {error: result.error || result.reason} : {}),
               });
             }
             return result;
           },
 
           call: async event => {
+            if (__DEV__) console.log('SOS_CALL_START', {eventId: event.id});
             if (!event?.meta?.emergencyNumber) {
               await collectionPromise;
             }
+            const emergencyNumber = collection?.emergencyCallNumber || event?.meta?.emergencyNumber;
+            if (__DEV__) console.log('SOS_CALL_NUMBER_RESOLVED', {eventId: event.id, hasNumber: Boolean(emergencyNumber)});
             const result = await initiateEmergencyCall({
-              emergencyNumber: collection?.emergencyCallNumber || event?.meta?.emergencyNumber,
+              emergencyNumber,
             });
+            if (__DEV__) console.log(result.status === 'INITIATED' ? 'SOS_CALL_INITIATED' : 'SOS_CALL_FAILED', {eventId: event.id, status: result.status, reason: result.reason});
             if (event.backendId) {
               // Map result status to COMPONENT_STATUS values
               const statusMap = {
@@ -537,7 +546,7 @@ function AppContent() {
               };
               await reportSosService(token, event.backendId, 'call', {
                 status: statusMap[result.status] || 'failed',
-                ...(result.error ? {error: result.error} : {}),
+                ...((result.error || result.reason) ? {error: result.error || result.reason} : {}),
               });
             }
             return result;
