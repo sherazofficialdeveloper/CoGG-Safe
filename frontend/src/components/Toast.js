@@ -17,6 +17,7 @@ const Toast = ({
   onHide,
 }) => {
   const [eventToast, setEventToast] = useState(null);
+  const [eventQueue, setEventQueue] = useState([]);
   const translateY = useRef(
     new Animated.Value(-100),
   ).current;
@@ -45,10 +46,17 @@ const Toast = ({
 
   useEffect(() => {
     const subscription = DeviceEventEmitter.addListener(SOS_TOAST_EVENT, payload => {
-      setEventToast(payload);
+      setEventQueue(queue => [...queue, payload]);
     });
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    if (!eventToast && eventQueue.length > 0) {
+      setEventToast(eventQueue[0]);
+      setEventQueue(queue => queue.slice(1));
+    }
+  }, [eventQueue, eventToast]);
 
   const isVisible = Boolean(eventToast) || visible;
   const displayMessage = eventToast?.message || message;

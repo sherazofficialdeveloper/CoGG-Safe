@@ -198,7 +198,9 @@ export async function activateSosFlow({
           emitSosToast(`Location acquired (${acc?.toFixed(1) || 'unknown'}m accuracy)`, 'success', 2000);
         } else if (serviceName === 'camera' && result?.frontImagePath) {
           emitSosToast('Front camera captured', 'success', 2000);
-        } else if (serviceName === 'camera' && result?.backImagePath) {
+          if (result?.backImagePath) {
+            emitSosToast('Back camera captured', 'success', 2000);
+          }
           emitSosToast('Back camera captured', 'success', 2000);
         } else if (serviceName === 'audio' && result?.localPath) {
           emitSosToast('Audio recorded (5 seconds)', 'success', 2000);
@@ -251,9 +253,18 @@ export async function activateSosFlow({
   if (backendResult) execution.push(backendResult);
   appendSettled(captureResults);
 
+  if (
+    backendReady &&
+    event.location?.latitude != null &&
+    event.location?.longitude != null &&
+    typeof runners.locationReport === 'function'
+  ) {
+    appendSettled(await Promise.allSettled([runners.locationReport(event)]));
+  }
+
   // Media upload waits for captured files and the persisted backend SOS, while
   // notifications and live location remain independent of upload completion.
-  const dispatchPreparationNames = remainingNames.filter(name => !['location', 'camera', 'audio', 'sms', 'call', 'mediaUpload', 'notifications', 'liveLocation'].includes(name));
+  const dispatchPreparationNames = remainingNames.filter(name => !['location', 'camera', 'audio', 'sms', 'call', 'mediaUpload', 'notifications', 'liveLocation', 'locationReport'].includes(name));
   const postCaptureTasks = [];
   if (remainingNames.includes('mediaUpload')) {
     postCaptureTasks.push(backendReady

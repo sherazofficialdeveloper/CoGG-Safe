@@ -45,6 +45,8 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
     status: 'COMPLETED',
     backendId,
     emergencyLink: sosRecord?.emergencyLink || null,
+    backendStatus: sosRecord?.status || null,
+    activatedAt: sosRecord?.activatedAt || null,
   };
 }
 
@@ -63,8 +65,7 @@ export async function uploadCapturedSosMedia({token, sosEvent}) {
     return {status: 'PENDING', reason: 'Internet unavailable; media upload queued.'};
   }
 
-  const uploaded = [];
-  for (const item of MEDIA_COMPONENTS) {
+  const results = await Promise.allSettled(MEDIA_COMPONENTS.map(async item => {
     const capture = sosEvent.services?.[item.service] || {};
     const localPath = capture[item.path];
     if (localPath) {
@@ -77,16 +78,24 @@ export async function uploadCapturedSosMedia({token, sosEvent}) {
       if (media?.status !== 'success' || !media.storageRef) {
         throw new Error(`Backend did not confirm durable storage for ${item.component}.`);
       }
-      uploaded.push({component: item.component, storageRef: media.storageRef});
-    } else if (capture.status === 'FAILED') {
+      return {component: item.component, storageRef: media.storageRef};
+    }
+    if (capture.status === 'FAILED') {
       await reportSosMedia(token, backendId, item.component, {
         status: 'failed',
         error: capture.error || `${item.component} capture failed on the device.`,
       });
     }
-  }
+    return null;
+  }));
 
-  return {status: 'COMPLETED', uploaded};
+  const uploaded = results
+    .filter(result => result.status === 'fulfilled' && result.value)
+    .map(result => result.value);
+  const failures = results
+    .filter(result => result.status === 'rejected')
+    .map(result => result.reason?.message || 'Media upload failed');
+  return {status: failures.length ? 'FAILED' : 'COMPLETED', uploaded, failures};
 }
 
 /**

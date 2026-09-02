@@ -488,8 +488,12 @@ function AppContent() {
 
         serviceRunners: {
           sms: async event => {
-            await collectionPromise;
-            const location = await getCurrentLocation().catch(() => null);
+            if (!event?.meta?.emergencyNumber) {
+              await collectionPromise;
+            }
+            const location = event.location?.latitude != null && event.location?.longitude != null
+              ? event.location
+              : null;
             const mapsLink = location 
               ? `https://maps.google.com/?q=${location.latitude},${location.longitude}`
               : '';
@@ -517,7 +521,9 @@ function AppContent() {
           },
 
           call: async event => {
-            await collectionPromise;
+            if (!event?.meta?.emergencyNumber) {
+              await collectionPromise;
+            }
             const result = await initiateEmergencyCall({
               emergencyNumber: collection?.emergencyCallNumber || event?.meta?.emergencyNumber,
             });
@@ -553,6 +559,7 @@ function AppContent() {
 location: async event => {
             try {
               const result = await getCurrentLocation();
+              event.location = {...event.location, ...result};
               if (event.backendId) {
                 await reportLocation(token, event.backendId, {status: 'success', latitude: result.latitude, longitude: result.longitude});
               }
@@ -563,6 +570,17 @@ location: async event => {
               }
               throw error;
             }
+          },
+
+          locationReport: async event => {
+            if (event.backendId && event.location?.latitude != null && event.location?.longitude != null) {
+              await reportLocation(token, event.backendId, {
+                status: 'success',
+                latitude: event.location.latitude,
+                longitude: event.location.longitude,
+              });
+            }
+            return {status: 'COMPLETED'};
           },
 
           liveLocation: async event =>

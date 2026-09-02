@@ -21,7 +21,7 @@ export async function recoverActiveSosWork(now = Date.now()) {
   const recovered = [];
 
   for (const event of events) {
-    if (event.status !== 'ACTIVE') continue;
+    if (event.status !== 'ACTIVE' && event.status !== 'PENDING') continue;
 
     const isExpired = event.liveLocationStartedAt
       ? hasLiveLocationExpired(event.liveLocationStartedAt, now)

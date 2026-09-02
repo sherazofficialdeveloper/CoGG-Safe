@@ -75,7 +75,18 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
       await sosLocalStore.updateSosServiceState(event.id, item.serviceName, servicePatch);
       if (result?.backendId) {
         const latestEvent = await sosLocalStore.getSosById(event.id);
-        const syncedEvent = {...latestEvent, backendId: result.backendId, emergencyLink: result.emergencyLink || null};
+        const backendConfirmedActive = item.serviceName === 'backend'
+          && result.status !== 'PENDING'
+          && result.backendStatus !== 'pending';
+        const syncedEvent = {
+          ...latestEvent,
+          backendId: result.backendId,
+          emergencyLink: result.emergencyLink || null,
+          ...(backendConfirmedActive ? {
+            status: 'ACTIVE',
+            activatedAt: result.activatedAt || new Date().toISOString(),
+          } : {}),
+        };
         await sosLocalStore.upsertSos(syncedEvent);
         if (
           syncedEvent.services?.camera?.frontImagePath ||
