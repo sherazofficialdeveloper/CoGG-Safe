@@ -51,15 +51,16 @@ function resolveEmergencyMessage(user) {
  * this handler (e.g. after a transient error) without risk of duplicate
  * activation/dispatch.
  */
-async function activateSosIfPending({ sosId, dispatch = false }) {
+async function activateSosIfPending({ sosId, dispatch = true }) {
   const activated = await Sos.findOneAndUpdate(
     { _id: sosId, status: SOS_STATUS.PENDING },
     { $set: { status: SOS_STATUS.ACTIVE, activatedAt: new Date() } },
     { new: true }
   );
-  if (activated) {
+  if (activated && dispatch) {
     await dispatchService.dispatchSos(activated);
   }
+  return activated;
 }
 
 /**
@@ -242,11 +243,10 @@ async function createSos({ userId, idempotencyKey, location }) {
  */
 async function dispatchSosAfterPersistence(id, reqUser) {
   await getOwnedSosOrThrow(id, reqUser, 'You do not have permission to dispatch this SOS');
-  const activated = await activateSosIfPending({ sosId: id, dispatch: false });
+  const activated = await activateSosIfPending({ sosId: id });
   if (!activated) {
     throw ApiError.conflict('SOS dispatch has already started or is no longer pending');
   }
-  await dispatchService.dispatchSos(activated);
   return getSosById(id, reqUser);
 }
 

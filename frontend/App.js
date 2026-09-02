@@ -123,6 +123,14 @@ function AppContent() {
     }));
   }, []);
 
+  const handleUserNotificationCountChange = useCallback((count) => {
+    setUserNotificationCount(count);
+  }, []);
+
+  const handleAdminNotificationCountChange = useCallback((count) => {
+    setAdminNotificationCount(count);
+  }, []);
+
   // ============================================================
   // EFFECTS
   // ============================================================
@@ -764,7 +772,7 @@ location: async event => {
                 setSelectedNotification(notification);
                 setScreen('userNotificationDetail');
               }}
-              onBadgeCountChange={count => setUserNotificationCount(count)}
+              onBadgeCountChange={handleUserNotificationCountChange}
               onBack={() => setScreen('userHome')}
             />
           </AppShell>
@@ -1100,7 +1108,7 @@ location: async event => {
                 setSelectedNotification(notification);
                 setScreen('adminNotificationDetail');
               }}
-              onBadgeCountChange={count => setAdminNotificationCount(count)}
+              onBadgeCountChange={handleAdminNotificationCountChange}
             />
           </AdminLayoutNoHeader>
         );

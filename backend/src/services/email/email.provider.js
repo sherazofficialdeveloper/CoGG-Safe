@@ -45,13 +45,25 @@ async function send({ to, subject, body }) {
     return { status: 'unsupported', error: 'Email provider is not configured' };
   }
 
-  const info = await getTransporter().sendMail({
-    from: env.email.from,
-    to,
-    subject,
-    text: body,
-  });
-  return { status: 'sent', providerMessageId: info.messageId };
+  try {
+    // Add a 10-second timeout to prevent email from blocking the entire SOS activation
+    const sendPromise = getTransporter().sendMail({
+      from: env.email.from,
+      to,
+      subject,
+      text: body,
+    });
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Email send timeout after 10 seconds')), 10000)
+    );
+
+    const info = await Promise.race([sendPromise, timeoutPromise]);
+    return { status: 'sent', providerMessageId: info.messageId };
+  } catch (err) {
+    logger.warn('Email send failed', { to, subject, error: err.message });
+    throw err;
+  }
 }
 
 module.exports = { send, isConfigured };

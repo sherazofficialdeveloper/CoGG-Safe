@@ -95,11 +95,18 @@ async function sendToToken({ token, title, body, data }) {
   }
 
   try {
-    const messageId = await admin.messaging(getApp()).send({
+    // Add a 10-second timeout to prevent push from blocking the entire SOS activation
+    const sendPromise = admin.messaging(getApp()).send({
       token,
       notification: { title, body },
       data: stringifyDataPayload(data),
     });
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Push send timeout after 10 seconds')), 10000)
+    );
+
+    const messageId = await Promise.race([sendPromise, timeoutPromise]);
     return { status: 'sent', providerMessageId: messageId };
   } catch (err) {
     if (FCM_INVALID_TOKEN_CODES.has(err.code)) {
