@@ -88,7 +88,7 @@ export async function activateSosFlow({
   }
 
   const event = await createSosLocalEvent({userId, collectionId});
-  emitSosToast('SOS activated', 'info', 2000);
+  emitSosToast('SOS started', 'info', 2000);
   
   if (typeof onPending === 'function') {
     await onPending(event);
@@ -247,14 +247,14 @@ export async function activateSosFlow({
     error: result.reason?.message || 'Service failed',
   }));
 
-  // Capture can happen concurrently, but upload must observe the completed
-  // files and be confirmed by the backend before SMS/call/email dispatch.
-  const captureNames = remainingNames.filter(name => ['location', 'camera', 'audio'].includes(name));
+  // Independent device services run concurrently; media upload waits for
+  // captured files and the persisted backend SOS.
+  const captureNames = remainingNames.filter(name => ['location', 'camera', 'audio', 'sms', 'call'].includes(name));
   appendSettled(await Promise.allSettled(captureNames.map(serviceName => runService(serviceName))));
   if (remainingNames.includes('mediaUpload')) {
     execution.push(await runService('mediaUpload'));
   }
-  const dispatchPreparationNames = remainingNames.filter(name => !['location', 'camera', 'audio', 'mediaUpload', 'notifications', 'liveLocation'].includes(name));
+  const dispatchPreparationNames = remainingNames.filter(name => !['location', 'camera', 'audio', 'sms', 'call', 'mediaUpload', 'notifications', 'liveLocation'].includes(name));
   appendSettled(await Promise.allSettled(dispatchPreparationNames.map(serviceName => runService(serviceName))));
 
   if (remainingNames.includes('notifications')) {

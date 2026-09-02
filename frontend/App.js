@@ -55,7 +55,7 @@ import {
   syncSosToBackend,
   uploadCapturedSosMedia,
 } from './src/features/sos/services/backendSyncService';
-import {getCollection, reportLocation, reportSosService, dispatchSosAfterPersistence, getSos} from './src/api/resources';
+import {getCollection, reportLocation, reportSosService, getSos} from './src/api/resources';
 
 import {getCurrentLocation} from './src/features/sos/services/locationService';
 import {sendEmergencySms} from './src/features/sos/services/smsService';
@@ -484,24 +484,25 @@ function AppContent() {
 
     try {
       let collection = null;
+      let collectionPromise = Promise.resolve();
       const result = await activateSosFlow({
         userId: user?._id || user?.id,
         collectionId: user?.collectionId,
         countdownMs: 10000,
         cancelSignal: sosCancelSignalRef.current,
-        onPending: async event => {
+        onPending: event => {
           if (__DEV__) console.log('[SOS_DEBUG] LOCAL_EVENT', {eventId: event.id});
           if (!skipNavigation) {
             setSelectedSos(event);
             setScreen('userSosActive');
           }
 
-          try {
-            const collectionResponse = await getCollection(token, user?.collectionId);
+          collectionPromise = getCollection(token, user?.collectionId)
+            .then(collectionResponse => {
             collection = collectionResponse?.collection || null;
             const emergencyNumber = collection?.emergencyCallNumber || event?.meta?.emergencyNumber;
             if (emergencyNumber) {
-              sosLocalStore.upsertSos({
+              return sosLocalStore.upsertSos({
                 ...event,
                 meta: {
                   ...event.meta,
@@ -509,15 +510,18 @@ function AppContent() {
                 },
               });
             }
-          } catch (error) {
+            return undefined;
+          })
+          .catch(error => {
             if (__DEV__) {
               console.log('SOS_COLLECTION_LOAD_FAILED', {error: error?.message || error});
             }
-          }
+          });
         },
 
         serviceRunners: {
           sms: async event => {
+            await collectionPromise;
             const location = await getCurrentLocation().catch(() => null);
             const mapsLink = location 
               ? `https://maps.google.com/?q=${location.latitude},${location.longitude}`
@@ -546,6 +550,7 @@ function AppContent() {
           },
 
           call: async event => {
+            await collectionPromise;
             const result = await initiateEmergencyCall({
               emergencyNumber: collection?.emergencyCallNumber || event?.meta?.emergencyNumber,
             });
@@ -612,13 +617,10 @@ location: async event => {
             reason: 'Email dispatch is pending backend confirmation.',
           }),
 
-          notifications: async event => {
-            if (!event.backendId) {
-              return {status: 'PENDING', reason: 'Push notification is waiting for backend SOS persistence.'};
-            }
-            await dispatchSosAfterPersistence(token, event.backendId);
-            return {status: 'PENDING', reason: 'Push delivery is pending backend confirmation.'};
-          },
+          notifications: async () => ({
+            status: 'PENDING',
+            reason: 'Push notification will be dispatched by the backend after activation.',
+          }),
         },
       });
 
@@ -631,7 +633,7 @@ location: async event => {
           const activationResult = await waitForSosActive(result.event.backendId);
           
           if (activationResult.success) {
-            showToast('Emergency alert activated!', 'success');
+            showToast('SOS Active', 'success');
             setSelectedSos({...result.event, ...activationResult.sos});
             setScreen('userHome');
           } else {
@@ -642,11 +644,11 @@ location: async event => {
           showToast('SOS alert triggered and queued for delivery.', 'success');
         }
       } else if (result?.event) {
+        setSelectedSos({...result.event, status: 'PENDING', activationError: 'Backend SOS creation is pending.'});
         if (!skipNavigation) {
-          setSelectedSos(result.event);
-          setScreen('userHome');
+          setScreen('userSosActive');
         }
-        showToast('SOS alert triggered locally and queued for delivery.', 'success');
+        showToast('SOS started; waiting for backend confirmation.', 'info');
       }
     } catch (error) {
       const message =

@@ -178,7 +178,7 @@ const Toast = ({
 const styles = StyleSheet.create({
   wrapper: {
     position: 'absolute',
-    top: 8,
+    top: 64,
     left: 15,
     right: 15,
     zIndex: 9999,

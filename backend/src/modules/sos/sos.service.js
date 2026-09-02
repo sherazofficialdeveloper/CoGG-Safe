@@ -31,7 +31,6 @@ const schedulerService = require('../scheduler/scheduler.service');
 // on the scheduler firing at exactly the right moment, only on it
 // firing eventually.
 // ---------------------------------------------------------------------
-const JOB_TYPE_SOS_ACTIVATION = 'sos_activation';
 const JOB_TYPE_LIVE_LOCATION_EXPIRY = 'live_location_expiry';
 
 const DEFAULT_EMERGENCY_MESSAGE_TEMPLATE = 'I am [Username]. I may be in danger. Please help me.';
@@ -78,7 +77,6 @@ async function expireLiveLocationIfActive({ sosId }) {
   await stopLiveLocationInternal(sosId, LIVE_LOCATION_STATUS.STOPPED_MAX_DURATION);
 }
 
-schedulerService.registerHandler(JOB_TYPE_SOS_ACTIVATION, activateSosIfPending);
 schedulerService.registerHandler(JOB_TYPE_LIVE_LOCATION_EXPIRY, expireLiveLocationIfActive);
 
 /**
@@ -213,7 +211,8 @@ async function createSos({ userId, idempotencyKey, location }) {
       emergencyMessage: resolveEmergencyMessage(user),
       emergencyToken: generateEmergencyToken(),
       idempotencyKey: idempotencyKey || undefined,
-      status: SOS_STATUS.PENDING,
+      status: SOS_STATUS.ACTIVE,
+      activatedAt: new Date(),
     });
     console.log('[SOS_DEBUG] MONGO_CREATED', { sosId: String(sos._id) });
   } catch (err) {
@@ -235,12 +234,13 @@ async function createSos({ userId, idempotencyKey, location }) {
     await sos.save();
   }
 
-  const runAt = new Date(Date.now() + env.sos.cancellationWindowSeconds * 1000);
-  console.log('[SOS_DEBUG] ACTIVATION_SCHEDULED', {
-    sosId: String(sos._id),
-    runAt: runAt.toISOString(),
+  console.log('[SOS_DEBUG] ACTIVE_AT_CREATION', { sosId: String(sos._id) });
+  void dispatchService.dispatchSos(sos).catch(error => {
+    console.error('[SOS_DEBUG] DISPATCH_FAILED', {
+      sosId: String(sos._id),
+      error: error?.message || 'SOS dispatch failed',
+    });
   });
-  await schedulerService.scheduleJob(JOB_TYPE_SOS_ACTIVATION, { sosId: String(sos._id) }, runAt);
 
   return { sos, alreadyExisted: false };
 }
@@ -310,7 +310,6 @@ async function cancelSos(id, reqUser) {
     throw ApiError.conflict('This SOS can no longer be cancelled');
   }
 
-  await schedulerService.cancelJobsForSos(JOB_TYPE_SOS_ACTIVATION, id);
   return updated;
 }
 
@@ -355,7 +354,6 @@ async function deleteSos(id, reqUser) {
     Sos.deleteOne({_id: sos._id}),
     LiveLocationUpdate.deleteMany({sosId: sos._id}),
     Notification.deleteMany({sosId: sos._id}),
-    schedulerService.cancelJobsForSos(JOB_TYPE_SOS_ACTIVATION, id),
     schedulerService.cancelJobsForSos(JOB_TYPE_LIVE_LOCATION_EXPIRY, id),
   ]);
   return sos;
