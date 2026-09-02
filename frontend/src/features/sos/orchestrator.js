@@ -234,12 +234,9 @@ export async function activateSosFlow({
     }
   };
 
-  // The backend record is the durability boundary. Capture and dispatch must
-  // never race record creation, and push is deliberately the final phase.
-  if (names.includes('backend')) {
-    execution.push(await runService('backend'));
-  }
-
+  // Start backend persistence and independent device actions together. Device
+  // capture must not wait for network latency; operations that require a
+  // backend ID report their result when one is available.
   const remainingNames = names.filter(name => name !== 'backend');
   const appendSettled = settled => execution.push(...settled.map(result => result.status === 'fulfilled' ? result.value : {
     serviceName: result.reason?.serviceName || 'unknown',
@@ -247,22 +244,30 @@ export async function activateSosFlow({
     error: result.reason?.message || 'Service failed',
   }));
 
-  // Independent device services run concurrently; media upload waits for
-  // captured files and the persisted backend SOS.
+  const backendPromise = names.includes('backend') ? runService('backend') : Promise.resolve(null);
   const captureNames = remainingNames.filter(name => ['location', 'camera', 'audio', 'sms', 'call'].includes(name));
-  appendSettled(await Promise.allSettled(captureNames.map(serviceName => runService(serviceName))));
-  if (remainingNames.includes('mediaUpload')) {
-    execution.push(await runService('mediaUpload'));
-  }
-  const dispatchPreparationNames = remainingNames.filter(name => !['location', 'camera', 'audio', 'sms', 'call', 'mediaUpload', 'notifications', 'liveLocation'].includes(name));
-  appendSettled(await Promise.allSettled(dispatchPreparationNames.map(serviceName => runService(serviceName))));
+  const capturePromise = Promise.allSettled(captureNames.map(serviceName => runService(serviceName)));
+  const [backendResult, captureResults] = await Promise.all([backendPromise, capturePromise]);
+  if (backendResult) execution.push(backendResult);
+  appendSettled(captureResults);
 
-  if (remainingNames.includes('notifications')) {
-    execution.push(await runService('notifications'));
+  // Media upload waits for captured files and the persisted backend SOS, while
+  // notifications and live location remain independent of upload completion.
+  const dispatchPreparationNames = remainingNames.filter(name => !['location', 'camera', 'audio', 'sms', 'call', 'mediaUpload', 'notifications', 'liveLocation'].includes(name));
+  const postCaptureTasks = [];
+  if (remainingNames.includes('mediaUpload')) {
+    postCaptureTasks.push(backendReady
+      ? runService('mediaUpload')
+      : Promise.resolve({
+        serviceName: 'mediaUpload',
+        status: 'PENDING',
+        error: 'Media upload is waiting for backend SOS persistence.',
+      }));
   }
-  if (remainingNames.includes('liveLocation')) {
-    execution.push(await runService('liveLocation'));
-  }
+  postCaptureTasks.push(...dispatchPreparationNames.map(serviceName => runService(serviceName)));
+  if (remainingNames.includes('notifications')) postCaptureTasks.push(runService('notifications'));
+  if (remainingNames.includes('liveLocation')) postCaptureTasks.push(runService('liveLocation'));
+  appendSettled(await Promise.allSettled(postCaptureTasks));
 
   if (cancelSignal?.cancelled) {
     event.status = 'CANCELLED';

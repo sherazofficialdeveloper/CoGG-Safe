@@ -55,7 +55,7 @@ import {
   syncSosToBackend,
   uploadCapturedSosMedia,
 } from './src/features/sos/services/backendSyncService';
-import {getCollection, reportLocation, reportSosService, getSos} from './src/api/resources';
+import {getCollection, reportLocation, reportSosService} from './src/api/resources';
 
 import {getCurrentLocation} from './src/features/sos/services/locationService';
 import {sendEmergencySms} from './src/features/sos/services/smsService';
@@ -427,39 +427,6 @@ function AppContent() {
   // SOS HANDLER
   // ============================================================
 
-  /**
-   * Wait for backend to confirm ACTIVE status (after cancellation window).
-   * Polls with exponential backoff, times out after 30 seconds.
-   */
-  const waitForSosActive = useCallback(async (sosId, maxWaitMs = 30000, initialDelayMs = 500) => {
-    const startTime = Date.now();
-    let delayMs = initialDelayMs;
-    
-    while (Date.now() - startTime < maxWaitMs) {
-      try {
-        const sosResponse = await getSos(token, sosId);
-        const sos = sosResponse?.sos || sosResponse;
-        if (__DEV__) {
-          console.log('[SOS_DEBUG] POLL_RESPONSE', {backendId: sosId, status: sos?.status});
-        }
-        if (sos?.status === 'active') {
-          return {success: true, sos};
-        }
-      } catch (err) {
-        // Network error, retry
-        if (__DEV__) {
-          console.log('WAIT_FOR_ACTIVE_POLL_ERROR', {sosId, error: err?.message});
-        }
-      }
-      
-      // Exponential backoff with cap
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-      delayMs = Math.min(delayMs * 1.5, 2000);
-    }
-    
-    return {success: false, reason: 'Timeout waiting for backend to activate SOS'};
-  }, [token]);
-
   const handleTriggerSos = useCallback(async ({skipNavigation = false} = {}) => {
     if (__DEV__) {
       console.log('SOS_ACTIVATION_REQUESTED', {
@@ -627,19 +594,10 @@ location: async event => {
       if (result?.cancelled) {
         showToast('SOS cancelled before dispatch.', 'info');
       } else if (result?.event && result.event.backendId) {
-        // Wait for backend to confirm ACTIVE status
         if (!skipNavigation) {
-          showToast('Waiting for server confirmation...', 'info');
-          const activationResult = await waitForSosActive(result.event.backendId);
-          
-          if (activationResult.success) {
-            showToast('SOS Active', 'success');
-            setSelectedSos({...result.event, ...activationResult.sos});
-            setScreen('userHome');
-          } else {
-            showToast(`Backend confirmation was not received: ${activationResult.reason}`, 'error');
-            setSelectedSos({...result.event, status: 'PENDING', activationError: activationResult.reason});
-          }
+          showToast('SOS Active', 'success');
+          setSelectedSos({...result.event, status: 'active'});
+          setScreen('userHome');
         } else {
           showToast('SOS alert triggered and queued for delivery.', 'success');
         }
@@ -660,7 +618,7 @@ location: async event => {
       setSosLoading(false);
       sosTriggerInFlightRef.current = false;
     }
-  }, [sosLoading, showToast, token, user, waitForSosActive]);
+  }, [sosLoading, showToast, token, user]);
 
   useEffect(() => {
     if (!user || user.role !== 'user') {
