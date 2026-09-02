@@ -18,6 +18,8 @@ export const cancelSos = (token, id) => request(`/sos/${id}/cancel`, {method: 'P
 export const deactivateSos = (token, id) => request(`/sos/${id}/deactivate`, {method: 'PATCH', token});
 export const deleteSos = (token, id) => request(`/sos/${id}`, {method: 'DELETE', token});
 export const reportLocation = (token, id, body) => request(`/sos/${id}/location`, {method: 'POST', token, body});
+export const reportSosService = (token, id, component, body) => request(`/sos/${id}/service/${component}`, {method: 'PATCH', token, body});
+export const dispatchSosAfterPersistence = (token, id) => request(`/sos/${id}/dispatch`, {method: 'POST', token});
 export const uploadSosMedia = (token, id, component, file) => {
   const body = new FormData();
   body.append('file', file);

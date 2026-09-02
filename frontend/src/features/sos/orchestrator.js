@@ -101,6 +101,7 @@ export async function activateSosFlow({
     call: async () => 'call',
     camera: async () => 'camera',
     audio: async () => 'audio',
+    mediaUpload: async () => 'mediaUpload',
     location: async () => 'location',
     backend: async () => 'backend',
     email: async () => 'email',
@@ -109,7 +110,7 @@ export async function activateSosFlow({
   };
 
   const runners = {...defaultRunners, ...serviceRunners};
-  const executionOrder = ['backend', 'location', 'camera', 'audio', 'sms', 'call', 'notifications', 'liveLocation'];
+  const executionOrder = ['backend', 'location', 'camera', 'audio', 'mediaUpload', 'sms', 'call', 'email', 'notifications', 'liveLocation'];
   const extraNames = Object.keys(runners).filter((name) => !executionOrder.includes(name));
   const names = [...executionOrder.filter(name => Object.prototype.hasOwnProperty.call(runners, name)), ...extraNames];
 
@@ -208,12 +209,35 @@ export async function activateSosFlow({
     }
   };
 
-  const settled = await Promise.allSettled(names.map(serviceName => runService(serviceName)));
-  execution.push(...settled.map(result => result.status === 'fulfilled' ? result.value : {
+  // The backend record is the durability boundary. Capture and dispatch must
+  // never race record creation, and push is deliberately the final phase.
+  if (names.includes('backend')) {
+    execution.push(await runService('backend'));
+  }
+
+  const remainingNames = names.filter(name => name !== 'backend');
+  const appendSettled = settled => execution.push(...settled.map(result => result.status === 'fulfilled' ? result.value : {
     serviceName: result.reason?.serviceName || 'unknown',
     status: 'FAILED',
     error: result.reason?.message || 'Service failed',
   }));
+
+  // Capture can happen concurrently, but upload must observe the completed
+  // files and be confirmed by the backend before SMS/call/email dispatch.
+  const captureNames = remainingNames.filter(name => ['location', 'camera', 'audio'].includes(name));
+  appendSettled(await Promise.allSettled(captureNames.map(serviceName => runService(serviceName))));
+  if (remainingNames.includes('mediaUpload')) {
+    execution.push(await runService('mediaUpload'));
+  }
+  const dispatchPreparationNames = remainingNames.filter(name => !['location', 'camera', 'audio', 'mediaUpload', 'notifications', 'liveLocation'].includes(name));
+  appendSettled(await Promise.allSettled(dispatchPreparationNames.map(serviceName => runService(serviceName))));
+
+  if (remainingNames.includes('notifications')) {
+    execution.push(await runService('notifications'));
+  }
+  if (remainingNames.includes('liveLocation')) {
+    execution.push(await runService('liveLocation'));
+  }
 
   if (cancelSignal?.cancelled) {
     event.status = 'CANCELLED';

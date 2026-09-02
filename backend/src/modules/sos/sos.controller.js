@@ -32,6 +32,11 @@ const createSos = asyncHandler(async (req, res) => {
   });
 });
 
+const dispatchSosAfterPersistence = asyncHandler(async (req, res) => {
+  const sos = await sosService.dispatchSosAfterPersistence(req.params.id, req.user);
+  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'SOS dispatch started', data: { sos } });
+});
+
 const listSos = asyncHandler(async (req, res) => {
   const { items, meta } = await sosService.listSos(req.query, req.user);
   ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'SOS records retrieved', data: { sos: items, meta } });
@@ -137,6 +142,7 @@ const getLiveLocation = asyncHandler(async (req, res) => {
 
 module.exports = {
   createSos,
+  dispatchSosAfterPersistence,
   listSos,
   getSos,
   cancelSos,

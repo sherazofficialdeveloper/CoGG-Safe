@@ -152,6 +152,15 @@ const sosSchema = new Schema(
   }
 );
 
+// Database-level race-condition backstop for concurrent create requests.
+sosSchema.index(
+  { userId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: { $in: [SOS_STATUS.PENDING, SOS_STATUS.ACTIVE] } },
+    name: 'one_open_sos_per_user',
+  }
+);
 sosSchema.index({ userId: 1, createdAt: -1 });
 sosSchema.index({ collectionId: 1 });
 sosSchema.index({ status: 1 });

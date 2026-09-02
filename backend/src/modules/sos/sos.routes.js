@@ -26,6 +26,7 @@ router.use(authenticate);
 
 router.post('/', createSosValidation, validateRequest, sosController.createSos);
 router.get('/', listSosValidation, validateRequest, sosController.listSos);
+router.post('/:id/dispatch', sosIdParamValidation, validateRequest, sosController.dispatchSosAfterPersistence);
 router.get('/:id', sosIdParamValidation, validateRequest, sosController.getSos);
 
 router.patch('/:id/cancel', sosIdParamValidation, validateRequest, sosController.cancelSos);

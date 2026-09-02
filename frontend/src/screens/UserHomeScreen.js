@@ -15,7 +15,7 @@ import {
   openSosPermissionSettings,
   requestRequiredPermissions,
   requestSosPermission,
-  REQUIRED_PERMISSIONS,
+  SOS_TRIGGER_PERMISSIONS,
   subscribeToPermissionChanges,
 } from '../permissions/sosPermissions';
 import {listSos, stopLiveLocation} from '../api/resources';
@@ -39,16 +39,22 @@ const UserHomeScreen = ({
   const [holdPhase, setHoldPhase] = useState('IDLE');
   const [countdown, setCountdown] = useState(3);
   const [holdProgress, setHoldProgress] = useState(0);
-  const holdAnimationRef = useRef(null);
   const holdTimeoutRef = useRef(null);
   const holdStartedAtRef = useRef(0);
   const holdPhaseRef = useRef('IDLE');
   const activationStartedRef = useRef(false);
+  const loggedCountdownRef = useRef(null);
   const initialPermissionRequestStartedRef = useRef(false);
-  const ringRotation = useRef(new Animated.Value(0)).current;
   const pulseScale = useRef(new Animated.Value(1)).current;
   const smsRequiresUserConfirmation = permissionState.smsDeliveryMode === 'composer';
-  const sosButtonDisabled = permissionState.isChecking || !permissionState.allRequiredGranted || sosLoading || hasActiveSosSession;
+  // SMS is intentionally absent: it is a downstream capability and must not
+  // prevent testing or activating the Home SOS flow.
+  const isSosButtonDisabled = Boolean(
+    permissionState.isChecking ||
+    !permissionState.triggerPermissionsGranted ||
+    sosLoading ||
+    hasActiveSosSession,
+  );
 
   useEffect(() => {
     let mounted = true;
@@ -118,10 +124,6 @@ const UserHomeScreen = ({
   };
 
   const clearHoldTimer = () => {
-    if (holdAnimationRef.current) {
-      cancelAnimationFrame(holdAnimationRef.current);
-      holdAnimationRef.current = null;
-    }
     if (holdTimeoutRef.current) {
       clearTimeout(holdTimeoutRef.current);
       holdTimeoutRef.current = null;
@@ -140,14 +142,29 @@ const UserHomeScreen = ({
 
   const logSosButtonRuntimeState = event => {
     if (__DEV__) {
-      console.log('SOS_TOUCH_START', {event, permissionState, sosLoading, hasActiveSosSession, holdPhase: holdPhaseRef.current, activationStarted: activationStartedRef.current});
+      console.log('SOS_TOUCH_START', {
+        event,
+        allRequiredGranted: permissionState.allRequiredGranted,
+        triggerPermissionsGranted: permissionState.triggerPermissionsGranted,
+        isChecking: permissionState.isChecking,
+        requiredPermissions: SOS_TRIGGER_PERMISSIONS.reduce((result, item) => {
+          result[item.key] = permissionState[item.key];
+          return result;
+        }, {}),
+        smsPermissionState: permissionState.sms,
+        sosLoading,
+        hasActiveSosSession,
+        holdPhase: holdPhaseRef.current,
+        activationStarted: activationStartedRef.current,
+        onTriggerSosType: typeof onTriggerSos,
+      });
     }
   };
 
   const handleSosPressIn = () => {
     logSosButtonRuntimeState('press-in');
     if (__DEV__) {
-      console.log('SOS_BUTTON_PRESS_IN', {
+      console.log('SOS_PRESS_IN', {
         permissionState,
         sosLoading,
         hasActiveSosSession,
@@ -170,7 +187,7 @@ const UserHomeScreen = ({
       return;
     }
 
-    const canStartHold = !sosButtonDisabled;
+    const canStartHold = !isSosButtonDisabled;
 
     if (!canStartHold) {
       if (__DEV__) {
@@ -185,9 +202,11 @@ const UserHomeScreen = ({
     setHoldPhase('HOLDING');
     setCountdown(3);
     setHoldProgress(0);
+    loggedCountdownRef.current = 3;
 
     if (__DEV__) {
       console.log('SOS_HOLD_STARTED', {startedAt: holdStartedAtRef.current, durationMs: SOS_HOLD_DURATION_MS});
+      console.log('SOS_COUNTDOWN_3');
     }
 
     const tick = () => {
@@ -203,7 +222,10 @@ const UserHomeScreen = ({
 
       setHoldProgress(snapshot.progress);
       setCountdown(snapshot.countdown);
-      if (__DEV__) console.log('SOS_COUNTDOWN', {countdown: snapshot.countdown, progress: snapshot.progress});
+      if (__DEV__ && snapshot.countdown !== loggedCountdownRef.current) {
+        loggedCountdownRef.current = snapshot.countdown;
+        console.log(`SOS_COUNTDOWN_${snapshot.countdown}`, {progress: snapshot.progress});
+      }
 
       if (snapshot.shouldActivate) {
         clearHoldTimer();
@@ -218,8 +240,8 @@ const UserHomeScreen = ({
           console.log('SOS_ACTIVATION_STARTED', {source: 'home-button-hold'});
         }
 
-        if (__DEV__) console.log('SOS_ON_TRIGGER_SOS_CALLED', {source: 'home-button-hold'});
-        onTriggerSos?.();
+        if (__DEV__) console.log('SOS_ON_TRIGGER_SOS_CALLED', {source: 'home-button-hold', onTriggerSosType: typeof onTriggerSos});
+        if (typeof onTriggerSos === 'function') onTriggerSos();
         return;
       }
 
@@ -233,7 +255,7 @@ const UserHomeScreen = ({
   const handleSosPressOut = () => {
     logSosButtonRuntimeState('press-out');
     if (__DEV__) {
-      console.log('SOS_BUTTON_PRESS_OUT', {holdPhase, activationStarted: activationStartedRef.current});
+      console.log('SOS_PRESS_OUT', {holdPhase: holdPhaseRef.current, activationStarted: activationStartedRef.current});
     }
 
     if (holdPhaseRef.current !== 'HOLDING' || activationStartedRef.current) {
@@ -248,22 +270,6 @@ const UserHomeScreen = ({
     resetHoldState();
   };
 
-  useEffect(() => {
-    if (holdPhase !== 'HOLDING') {
-      Animated.timing(ringRotation, {
-        toValue: 0,
-        duration: 120,
-        useNativeDriver: true,
-      }).start();
-      return;
-    }
-
-    Animated.timing(ringRotation, {
-      toValue: holdProgress * 360,
-      duration: 100,
-      useNativeDriver: true,
-    }).start();
-  }, [holdPhase, holdProgress, ringRotation]);
 
   useEffect(() => {
     if (holdPhase !== 'ACTIVATING') return undefined;
@@ -287,12 +293,7 @@ const UserHomeScreen = ({
 
   useEffect(() => {
     return () => {
-      if (holdAnimationRef.current) {
-        cancelAnimationFrame(holdAnimationRef.current);
-      }
-      if (holdTimeoutRef.current) {
-        clearHoldTimer();
-      }
+      clearHoldTimer();
     };
   }, []);
 
@@ -357,14 +358,16 @@ const UserHomeScreen = ({
                     styles.sosButton,
                     sosLoading && styles.sosButtonLoading,
                     (holdPhase === 'ACTIVATING' || sosLoading) && styles.sosButtonActive,
-                    !permissionState.allRequiredGranted && styles.sosButtonDisabled,
+                    isSosButtonDisabled && styles.sosButtonDisabled,
                     {transform: [{scale: holdPhase === 'ACTIVATING' ? pulseScale : 1}]},
                   ]}
                   activeOpacity={0.85}
                   onPressIn={handleSosPressIn}
                   onPressOut={handleSosPressOut}
                   testID="home-sos-button"
-                  disabled={sosButtonDisabled}>
+                  disabled={isSosButtonDisabled}
+                  accessibilityRole="button"
+                  accessibilityState={{disabled: isSosButtonDisabled}}>
 
                   {holdPhase === 'HOLDING' ? (
                     <>
@@ -376,7 +379,7 @@ const UserHomeScreen = ({
                     <>
                       <Text style={styles.sosText}>SOS</Text>
                       <View style={styles.sosDivider} />
-                      <Text style={styles.tapOnceText}>{holdPhase === 'ACTIVATING' ? 'ACTIVATING' : 'PRESS & HOLD'}</Text>
+                      <Text style={styles.tapOnceText}>{holdPhase === 'ACTIVATING' ? '0' : 'PRESS & HOLD'}</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -437,7 +440,7 @@ const UserHomeScreen = ({
           </View>
         ) : null}
 
-        {!permissionState.isChecking && REQUIRED_PERMISSIONS
+        {!permissionState.isChecking && SOS_TRIGGER_PERMISSIONS
           .filter(item => permissionState[item.key] !== 'granted')
           .map(item => {
             const blocked = permissionState[item.key] === 'never_ask_again';

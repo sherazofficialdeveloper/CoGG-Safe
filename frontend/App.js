@@ -55,7 +55,7 @@ import {
   syncSosToBackend,
   uploadCapturedSosMedia,
 } from './src/features/sos/services/backendSyncService';
-import {getCollection} from './src/api/resources';
+import {getCollection, reportLocation, reportSosService, dispatchSosAfterPersistence} from './src/api/resources';
 
 import {getCurrentLocation} from './src/features/sos/services/locationService';
 import {sendEmergencySms} from './src/features/sos/services/smsService';
@@ -471,18 +471,31 @@ function AppContent() {
             const message = location
               ? `Emergency assistance requested. Location: ${location.latitude}, ${location.longitude}`
               : 'Emergency assistance requested.';
-
-            const emergencyNumber = collection?.emergencyCallNumber || event?.meta?.emergencyNumber;
-            return sendEmergencySms({
-              phoneNumber: emergencyNumber,
+            const result = await sendEmergencySms({
+              phoneNumber: collection?.emergencyCallNumber || event?.meta?.emergencyNumber,
               message,
             });
+            if (event.backendId) {
+              await reportSosService(token, event.backendId, 'sms', {
+                status: String(result.status || 'failed').toLowerCase(),
+                ...(result.reason ? {error: result.reason} : {}),
+              });
+            }
+            return result;
           },
 
-          call: async event =>
-            initiateEmergencyCall({
+          call: async event => {
+            const result = await initiateEmergencyCall({
               emergencyNumber: collection?.emergencyCallNumber || event?.meta?.emergencyNumber,
-            }),
+            });
+            if (event.backendId) {
+              await reportSosService(token, event.backendId, 'call', {
+                status: result.status === 'INITIATED' ? 'success' : String(result.status || 'failed').toLowerCase(),
+                ...(result.reason ? {error: result.reason} : {}),
+              });
+            }
+            return result;
+          },
 
           camera: async event =>
             captureEmergencyPhotos({
@@ -494,7 +507,23 @@ function AppContent() {
               sosId: event.id,
             }),
 
-          location: async () => getCurrentLocation(),
+          mediaUpload: async event =>
+            uploadCapturedSosMedia({token, sosEvent: event}),
+
+location: async event => {
+            try {
+              const result = await getCurrentLocation();
+              if (event.backendId) {
+                await reportLocation(token, event.backendId, {status: 'success', latitude: result.latitude, longitude: result.longitude});
+              }
+              return result;
+            } catch (error) {
+              if (event.backendId) {
+                await reportLocation(token, event.backendId, {status: 'failed', error: error?.message || 'Location capture failed'});
+              }
+              throw error;
+            }
+          },
 
           liveLocation: async event =>
             startLiveLocationSharing({
@@ -511,14 +540,17 @@ function AppContent() {
             }),
 
           email: async () => ({
-            status: 'COMPLETED',
-            reason: 'Email dispatch is handled by the backend after activation.',
+            status: 'PENDING',
+            reason: 'Email dispatch is pending backend confirmation.',
           }),
 
-          notifications: async () => ({
-            status: 'COMPLETED',
-            reason: 'Notification dispatch is handled by the backend after activation.',
-          }),
+          notifications: async event => {
+            if (!event.backendId) {
+              return {status: 'PENDING', reason: 'Push notification is waiting for backend SOS persistence.'};
+            }
+            await dispatchSosAfterPersistence(token, event.backendId);
+            return {status: 'PENDING', reason: 'Push delivery is pending backend confirmation.'};
+          },
         },
       });
 
@@ -527,7 +559,7 @@ function AppContent() {
       } else if (result?.event) {
         if (!skipNavigation) {
           setSelectedSos(result.event);
-          setScreen('userSosActive');
+          setScreen('userHome');
         }
 
         showToast(

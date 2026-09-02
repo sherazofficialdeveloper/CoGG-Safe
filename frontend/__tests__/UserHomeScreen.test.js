@@ -7,7 +7,7 @@ import {
   openSosPermissionSettings,
   requestRequiredPermissions,
   requestSosPermission,
-  REQUIRED_PERMISSIONS,
+  SOS_TRIGGER_PERMISSIONS,
   subscribeToPermissionChanges,
 } from '../src/permissions/sosPermissions';
 
@@ -17,7 +17,7 @@ jest.mock('../src/permissions/sosPermissions', () => ({
   openSosPermissionSettings: jest.fn(),
   requestRequiredPermissions: jest.fn(),
   requestSosPermission: jest.fn(),
-  REQUIRED_PERMISSIONS: [
+  SOS_TRIGGER_PERMISSIONS: [
     {key: 'location', title: 'Location', description: 'Location access is required.'},
     {key: 'camera', title: 'Camera', description: 'Camera access is required.'},
     {key: 'audio', title: 'Microphone', description: 'Microphone access is required.'},
@@ -33,6 +33,7 @@ const deniedState = {
   audio: 'denied',
   notifications: 'denied',
   allRequiredGranted: false,
+  triggerPermissionsGranted: false,
   isChecking: false,
   canRequest: true,
 };
@@ -44,6 +45,7 @@ const grantedState = {
   audio: 'granted',
   notifications: 'granted',
   allRequiredGranted: true,
+  triggerPermissionsGranted: true,
 };
 
 function findButtonWithText(renderer, label) {
@@ -192,4 +194,27 @@ test('SOS home ignores press-out after activation and clears its timer on unmoun
   });
   expect(onTriggerSos).toHaveBeenCalledTimes(1);
   jest.useRealTimers();
+});
+test('SOS button remains enabled when SMS is unavailable', async () => {
+  checkSosPermissions.mockResolvedValue({...grantedState, sms: 'denied'});
+  let renderer;
+
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<UserHomeScreen />);
+  });
+
+  expect(renderer.root.findByProps({testID: 'home-sos-button'}).props.disabled).toBe(false);
+});
+
+test('SOS button exposes its disabled state while SOS activation is in progress', async () => {
+  checkSosPermissions.mockResolvedValue(grantedState);
+  let renderer;
+
+  await ReactTestRenderer.act(async () => {
+    renderer = ReactTestRenderer.create(<UserHomeScreen sosLoading />);
+  });
+
+  const button = renderer.root.findByProps({testID: 'home-sos-button'});
+  expect(button.props.disabled).toBe(true);
+  expect(button.props.accessibilityState).toEqual({disabled: true});
 });

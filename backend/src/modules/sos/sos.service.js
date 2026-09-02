@@ -51,7 +51,7 @@ function resolveEmergencyMessage(user) {
  * this handler (e.g. after a transient error) without risk of duplicate
  * activation/dispatch.
  */
-async function activateSosIfPending({ sosId }) {
+async function activateSosIfPending({ sosId, dispatch = false }) {
   const activated = await Sos.findOneAndUpdate(
     { _id: sosId, status: SOS_STATUS.PENDING },
     { $set: { status: SOS_STATUS.ACTIVE, activatedAt: new Date() } },
@@ -191,6 +191,14 @@ async function createSos({ userId, idempotencyKey, location }) {
     if (existing) return { sos: existing, alreadyExisted: true };
   }
 
+  // Idempotency handles retries of one gesture; this guard handles separate rapid requests.
+  const openSos = await Sos.findOne({
+    userId: user._id,
+    status: { $in: [SOS_STATUS.PENDING, SOS_STATUS.ACTIVE] },
+  }).sort({ createdAt: -1 });
+  if (openSos) {
+    throw ApiError.conflict('An SOS is already pending or active for this user');
+  }
   let sos;
   try {
     sos = await Sos.create({
@@ -224,6 +232,22 @@ async function createSos({ userId, idempotencyKey, location }) {
   await schedulerService.scheduleJob(JOB_TYPE_SOS_ACTIVATION, { sosId: String(sos._id) }, runAt);
 
   return { sos, alreadyExisted: false };
+}
+
+/**
+ * The owner explicitly starts server dispatch only after the client has
+ * persisted available location/media/local telephony results. The conditional
+ * activation makes this one-shot: retries after success cannot resend email
+ * or push notifications.
+ */
+async function dispatchSosAfterPersistence(id, reqUser) {
+  await getOwnedSosOrThrow(id, reqUser, 'You do not have permission to dispatch this SOS');
+  const activated = await activateSosIfPending({ sosId: id, dispatch: false });
+  if (!activated) {
+    throw ApiError.conflict('SOS dispatch has already started or is no longer pending');
+  }
+  await dispatchService.dispatchSos(activated);
+  return getSosById(id, reqUser);
 }
 
 async function listSos(query, reqUser) {
@@ -547,6 +571,7 @@ module.exports = {
   createSos,
   listSos,
   getSosById,
+  dispatchSosAfterPersistence,
   cancelSos,
   deactivateSos,
   deleteSos,
