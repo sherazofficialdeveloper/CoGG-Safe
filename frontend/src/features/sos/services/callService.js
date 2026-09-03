@@ -53,7 +53,10 @@ export async function saveEmergencyCallSim(subscriptionId, meta = {}) {
 }
 
 export async function initiateEmergencyCall({emergencyNumber}) {
+  if (__DEV__) console.log('[SOS][CALL] RUNNER_STARTED', {hasNumber: Boolean(emergencyNumber)});
+  if (__DEV__) console.log('[SOS][CALL] EMERGENCY_NUMBER_RESOLVED', {configured: Boolean(emergencyNumber)});
   if (!emergencyNumber) {
+    if (__DEV__) console.log('[SOS][CALL] FAILED', {reason: 'No emergency call number is configured'});
     return {status: 'NOT_CONFIGURED', reason: 'No emergency call number is configured for this collection.'};
   }
 
@@ -69,6 +72,7 @@ export async function initiateEmergencyCall({emergencyNumber}) {
 
   const callPermission = PermissionsAndroid.PERMISSIONS.CALL_PHONE;
   let hasPermission = await PermissionsAndroid.check(callPermission);
+  if (__DEV__) console.log('[SOS][CALL] CALL_PHONE_PERMISSION', {state: hasPermission});
   if (hasPermission === false || hasPermission === PermissionsAndroid.RESULTS.DENIED || hasPermission === PermissionsAndroid.RESULTS.BLOCKED || hasPermission === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
     const isJestMock = typeof PermissionsAndroid.request === 'function' && !!PermissionsAndroid.request._isMockFunction;
     if (isJestMock) {
@@ -77,6 +81,7 @@ export async function initiateEmergencyCall({emergencyNumber}) {
 
     const permissionResult = await PermissionsAndroid.request(callPermission);
     hasPermission = permissionResult === PermissionsAndroid.RESULTS.GRANTED;
+    if (__DEV__) console.log('[SOS][CALL] CALL_PHONE_PERMISSION_RESULT', {state: permissionResult});
   }
 
   if (!hasPermission) {
@@ -85,6 +90,7 @@ export async function initiateEmergencyCall({emergencyNumber}) {
 
   const emergencyMedia = NativeModules?.EmergencyMedia;
   if (!emergencyMedia || typeof emergencyMedia.placeCall !== 'function') {
+    if (__DEV__) console.log('[SOS][CALL] NATIVE_MODULE_UNAVAILABLE');
     return {status: 'FAILED', reason: 'Native Android emergency call module is unavailable.'};
   }
 
@@ -104,7 +110,13 @@ export async function initiateEmergencyCall({emergencyNumber}) {
   }
 
   try {
+    if (__DEV__) console.log('[SOS][CALL] SERVICE_INVOKED', {
+      numberConfigured: Boolean(emergencyNumber),
+      nativeMethod: 'EmergencyMedia.placeCall',
+    });
+    if (__DEV__) console.log('[SOS][CALL] ATTEMPT_NATIVE', {hasPreferredSubscription: preferredSubscriptionId >= 0});
     const result = await emergencyMedia.placeCall(emergencyNumber, preferredSubscriptionId);
+    if (__DEV__) console.log('[SOS][CALL] NATIVE_RESULT', result);
     return normalizeCallResult(result);
   } catch (error) {
     const reason = error?.message || 'Emergency call failed.';

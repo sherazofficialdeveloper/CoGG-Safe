@@ -3,6 +3,7 @@ import {connectivityService} from './connectivity';
 import {enqueueSosJob} from './queue/queueWorker';
 import {emitSosToast} from './services/sosToastService';
 import {reportServiceResult} from './services/backendSyncService';
+import {reportSosServiceError} from './services/sosErrorReporter';
 
 // email/notifications are intentionally NOT retryable client-side jobs:
 // their real dispatch is a server-side responsibility
@@ -169,6 +170,7 @@ export async function activateSosFlow({
 
     if (__DEV__) {
       console.log(`${tagPrefix}_STARTED`, {eventId: event.id, serviceName});
+      console.log(`[SOS][${serviceName === 'mediaUpload' ? 'UPLOAD' : serviceName.toUpperCase()}] START`, {eventId: event.id});
     }
 
     try {
@@ -177,6 +179,12 @@ export async function activateSosFlow({
 
       if (__DEV__) {
         console.log(`${tagPrefix}_FINISHED`, {eventId: event.id, serviceName, resultStatus, result});
+      }
+      if (resultStatus === 'PENDING') {
+        if (__DEV__) console.log(`[SOS][${serviceName === 'mediaUpload' ? 'UPLOAD' : serviceName.toUpperCase()}] QUEUED`, {eventId: event.id, reason: result?.reason});
+        if (result?.reason) reportSosServiceError(serviceName, result, {status: 'QUEUED', eventId: event.id});
+      } else if (['FAILED', 'UNSUPPORTED'].includes(resultStatus)) {
+        reportSosServiceError(serviceName, result, {eventId: event.id});
       }
 
       if (serviceName === 'backend') {
@@ -256,6 +264,7 @@ export async function activateSosFlow({
       if (__DEV__) {
         console.log(`${tagPrefix}_FAILED`, {eventId: event.id, serviceName, error: error?.message || error});
       }
+      reportSosServiceError(serviceName, error, {eventId: event.id});
 
       const next = {
         ...serviceState,

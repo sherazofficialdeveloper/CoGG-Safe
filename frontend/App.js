@@ -574,6 +574,7 @@ function AppContent() {
   }, [token]);
 
   const handleTriggerSos = useCallback(async ({skipNavigation = false} = {}) => {
+    if (__DEV__) console.log('[SOS][TRIGGER] HANDLE_TRIGGER_START', {skipNavigation});
     if (__DEV__) {
       console.log('SOS_ACTIVATION_REQUESTED', {
         sosLoading,

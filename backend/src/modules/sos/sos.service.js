@@ -195,7 +195,11 @@ async function createSos({ userId, idempotencyKey, location }) {
     if (existing) return { sos: existing, alreadyExisted: true };
   }
 
-  // Idempotency handles retries of one gesture; this guard handles separate rapid requests.
+  // TEMPORARY TESTING OVERRIDE:
+  // Idempotency above still protects retries of the same request, but the
+  // separate open-SOS guard is disabled so repeated testing can create a
+  // fresh SOS. TODO: re-enable this protection before production release.
+  /*
   const openSos = await Sos.findOne({
     userId: user._id,
     status: { $in: [SOS_STATUS.PENDING, SOS_STATUS.ACTIVE] },
@@ -203,6 +207,7 @@ async function createSos({ userId, idempotencyKey, location }) {
   if (openSos) {
     throw ApiError.conflict('An SOS is already pending or active for this user');
   }
+  */
   let sos;
   try {
     sos = await Sos.create({
