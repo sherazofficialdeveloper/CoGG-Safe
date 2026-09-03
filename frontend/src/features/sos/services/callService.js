@@ -1,6 +1,7 @@
 import {NativeModules, PermissionsAndroid, Platform} from 'react-native';
 import {getConnectivityState} from '../connectivity';
 import {sosLocalStore} from '../storage';
+import {emitSosDiagnostic, ensureSosNativeDiagnosticListener} from './sosDiagnosticService';
 
 function normalizeCallResult(result) {
   const status = String(result?.status || '').toUpperCase();
@@ -53,12 +54,17 @@ export async function saveEmergencyCallSim(subscriptionId, meta = {}) {
 }
 
 export async function initiateEmergencyCall({emergencyNumber}) {
+  ensureSosNativeDiagnosticListener();
+  emitSosDiagnostic('CALL DEBUG — Service reached');
   if (__DEV__) console.log('[SOS][CALL] RUNNER_STARTED', {hasNumber: Boolean(emergencyNumber)});
   if (__DEV__) console.log('[SOS][CALL] EMERGENCY_NUMBER_RESOLVED', {configured: Boolean(emergencyNumber)});
   if (!emergencyNumber) {
+    emitSosDiagnostic('CALL ERROR — No valid emergency number', 'error');
     if (__DEV__) console.log('[SOS][CALL] FAILED', {reason: 'No emergency call number is configured'});
     return {status: 'NOT_CONFIGURED', reason: 'No emergency call number is configured for this collection.'};
   }
+
+  emitSosDiagnostic('CALL DEBUG — Number found');
 
   if (Platform.OS !== 'android') {
     return {status: 'UNSUPPORTED', reason: 'Emergency call is only supported on Android devices.'};
@@ -85,11 +91,13 @@ export async function initiateEmergencyCall({emergencyNumber}) {
   }
 
   if (!hasPermission) {
+    emitSosDiagnostic('CALL ERROR — CALL_PHONE permission denied', 'error');
     return {status: 'FAILED', reason: 'Phone permission denied. Emergency call cannot be placed.'};
   }
 
   const emergencyMedia = NativeModules?.EmergencyMedia;
   if (!emergencyMedia || typeof emergencyMedia.placeCall !== 'function') {
+    emitSosDiagnostic('CALL ERROR — Native placeCall failed: Native Android emergency call module is unavailable.', 'error');
     if (__DEV__) console.log('[SOS][CALL] NATIVE_MODULE_UNAVAILABLE');
     return {status: 'FAILED', reason: 'Native Android emergency call module is unavailable.'};
   }
@@ -115,11 +123,16 @@ export async function initiateEmergencyCall({emergencyNumber}) {
       nativeMethod: 'EmergencyMedia.placeCall',
     });
     if (__DEV__) console.log('[SOS][CALL] ATTEMPT_NATIVE', {hasPreferredSubscription: preferredSubscriptionId >= 0});
+    emitSosDiagnostic('CALL DEBUG — Native placeCall() invoked');
     const result = await emergencyMedia.placeCall(emergencyNumber, preferredSubscriptionId);
     if (__DEV__) console.log('[SOS][CALL] NATIVE_RESULT', result);
-    return normalizeCallResult(result);
+    const normalized = normalizeCallResult(result);
+    if (normalized.status === 'INITIATED') emitSosDiagnostic('CALL SUCCESS — Call request accepted', 'success');
+    else emitSosDiagnostic('CALL ERROR — ' + normalized.reason, 'error');
+    return normalized;
   } catch (error) {
     const reason = error?.message || 'Emergency call failed.';
+    emitSosDiagnostic('CALL ERROR — ' + reason, 'error');
     if (/no service|cellular service|radio off|temporary|signal|unavailable/i.test(reason)) {
       return {status: 'PENDING', reason};
     }

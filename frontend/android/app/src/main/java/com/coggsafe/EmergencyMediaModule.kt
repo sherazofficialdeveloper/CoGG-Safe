@@ -94,6 +94,16 @@ class EmergencyMediaModule(
 
     override fun getName(): String = "EmergencyMedia"
 
+    private fun emitDiagnostic(message: String, type: String = "info") {
+        val payload = Arguments.createMap().apply {
+            putString("message", message)
+            putString("type", type)
+        }
+        reactContext
+            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            .emit("sosNativeDiagnostic", payload)
+    }
+
     private fun ensureSmsStatusReceiverRegistered() {
         if (smsStatusReceiverRegistered) return
         val filter = IntentFilter().apply {
@@ -274,6 +284,7 @@ class EmergencyMediaModule(
         promise: Promise
     ) {
         Log.i("EmergencyMedia", "[SOS][SMS] native send requested")
+        emitDiagnostic("SMS DEBUG — Native SMS method reached")
         val cleanNumber = phoneNumber.trim()
         if (cleanNumber.isEmpty()) {
             promise.reject("E_SMS_NUMBER", "Emergency SMS number is missing.")
@@ -330,6 +341,7 @@ class EmergencyMediaModule(
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
+            emitDiagnostic("SMS DEBUG — SmsManager send attempt")
             smsManager.sendTextMessage(
                 cleanNumber,
                 null,
@@ -436,6 +448,7 @@ class EmergencyMediaModule(
         promise: Promise
     ) {
         Log.i("EmergencyMedia", "[SOS][CALL] native call requested")
+        emitDiagnostic("CALL DEBUG — Native placeCall() reached")
         val cleanNumber = phoneNumber.trim()
         if (cleanNumber.isEmpty()) {
             promise.reject("E_CALL_NUMBER", "Emergency call number is missing.")
@@ -475,6 +488,7 @@ class EmergencyMediaModule(
 
         try {
             Log.i("EmergencyMedia", "[SOS][CALL] startActivity attempted")
+            emitDiagnostic("CALL DEBUG — ACTION_CALL attempted")
             activity.startActivity(callIntent)
             Log.i("EmergencyMedia", "[SOS][CALL] ACTION_CALL requested")
             val reason = when {
