@@ -111,6 +111,16 @@ async function updateUser(id, { username, mobileNumber, email }) {
   return user;
 }
 
+async function updateOwnProfile(id, { username, mobileNumber, email, emergencyMessage }) {
+  const user = await getUserById(id);
+  if (username !== undefined) user.username = username;
+  if (mobileNumber !== undefined) user.mobileNumber = mobileNumber;
+  if (email !== undefined) user.email = email === null || email === '' ? undefined : email;
+  if (emergencyMessage !== undefined) user.emergencyMessage = emergencyMessage === '' ? null : emergencyMessage;
+  await user.save();
+  return user;
+}
+
 async function setPassword(id, newPassword) {
   const user = await getUserById(id);
   await user.setPassword(newPassword);
@@ -159,6 +169,7 @@ module.exports = {
   listContacts,
   getUserById,
   updateUser,
+  updateOwnProfile,
   setPassword,
   activateUser,
   deactivateUser,

@@ -74,6 +74,7 @@ import {connectivityService} from './src/features/sos/connectivity';
 import {processSosQueue} from './src/features/sos/queue/queueWorker';
 import {recoverActiveSosWork} from './src/features/sos/recovery';
 import {sosLocalStore} from './src/features/sos/storage';
+import {getCollectionCacheKey, normalizePhoneNumber} from './src/features/sos/services/phoneNumber';
 import {emitSosToast} from './src/features/sos/services/sosToastService';
 import {
   observeFirebaseNotifications,
@@ -86,7 +87,7 @@ import {
 // ============================================================
 
 function AppContent() {
-  const {token, user, loading, signIn, signOut} = useAuth();
+  const {token, user, loading, signIn, signOut, updateUser} = useAuth();
 
   const [screen, setScreen] = useState('loading');
   const [portal, setPortal] = useState('admin');
@@ -283,9 +284,9 @@ function AppContent() {
 
               const cachedNumber = await sosLocalStore
                 .getCachedCollectionInfo(event.collectionId)
-                .then(cached => cached?.emergencyCallNumber || null)
+                .then(cached => normalizePhoneNumber(cached?.emergencyCallNumber))
                 .catch(() => null);
-              const phoneNumber = event.meta?.emergencyNumber || cachedNumber;
+              const phoneNumber = normalizePhoneNumber(event.meta?.emergencyNumber) || cachedNumber;
 
               if (!phoneNumber) {
                 return {
@@ -339,9 +340,10 @@ function AppContent() {
     getCollection(token, user.collectionId)
       .then(response => {
         if (cancelled) return;
-        const emergencyCallNumber = response?.collection?.emergencyCallNumber;
-        if (emergencyCallNumber) {
-          sosLocalStore.setCachedCollectionInfo(user.collectionId, {emergencyCallNumber}).catch(() => undefined);
+        const emergencyCallNumber = normalizePhoneNumber(response?.collection?.emergencyCallNumber);
+        const cacheKey = getCollectionCacheKey(user.collectionId);
+        if (emergencyCallNumber && cacheKey) {
+          sosLocalStore.setCachedCollectionInfo(cacheKey, {emergencyCallNumber}).catch(() => undefined);
         }
       })
       .catch(() => undefined);
@@ -354,7 +356,8 @@ function AppContent() {
       .then(contacts => {
         if (cancelled) return;
         const numbers = (contacts || []).map(c => c?.mobileNumber).filter(Boolean);
-        sosLocalStore.setCachedCollectionInfo(user.collectionId, {contactNumbers: numbers}).catch(() => undefined);
+        const cacheKey = getCollectionCacheKey(user.collectionId);
+        if (cacheKey) sosLocalStore.setCachedCollectionInfo(cacheKey, {contactNumbers: numbers}).catch(() => undefined);
       })
       .catch(() => undefined);
 
@@ -603,9 +606,10 @@ function AppContent() {
       // above) is the primary source for SMS, so sending never has to wait on
       // a live backend call. It is read once per trigger, before activation,
       // so it is ready the instant the SMS branch starts.
+      const collectionCacheKey = getCollectionCacheKey(user?.collectionId);
       const cachedEmergencyNumberPromise = sosLocalStore
-        .getCachedCollectionInfo(user?.collectionId)
-        .then(cached => cached?.emergencyCallNumber || null)
+        .getCachedCollectionInfo(collectionCacheKey)
+        .then(cached => normalizePhoneNumber(cached?.emergencyCallNumber))
         .catch(() => null);
 
       // Same offline-first reasoning as the emergency number above, but for
@@ -616,7 +620,7 @@ function AppContent() {
       // effect below) so a triggered SOS never waits on a live request to
       // know who to text.
       const cachedContactNumbersPromise = sosLocalStore
-        .getCachedCollectionInfo(user?.collectionId)
+        .getCachedCollectionInfo(collectionCacheKey)
         .then(cached => Array.isArray(cached?.contactNumbers) ? cached.contactNumbers : [])
         .catch(() => []);
 
@@ -635,9 +639,9 @@ function AppContent() {
           collectionPromise = getCollection(token, user?.collectionId)
             .then(collectionResponse => {
             collection = collectionResponse?.collection || null;
-            const emergencyNumber = collection?.emergencyCallNumber || event?.meta?.emergencyNumber;
+            const emergencyNumber = normalizePhoneNumber(collection?.emergencyCallNumber || event?.meta?.emergencyNumber);
             if (emergencyNumber) {
-              sosLocalStore.setCachedCollectionInfo(user?.collectionId, {emergencyCallNumber: emergencyNumber}).catch(() => undefined);
+              sosLocalStore.setCachedCollectionInfo(collectionCacheKey, {emergencyCallNumber: emergencyNumber}).catch(() => undefined);
               return sosLocalStore.upsertSos({
                 ...event,
                 meta: {
@@ -665,7 +669,9 @@ function AppContent() {
               const numbers = (contacts || [])
                 .map(c => c?.mobileNumber)
                 .filter(Boolean);
-              sosLocalStore.setCachedCollectionInfo(user?.collectionId, {contactNumbers: numbers}).catch(() => undefined);
+              if (collectionCacheKey) {
+                sosLocalStore.setCachedCollectionInfo(collectionCacheKey, {contactNumbers: numbers}).catch(() => undefined);
+              }
             })
             .catch(error => {
               if (__DEV__) {
@@ -684,7 +690,7 @@ function AppContent() {
               cachedEmergencyNumberPromise,
               cachedContactNumbersPromise,
             ]);
-            const primaryNumber = cachedNumber || collection?.emergencyCallNumber || event?.meta?.emergencyNumber;
+            const primaryNumber = cachedNumber || normalizePhoneNumber(collection?.emergencyCallNumber || event?.meta?.emergencyNumber);
             // ALL valid numbers belonging to the selected collection: the
             // configured primary emergency line PLUS every other member of
             // the collection's own mobile number (deduplicated). Never just
@@ -761,7 +767,7 @@ function AppContent() {
                 collectionPromise,
                 new Promise(resolve => setTimeout(resolve, 1500)),
               ]);
-              emergencyNumber = collection?.emergencyCallNumber || event?.meta?.emergencyNumber;
+              emergencyNumber = normalizePhoneNumber(collection?.emergencyCallNumber || event?.meta?.emergencyNumber);
             }
 
             const result = await initiateEmergencyCall({emergencyNumber});
@@ -1013,6 +1019,8 @@ location: async event => {
             }>
             <UserProfileScreen
               user={user}
+              token={token}
+              onUserUpdated={updateUser}
               onLogout={goToLogin}
               onBack={() => setScreen('userHome')}
             />

@@ -11,6 +11,8 @@ export class ApiError extends Error {
 export async function request(path, {method = 'GET', body, token} = {}) {
   let response;
   const isMultipart = typeof FormData !== 'undefined' && body instanceof FormData;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutHandle = setTimeout(() => controller?.abort(), 15000);
 
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
@@ -21,9 +23,15 @@ export async function request(path, {method = 'GET', body, token} = {}) {
         ...(token ? {Authorization: `Bearer ${token}`} : {}),
       },
       ...(body === undefined ? {} : {body: isMultipart ? body : JSON.stringify(body)}),
+      ...(controller ? {signal: controller.signal} : {}),
     });
   } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new ApiError('The request timed out. Check your connection and try again.', 0);
+    }
     throw new ApiError('Unable to connect to CoGG Safety. Check your network and try again.', 0);
+  } finally {
+    clearTimeout(timeoutHandle);
   }
 
   const payload = await response.json().catch(() => ({}));

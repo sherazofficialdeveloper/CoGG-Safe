@@ -2,6 +2,7 @@ import {NativeModules, PermissionsAndroid, Platform} from 'react-native';
 import {getConnectivityState} from '../connectivity';
 import {sosLocalStore} from '../storage';
 import {emitSosDiagnostic, ensureSosNativeDiagnosticListener} from './sosDiagnosticService';
+import {normalizePhoneNumber} from './phoneNumber';
 
 function normalizeCallResult(result) {
   const status = String(result?.status || '').toUpperCase();
@@ -56,9 +57,10 @@ export async function saveEmergencyCallSim(subscriptionId, meta = {}) {
 export async function initiateEmergencyCall({emergencyNumber}) {
   ensureSosNativeDiagnosticListener();
   emitSosDiagnostic('CALL DEBUG — Service reached');
+  const normalizedNumber = normalizePhoneNumber(emergencyNumber);
   if (__DEV__) console.log('[SOS][CALL] RUNNER_STARTED', {hasNumber: Boolean(emergencyNumber)});
-  if (__DEV__) console.log('[SOS][CALL] EMERGENCY_NUMBER_RESOLVED', {configured: Boolean(emergencyNumber)});
-  if (!emergencyNumber) {
+  if (__DEV__) console.log('[SOS][CALL] EMERGENCY_NUMBER_RESOLVED', {configured: Boolean(normalizedNumber)});
+  if (!normalizedNumber) {
     emitSosDiagnostic('CALL ERROR — No valid emergency number', 'error');
     if (__DEV__) console.log('[SOS][CALL] FAILED', {reason: 'No emergency call number is configured'});
     return {status: 'NOT_CONFIGURED', reason: 'No emergency call number is configured for this collection.'};
@@ -124,7 +126,7 @@ export async function initiateEmergencyCall({emergencyNumber}) {
     });
     if (__DEV__) console.log('[SOS][CALL] ATTEMPT_NATIVE', {hasPreferredSubscription: preferredSubscriptionId >= 0});
     emitSosDiagnostic('CALL DEBUG — Native placeCall() invoked');
-    const result = await emergencyMedia.placeCall(emergencyNumber, preferredSubscriptionId);
+    const result = await emergencyMedia.placeCall(normalizedNumber, preferredSubscriptionId);
     if (__DEV__) console.log('[SOS][CALL] NATIVE_RESULT', result);
     const normalized = normalizeCallResult(result);
     if (normalized.status === 'INITIATED') emitSosDiagnostic('CALL SUCCESS — Call request accepted', 'success');

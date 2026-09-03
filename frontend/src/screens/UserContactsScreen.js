@@ -11,6 +11,8 @@ import {
 import {listContacts} from '../api/resources';
 import Icon from '../components/Icon';
 
+const contactsCache = new Map();
+
 const UserContactsScreen = ({token, onBack}) => {
   const [contacts, setContacts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -18,23 +20,31 @@ const UserContactsScreen = ({token, onBack}) => {
 
   useEffect(() => {
     let mounted = true;
-    setLoading(true);
+    const cacheKey = token || 'anonymous';
     setError('');
 
-    listContacts(token)
-      .then(result => {
+    const load = async () => {
+      const cached = contactsCache.get(cacheKey);
+      const hasCachedContacts = Array.isArray(cached);
+      if (hasCachedContacts && mounted) {
+        setContacts(cached);
+        setLoading(false);
+      }
+      try {
+        const result = await listContacts(token);
         if (!mounted) return;
-        setContacts(result.contacts || []);
-      })
-      .catch(requestError => {
+        const nextContacts = result.contacts || [];
+        setContacts(nextContacts);
+        contactsCache.set(cacheKey, nextContacts);
+        setError('');
+      } catch (requestError) {
         if (!mounted) return;
-        setError(requestError.message || 'Unable to load contacts.');
-      })
-      .finally(() => {
-        if (mounted) {
-          setLoading(false);
-        }
-      });
+        if (!hasCachedContacts) setError(requestError.message || 'Unable to load contacts.');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    load();
 
     return () => { mounted = false; };
   }, [token]);

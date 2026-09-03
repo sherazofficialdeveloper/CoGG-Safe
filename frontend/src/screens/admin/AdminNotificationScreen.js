@@ -4,6 +4,8 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Icon from '../../components/Icon';
 import {listNotifications, markNotificationRead} from '../../api/resources';
 
+const notificationsCache = new Map();
+
 const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCountChange}) => {
   const insets = useSafeAreaInsets();
   const [notifications, setNotifications] = useState([]);
@@ -33,7 +35,14 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCou
         return;
       }
 
-      setLoading(true);
+      const cacheKey = token;
+      const cached = notificationsCache.get(cacheKey);
+      const hasCachedNotifications = Array.isArray(cached);
+      if (hasCachedNotifications && mounted && requestId === requestIdRef.current) {
+        setNotifications(cached);
+        setLoading(false);
+      }
+      if (!hasCachedNotifications) setLoading(true);
       setError('');
 
       try {
@@ -42,11 +51,12 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCou
           return;
         }
         setNotifications(result.notifications || []);
+        notificationsCache.set(cacheKey, result.notifications || []);
       } catch (requestError) {
         if (!mounted || requestId !== requestIdRef.current) {
           return;
         }
-        setNotifications([]);
+        if (!hasCachedNotifications) setNotifications([]);
         setError(requestError.message || 'Unable to load notifications. Please try again later.');
       } finally {
         if (mounted && requestId === requestIdRef.current) {

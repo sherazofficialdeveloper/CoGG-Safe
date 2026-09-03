@@ -1,17 +1,17 @@
 import React, {useCallback, useEffect, useState} from 'react';
-import {ActivityIndicator, Alert, Clipboard, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View} from 'react-native';
+import {ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View} from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import {SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {createUser, deleteUser, listCollectionUsers, listCollections, updateCollection, updateUser} from '../../api/resources';
 
 const EMPTY_USER = {username: '', mobileNumber: '', email: '', password: ''};
 const TYPES = ['family', 'children', 'workers', 'other'];
-const CREDENTIAL_MAP_STORAGE_KEY = '@coggsafe/admin-credential-map-session';
 
 export function buildCredentialClipboardText(member, password) {
   const memberName = member?.username || '';
   const credentialValue = typeof password === 'string' ? password : '';
-  return credentialValue ? `${memberName}\n${credentialValue}` : '';
+  if (!memberName) return '';
+  return credentialValue ? `${memberName}\n${credentialValue}` : `${memberName}\nPassword unavailable`;
 }
 
 export function buildMemberEditForm(member = {}) {
@@ -39,29 +39,8 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
   const [submitting, setSubmitting] = useState(false);
   const [credentialMap, setCredentialMap] = useState({});
 
-  // Load credential map from session storage on mount
-  useEffect(() => {
-    const loadCredentialMap = async () => {
-      try {
-        const stored = await AsyncStorage.getItem(CREDENTIAL_MAP_STORAGE_KEY);
-        if (stored) {
-          setCredentialMap(JSON.parse(stored));
-        }
-      } catch (err) {
-        // Safe to ignore storage errors
-      }
-    };
-    loadCredentialMap();
-  }, []);
-
-  // Save credential map to session storage whenever it changes
   const updateCredentialMap = useCallback(async (newMap) => {
     setCredentialMap(newMap);
-    try {
-      await AsyncStorage.setItem(CREDENTIAL_MAP_STORAGE_KEY, JSON.stringify(newMap));
-    } catch (err) {
-      // Safe to ignore storage errors; data remains in memory
-    }
   }, []);
 
   const loadCollections = useCallback(async () => {

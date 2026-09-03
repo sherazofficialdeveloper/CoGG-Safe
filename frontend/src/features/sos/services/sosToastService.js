@@ -1,18 +1,11 @@
-/** Centralized one-at-a-time queue for SOS feedback. */
+/** Centralized concurrent stack for SOS feedback. */
 export const DEFAULT_SOS_TOAST_DURATION = 4500;
 
-let activeToast = null;
-let queuedToasts = [];
+let activeToasts = [];
 const listeners = new Set();
 
 function notify() {
-  listeners.forEach(listener => listener(activeToast));
-}
-
-function activateNext() {
-  activeToast = queuedToasts.shift() || null;
-  if (__DEV__ && activeToast) console.log('[SOS][TOAST] SHOW', {id: activeToast.id, type: activeToast.type, message: activeToast.message});
-  notify();
+  listeners.forEach(listener => listener(activeToasts));
 }
 
 function toastKey(toast) {
@@ -28,31 +21,33 @@ export function emitSosToast(message, type = 'info', duration = DEFAULT_SOS_TOAS
     createdAt: new Date().toISOString(),
   };
   const key = toastKey(toast);
-  if ((activeToast && toastKey(activeToast) === key) || queuedToasts.some(item => toastKey(item) === key)) {
+  if (activeToasts.some(item => toastKey(item) === key)) {
     if (__DEV__) console.log('[SOS][TOAST] DEDUPED', {type, message});
-    return activeToast || queuedToasts.find(item => toastKey(item) === key) || null;
+    return activeToasts.find(item => toastKey(item) === key) || null;
   }
-  queuedToasts.push(toast);
-  if (__DEV__) console.log('[SOS][TOAST] QUEUED', {id: toast.id, type, message, queueLength: queuedToasts.length});
-  if (!activeToast) activateNext();
+  activeToasts = [...activeToasts.slice(-4), toast];
+  if (__DEV__) console.log('[SOS][TOAST] SHOW', {id: toast.id, type, message, stackLength: activeToasts.length});
+  notify();
   return toast;
 }
 
 export function dismissSosToast(id) {
-  if (!activeToast || (id && activeToast.id !== id)) return;
-  if (__DEV__) console.log('[SOS][TOAST] DISMISS', {id: activeToast.id});
-  activateNext();
+  if (!id) return;
+  const next = activeToasts.filter(item => item.id !== id);
+  if (next.length === activeToasts.length) return;
+  if (__DEV__) console.log('[SOS][TOAST] DISMISS', {id});
+  activeToasts = next;
+  notify();
 }
 
 export function subscribeSosToasts(listener) {
   listeners.add(listener);
-  listener(activeToast);
+  listener(activeToasts);
   return {remove: () => listeners.delete(listener)};
 }
 
 export function resetSosToastQueueForTests() {
-  activeToast = null;
-  queuedToasts = [];
+  activeToasts = [];
   notify();
 }
 
