@@ -12,6 +12,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import android.telephony.SmsManager
@@ -272,6 +273,7 @@ class EmergencyMediaModule(
         message: String,
         promise: Promise
     ) {
+        Log.i("EmergencyMedia", "[SOS][SMS] native send requested")
         val cleanNumber = phoneNumber.trim()
         if (cleanNumber.isEmpty()) {
             promise.reject("E_SMS_NUMBER", "Emergency SMS number is missing.")
@@ -284,6 +286,7 @@ class EmergencyMediaModule(
                 Manifest.permission.SEND_SMS
             ) != PackageManager.PERMISSION_GRANTED
         ) {
+            Log.w("EmergencyMedia", "[SOS][SMS] SEND_SMS permission denied")
             promise.reject(
                 "E_SMS_PERMISSION",
                 "SEND_SMS permission is required to send the emergency message."
@@ -304,6 +307,7 @@ class EmergencyMediaModule(
             } else {
                 android.telephony.SmsManager.getDefault()
             }
+            Log.i("EmergencyMedia", "[SOS][SMS] SmsManager initialized subscriptionId=$subscriptionId")
 
             val sentAction = Intent("SOS_SMS_SENT").apply {
                 setPackage(reactContext.packageName)
@@ -333,6 +337,8 @@ class EmergencyMediaModule(
                 sentIntent,
                 deliveredIntent
             )
+            Log.i("EmergencyMedia", "[SOS][SMS] sendTextMessage attempted")
+            Log.i("EmergencyMedia", "[SOS][SMS] SmsManager.sendTextMessage accepted")
 
             promise.resolve(Arguments.createMap().apply {
                 putString("status", "sent")
@@ -429,6 +435,7 @@ class EmergencyMediaModule(
         preferredSubscriptionId: Int,
         promise: Promise
     ) {
+        Log.i("EmergencyMedia", "[SOS][CALL] native call requested")
         val cleanNumber = phoneNumber.trim()
         if (cleanNumber.isEmpty()) {
             promise.reject("E_CALL_NUMBER", "Emergency call number is missing.")
@@ -440,6 +447,7 @@ class EmergencyMediaModule(
                 Manifest.permission.CALL_PHONE
             ) != PackageManager.PERMISSION_GRANTED
         ) {
+            Log.w("EmergencyMedia", "[SOS][CALL] CALL_PHONE permission denied")
             promise.reject(
                 "E_CALL_PERMISSION",
                 "CALL_PHONE permission is required to place the emergency call from the user device."
@@ -457,6 +465,7 @@ class EmergencyMediaModule(
         }
 
         val callIntent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$cleanNumber"))
+        Log.i("EmergencyMedia", "[SOS][CALL] ACTION_CALL intent created")
         val telecomManager = reactContext.getSystemService(TelecomManager::class.java)
         val resolution = resolvePhoneAccountHandle(telecomManager, preferredSubscriptionId)
 
@@ -465,7 +474,9 @@ class EmergencyMediaModule(
         }
 
         try {
+            Log.i("EmergencyMedia", "[SOS][CALL] startActivity attempted")
             activity.startActivity(callIntent)
+            Log.i("EmergencyMedia", "[SOS][CALL] ACTION_CALL requested")
             val reason = when {
                 resolution.usedFallback ->
                     "Android launched the emergency call using a fallback telephony account because the saved emergency SIM is no longer active, but the final call status is not yet confirmed by the device."
@@ -480,6 +491,7 @@ class EmergencyMediaModule(
                 putBoolean("usedFallbackSim", resolution.usedFallback)
             })
         } catch (error: Exception) {
+            Log.e("EmergencyMedia", "[SOS][CALL] ACTION_CALL failed", error)
             promise.reject(
                 "E_CALL_LAUNCH",
                 "Android could not launch the emergency call.",
