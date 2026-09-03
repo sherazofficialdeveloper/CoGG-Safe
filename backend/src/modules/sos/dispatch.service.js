@@ -60,6 +60,7 @@ async function sendPushToRecipient(recipient, { title, body, data }) {
 
 async function dispatchNotification(sos, user, collection) {
   await setComponentStatus(sos._id, COMPONENT_NAMES.PUSH, COMPONENT_STATUS.PROCESSING);
+  logger.info('PUSH_NOTIFICATION_STARTED', { sosId: String(sos._id) });
   try {
     const created = await notificationService.createForSos(sos, { user, collection });
     if (created.length === 0) {
@@ -80,6 +81,7 @@ async function dispatchNotification(sos, user, collection) {
 
     if (anyDeviceSucceeded) {
       await setComponentStatus(sos._id, COMPONENT_NAMES.PUSH, COMPONENT_STATUS.SUCCESS);
+      logger.info('PUSH_NOTIFICATION_SUCCESS', { sosId: String(sos._id), recipientCount: created.length });
     } else {
       // Notification rows exist regardless (the in-app notification tab
       // still works), but no device received the push notification.
@@ -186,7 +188,16 @@ async function dispatchSos(sos) {
   }
 
   const link = buildEmergencyLink(sos.emergencyToken);
-  const renderedMessage = `${sos.emergencyMessage} Location/details: ${link}`;
+  const timestamp = sos.createdAt ? new Date(sos.createdAt).toLocaleString() : new Date().toLocaleString();
+  // Best-effort one-line location hint in the email body itself — the
+  // emergency page (via `link`) remains the authoritative, always-current
+  // source (live location, photos, audio), so this is deliberately just a
+  // quick reference and never the only place location is shown.
+  const hasInitialLocation = sos.location?.latitude != null && sos.location?.longitude != null;
+  const locationLine = hasInitialLocation
+    ? ` Last known location: https://maps.google.com/?q=${sos.location.latitude},${sos.location.longitude}.`
+    : '';
+  const renderedMessage = `${sos.emergencyMessage} (${timestamp}).${locationLine} Full details, live location, and media: ${link}`;
 
   // Every dispatch action runs independently — one failing never blocks
   // or delays the others.

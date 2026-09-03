@@ -55,10 +55,11 @@ import {
   syncSosToBackend,
   uploadCapturedSosMedia,
 } from './src/features/sos/services/backendSyncService';
-import {getCollection, reportLocation, reportSosService} from './src/api/resources';
+import {getCollection, reportLocation, reportSosService, getSos, listContacts} from './src/api/resources';
+import {checkApiReachability} from './src/api/config';
 
 import {getCurrentLocation} from './src/features/sos/services/locationService';
-import {sendEmergencySms} from './src/features/sos/services/smsService';
+import {sendEmergencySms, sendEmergencySmsToNumbers} from './src/features/sos/services/smsService';
 import {initiateEmergencyCall} from './src/features/sos/services/callService';
 
 import {
@@ -183,6 +184,15 @@ function AppContent() {
   // SOS QUEUE / RECOVERY / CONNECTIVITY
   // ============================================================
 
+  // One-shot, non-blocking backend reachability check on app start. Purely
+  // diagnostic (logs only) — see checkApiReachability in src/api/config.js
+  // for why this matters: an unreachable API_BASE_URL (e.g. 10.0.2.2 on a
+  // physical device) otherwise looks identical to "SOS just isn't working"
+  // with no indication of why.
+  useEffect(() => {
+    checkApiReachability();
+  }, []);
+
   useEffect(() => {
     connectivityService.setup();
 
@@ -215,14 +225,79 @@ function AppContent() {
                 startedAt: event.liveLocationStartedAt,
               }),
 
-            sms: async (item, event) => sendEmergencySms({
-              phoneNumber: event.meta?.emergencyNumber,
-              message: `Emergency SOS ${event.id} for ${user?.username || 'user'}.`,
-            }),
+            sms: async (item, event) => {
+              const cachedContacts = await sosLocalStore
+                .getCachedCollectionInfo(event.collectionId)
+                .then(cached => Array.isArray(cached?.contactNumbers) ? cached.contactNumbers : [])
+                .catch(() => []);
+              const allNumbers = [event.meta?.emergencyNumber, ...cachedContacts].filter(Boolean);
+              return sendEmergencySmsToNumbers({
+                phoneNumbers: allNumbers,
+                message: `Emergency SOS ${event.id} for ${user?.username || 'user'}.`,
+              });
+            },
 
             call: async (item, event) => initiateEmergencyCall({
               emergencyNumber: event.meta?.emergencyNumber,
             }),
+
+            // Retries only the SPECIFIC camera lens that failed on the
+            // original attempt — captureEmergencyPhotos merges its result
+            // with previousResult so an already-succeeded lens is never
+            // re-captured or overwritten. Enqueued automatically by
+            // orchestrator.js whenever camera resolves 'PENDING' (exactly
+            // one lens missing) — see RETRYABLE_SERVICES.
+            camera: async (item, event) =>
+              captureEmergencyPhotos({
+                sosId: event.id,
+                previousResult: event.services?.camera || null,
+              }),
+
+            // Durable canonical-link follow-up SMS. Replaces the old
+            // in-memory `emergencyLinkPromise.then(...)` chain: this
+            // processor is re-invoked by the persistent queue (on every
+            // connectivity change and app restart, via
+            // recoverActiveSosWork/processSosQueue) until it succeeds, so
+            // the link SMS can no longer be lost to a process death. It
+            // has two independent dependencies, checked separately:
+            //   - the canonical link itself, which only exists once the
+            //     `backend` job has completed (requires internet) — if
+            //     it's not there yet, we return WAITING_FOR_LINK, which
+            //     queueWorker treats as "no attempt was made" rather than
+            //     a failed send, so it never burns MAX_ATTEMPTS;
+            //   - cellular for the actual send, enforced upstream by
+            //     queueWorker's requiresCellular('LINK_SMS').
+            linkSms: async (item, event) => {
+              if (!event.emergencyLink) {
+                // Distinct from 'PENDING': no SMS send has been attempted
+                // here, we're only waiting on the backend to produce the
+                // canonical link. queueWorker treats WAITING_FOR_LINK as a
+                // non-attempt, so it can never exhaust MAX_ATTEMPTS just
+                // because the link is slow to arrive.
+                return {
+                  status: 'WAITING_FOR_LINK',
+                  reason: 'Waiting for the canonical emergency link from the backend.',
+                };
+              }
+
+              const cachedNumber = await sosLocalStore
+                .getCachedCollectionInfo(event.collectionId)
+                .then(cached => cached?.emergencyCallNumber || null)
+                .catch(() => null);
+              const phoneNumber = event.meta?.emergencyNumber || cachedNumber;
+
+              if (!phoneNumber) {
+                return {
+                  status: 'NOT_CONFIGURED',
+                  reason: 'No emergency SMS number is configured for this collection.',
+                };
+              }
+
+              return sendEmergencySms({
+                phoneNumber,
+                message: `Emergency SOS details (photos, audio, live location): ${event.emergencyLink}`,
+              });
+            },
           },
         });
 
@@ -249,6 +324,43 @@ function AppContent() {
 
     return connectivityService.subscribe(processQueue);
   }, [token, user?.username]);
+
+  // Emergency SMS must be sendable with zero network dependency. We proactively
+  // cache the user's collection emergency number locally (best-effort, outside
+  // the SOS path) so it is already available offline by the time SOS is ever
+  // triggered, instead of requiring a live backend call at emergency time.
+  useEffect(() => {
+    if (!token || !user || user.role !== 'user' || !user.collectionId) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    getCollection(token, user.collectionId)
+      .then(response => {
+        if (cancelled) return;
+        const emergencyCallNumber = response?.collection?.emergencyCallNumber;
+        if (emergencyCallNumber) {
+          sosLocalStore.setCachedCollectionInfo(user.collectionId, {emergencyCallNumber}).catch(() => undefined);
+        }
+      })
+      .catch(() => undefined);
+
+    // Same reasoning, for the full list of collection member numbers SMS
+    // must reach (see sendEmergencySmsToNumbers). Cached here too, so a
+    // user who never opens the app between login and an emergency still
+    // has an up-to-date recipient list by the time SOS triggers.
+    listContacts(token)
+      .then(contacts => {
+        if (cancelled) return;
+        const numbers = (contacts || []).map(c => c?.mobileNumber).filter(Boolean);
+        sosLocalStore.setCachedCollectionInfo(user.collectionId, {contactNumbers: numbers}).catch(() => undefined);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token, user]);
 
   useEffect(() => {
     if (!token || !user) {
@@ -427,6 +539,39 @@ function AppContent() {
   // SOS HANDLER
   // ============================================================
 
+  /**
+   * Wait for backend to confirm ACTIVE status (after cancellation window).
+   * Polls with exponential backoff, times out after 30 seconds.
+   */
+  const waitForSosActive = useCallback(async (sosId, maxWaitMs = 30000, initialDelayMs = 500) => {
+    const startTime = Date.now();
+    let delayMs = initialDelayMs;
+    
+    while (Date.now() - startTime < maxWaitMs) {
+      try {
+        const sosResponse = await getSos(token, sosId);
+        const sos = sosResponse?.sos || sosResponse;
+        if (__DEV__) {
+          console.log('[SOS_DEBUG] POLL_RESPONSE', {backendId: sosId, status: sos?.status});
+        }
+        if (sos?.status === 'active') {
+          return {success: true, sos};
+        }
+      } catch (err) {
+        // Network error, retry
+        if (__DEV__) {
+          console.log('WAIT_FOR_ACTIVE_POLL_ERROR', {sosId, error: err?.message});
+        }
+      }
+      
+      // Exponential backoff with cap
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      delayMs = Math.min(delayMs * 1.5, 2000);
+    }
+    
+    return {success: false, reason: 'Timeout waiting for backend to activate SOS'};
+  }, [token]);
+
   const handleTriggerSos = useCallback(async ({skipNavigation = false} = {}) => {
     if (__DEV__) {
       console.log('SOS_ACTIVATION_REQUESTED', {
@@ -452,6 +597,27 @@ function AppContent() {
     try {
       let collection = null;
       let collectionPromise = Promise.resolve();
+      // A locally cached emergency number (see the collection-prefetch effect
+      // above) is the primary source for SMS, so sending never has to wait on
+      // a live backend call. It is read once per trigger, before activation,
+      // so it is ready the instant the SMS branch starts.
+      const cachedEmergencyNumberPromise = sosLocalStore
+        .getCachedCollectionInfo(user?.collectionId)
+        .then(cached => cached?.emergencyCallNumber || null)
+        .catch(() => null);
+
+      // Same offline-first reasoning as the emergency number above, but for
+      // the full set of "all valid phone numbers belonging to the selected
+      // collection" that SMS must reach (unlike the call, which still only
+      // rings the single configured emergencyCallNumber). Cached from the
+      // last successful /api/contacts fetch (see the contacts-prefetch
+      // effect below) so a triggered SOS never waits on a live request to
+      // know who to text.
+      const cachedContactNumbersPromise = sosLocalStore
+        .getCachedCollectionInfo(user?.collectionId)
+        .then(cached => Array.isArray(cached?.contactNumbers) ? cached.contactNumbers : [])
+        .catch(() => []);
+
       const result = await activateSosFlow({
         userId: user?._id || user?.id,
         collectionId: user?.collectionId,
@@ -469,6 +635,7 @@ function AppContent() {
             collection = collectionResponse?.collection || null;
             const emergencyNumber = collection?.emergencyCallNumber || event?.meta?.emergencyNumber;
             if (emergencyNumber) {
+              sosLocalStore.setCachedCollectionInfo(user?.collectionId, {emergencyCallNumber: emergencyNumber}).catch(() => undefined);
               return sosLocalStore.upsertSos({
                 ...event,
                 meta: {
@@ -484,58 +651,120 @@ function AppContent() {
               console.log('SOS_COLLECTION_LOAD_FAILED', {error: error?.message || error});
             }
           });
+
+          // Best-effort refresh of the "everyone in this collection" number
+          // list, in parallel with the collection fetch above. This never
+          // blocks the SMS branch — it only refreshes the local cache
+          // (which cachedContactNumbersPromise above reads from) for the
+          // NEXT trigger; the current trigger already read whatever was
+          // cached before this run started, by design (no live-fetch wait).
+          listContacts(token)
+            .then(contacts => {
+              const numbers = (contacts || [])
+                .map(c => c?.mobileNumber)
+                .filter(Boolean);
+              sosLocalStore.setCachedCollectionInfo(user?.collectionId, {contactNumbers: numbers}).catch(() => undefined);
+            })
+            .catch(error => {
+              if (__DEV__) {
+                console.log('SOS_CONTACTS_LOAD_FAILED', {error: error?.message || error});
+              }
+            });
         },
 
         serviceRunners: {
           sms: async event => {
-            if (__DEV__) console.log('SOS_SMS_START', {eventId: event.id});
-            if (!event?.meta?.emergencyNumber) {
-              await collectionPromise;
-            }
-            const phoneNumber = collection?.emergencyCallNumber || event?.meta?.emergencyNumber;
-            if (__DEV__) console.log('SOS_SMS_RECIPIENT_RESOLVED', {eventId: event.id, hasNumber: Boolean(phoneNumber)});
-            const location = event.location?.latitude != null && event.location?.longitude != null
-              ? event.location
-              : null;
-            const mapsLink = location 
+            // SMS is an independent emergency service: it must never wait on
+            // the backend, on internet, or on any other SOS branch. The
+            // numbers come from the local cache (instant, works offline);
+            // the live backend/contacts fetch is not awaited here.
+            const [cachedNumber, cachedContacts] = await Promise.all([
+              cachedEmergencyNumberPromise,
+              cachedContactNumbersPromise,
+            ]);
+            const primaryNumber = cachedNumber || collection?.emergencyCallNumber || event?.meta?.emergencyNumber;
+            // ALL valid numbers belonging to the selected collection: the
+            // configured primary emergency line PLUS every other member of
+            // the collection's own mobile number (deduplicated). Never just
+            // the single primary number.
+            const allNumbers = [primaryNumber, ...cachedContacts].filter(Boolean);
+
+            // Location enriches the SMS body when it's already available, but
+            // a slow or unavailable GPS fix must never delay the emergency SMS.
+            const location = await Promise.race([
+              getCurrentLocation().catch(() => null),
+              new Promise(resolve => setTimeout(() => resolve(null), 1500)),
+            ]);
+            const mapsLink = location
               ? `https://maps.google.com/?q=${location.latitude},${location.longitude}`
               : '';
-            const message = location
-              ? `Emergency SOS Alert! I need help. Location: ${mapsLink}`
-              : 'Emergency SOS Alert! I need help.';
-            if (__DEV__) console.log('SOS_SMS_SEND_CALLED', {eventId: event.id});
-            const result = await sendEmergencySms({
-              phoneNumber,
+            const message = [
+              `Emergency SOS Alert! ${user?.username || 'A user'} needs help.`,
+              location ? `Location: ${mapsLink}` : null,
+              `Time: ${new Date().toLocaleString()}`,
+            ].filter(Boolean).join(' ');
+
+            const result = await sendEmergencySmsToNumbers({
+              phoneNumbers: allNumbers,
               message,
             });
-            if (__DEV__) console.log(result.status === 'COMPLETED' ? 'SOS_SMS_SENT' : 'SOS_SMS_FAILED', {eventId: event.id, status: result.status, reason: result.reason});
-            if (event.backendId) {
-              // Map result status to COMPONENT_STATUS values
-              const statusMap = {
-                'COMPLETED': 'success',
-                'PENDING': 'pending',
-                'FAILED': 'failed',
-                'UNSUPPORTED': 'unsupported',
-              };
-              await reportSosService(token, event.backendId, 'sms', {
-                status: statusMap[result.status] || 'failed',
-                ...((result.error || result.reason) ? {error: result.error || result.reason} : {}),
-              });
-            }
+
+            // Reporting the outcome to the backend is best-effort and must
+            // never hold up the SMS operation itself, so it is fired after
+            // SMS completes without being awaited by the SMS branch. The
+            // backend's `sms` component is a single aggregate status (it has
+            // no per-recipient schema) — result.status already reflects
+            // "at least one recipient succeeded" per sendEmergencySmsToNumbers.
+            collectionPromise.finally(() => {
+              if (event.backendId) {
+                const statusMap = {
+                  'COMPLETED': 'success',
+                  'PENDING': 'pending',
+                  'FAILED': 'failed',
+                  'UNSUPPORTED': 'unsupported',
+                  'NOT_CONFIGURED': 'unsupported',
+                };
+                reportSosService(token, event.backendId, 'sms', {
+                  status: statusMap[result.status] || 'failed',
+                  ...(result.reason ? {error: result.reason} : {}),
+                }).catch(() => undefined);
+              }
+            });
+
+            // The canonical emergency-link follow-up SMS is no longer sent
+            // from here. It is a durable queue job (LINK_SMS, enqueued
+            // unconditionally in orchestrator.js/activateSosFlow) handled
+            // by the `linkSms` processor above, so it survives app close/
+            // process death instead of depending on this in-flight call
+            // still being alive when the backend eventually confirms.
+
             return result;
           },
 
           call: async event => {
-            if (__DEV__) console.log('SOS_CALL_START', {eventId: event.id});
-            if (!event?.meta?.emergencyNumber) {
-              await collectionPromise;
+            // The call rings ONE primary number (kept intentionally separate
+            // from SMS-to-everyone, per the collection's configured
+            // emergencyCallNumber) and must never wait on the live
+            // collection API — the cached number is read first, exactly
+            // like the SMS branch, so a slow/offline network never delays
+            // dialing. The live collectionPromise is only consulted as a
+            // last-resort fallback, with a short timeout, for a brand-new
+            // device that has no cache yet.
+            if (__DEV__) console.log('CALL_STARTED', {eventId: event.id});
+            const cachedNumber = await cachedEmergencyNumberPromise;
+            let emergencyNumber = cachedNumber || event?.meta?.emergencyNumber;
+            if (!emergencyNumber) {
+              await Promise.race([
+                collectionPromise,
+                new Promise(resolve => setTimeout(resolve, 1500)),
+              ]);
+              emergencyNumber = collection?.emergencyCallNumber || event?.meta?.emergencyNumber;
             }
-            const emergencyNumber = collection?.emergencyCallNumber || event?.meta?.emergencyNumber;
-            if (__DEV__) console.log('SOS_CALL_NUMBER_RESOLVED', {eventId: event.id, hasNumber: Boolean(emergencyNumber)});
-            const result = await initiateEmergencyCall({
-              emergencyNumber,
-            });
-            if (__DEV__) console.log(result.status === 'INITIATED' ? 'SOS_CALL_INITIATED' : 'SOS_CALL_FAILED', {eventId: event.id, status: result.status, reason: result.reason});
+
+            const result = await initiateEmergencyCall({emergencyNumber});
+            if (__DEV__) {
+              console.log(result.status === 'INITIATED' ? 'CALL_SUCCESS' : 'CALL_FAILED', {eventId: event.id, result});
+            }
             if (event.backendId) {
               // Map result status to COMPONENT_STATUS values
               const statusMap = {
@@ -543,10 +772,11 @@ function AppContent() {
                 'PENDING': 'pending',
                 'FAILED': 'failed',
                 'UNSUPPORTED': 'unsupported',
+                'NOT_CONFIGURED': 'unsupported',
               };
               await reportSosService(token, event.backendId, 'call', {
                 status: statusMap[result.status] || 'failed',
-                ...((result.error || result.reason) ? {error: result.error || result.reason} : {}),
+                ...(result.reason ? {error: result.reason} : {}),
               });
             }
             return result;
@@ -568,7 +798,6 @@ function AppContent() {
 location: async event => {
             try {
               const result = await getCurrentLocation();
-              event.location = {...event.location, ...result};
               if (event.backendId) {
                 await reportLocation(token, event.backendId, {status: 'success', latitude: result.latitude, longitude: result.longitude});
               }
@@ -581,17 +810,6 @@ location: async event => {
             }
           },
 
-          locationReport: async event => {
-            if (event.backendId && event.location?.latitude != null && event.location?.longitude != null) {
-              await reportLocation(token, event.backendId, {
-                status: 'success',
-                latitude: event.location.latitude,
-                longitude: event.location.longitude,
-              });
-            }
-            return {status: 'COMPLETED'};
-          },
-
           liveLocation: async event =>
             startLiveLocationSharing({
               token,
@@ -599,12 +817,16 @@ location: async event => {
               backendId: event.backendId,
             }),
 
-          backend: async event =>
-            syncSosToBackend({
+          backend: async event => {
+            // The canonical link (once available) is picked up by the
+            // durable LINK_SMS queue job via event.emergencyLink — no
+            // in-memory hand-off needed here any more.
+            return syncSosToBackend({
               token,
               sosEvent: event,
               idempotencyKey: event.id,
-            }),
+            });
+          },
 
           email: async () => ({
             status: 'PENDING',
@@ -621,10 +843,19 @@ location: async event => {
       if (result?.cancelled) {
         showToast('SOS cancelled before dispatch.', 'info');
       } else if (result?.event && result.event.backendId) {
+        // Wait for backend to confirm ACTIVE status
         if (!skipNavigation) {
-          showToast('SOS Active', 'success');
-          setSelectedSos({...result.event, status: 'active'});
-          setScreen('userHome');
+          showToast('Waiting for server confirmation...', 'info');
+          const activationResult = await waitForSosActive(result.event.backendId);
+          
+          if (activationResult.success) {
+            showToast('SOS Active', 'success');
+            setSelectedSos({...result.event, ...activationResult.sos});
+            setScreen('userHome');
+          } else {
+            showToast(`Backend confirmation was not received: ${activationResult.reason}`, 'error');
+            setSelectedSos({...result.event, status: 'PENDING', activationError: activationResult.reason});
+          }
         } else {
           showToast('SOS alert triggered and queued for delivery.', 'success');
         }
@@ -645,7 +876,7 @@ location: async event => {
       setSosLoading(false);
       sosTriggerInFlightRef.current = false;
     }
-  }, [sosLoading, showToast, token, user]);
+  }, [sosLoading, showToast, token, user, waitForSosActive]);
 
   useEffect(() => {
     if (!user || user.role !== 'user') {

@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const SOS_EVENT_KEY = 'cogg_safe.sos.events';
 const SOS_QUEUE_KEY = 'cogg_safe.sos.queue';
+const COLLECTION_CACHE_KEY = 'cogg_safe.sos.collectionCache';
+const EMERGENCY_CALL_SIM_KEY = 'cogg_safe.sos.emergencyCallSubscriptionId';
 const memoryStore = {};
 const storageApi = AsyncStorage && AsyncStorage.default ? AsyncStorage.default : AsyncStorage;
 const safeAsyncStorage = {
@@ -96,9 +98,11 @@ export const sosLocalStore = {
   async clear() {
     delete memoryStore[SOS_EVENT_KEY];
     delete memoryStore[SOS_QUEUE_KEY];
+    delete memoryStore[EMERGENCY_CALL_SIM_KEY];
     await Promise.all([
       safeAsyncStorage.removeItem(SOS_EVENT_KEY),
       safeAsyncStorage.removeItem(SOS_QUEUE_KEY),
+      safeAsyncStorage.removeItem(EMERGENCY_CALL_SIM_KEY),
     ]);
   },
 
@@ -115,9 +119,22 @@ export const sosLocalStore = {
   async enqueueQueueItem(item) {
     const queue = await this.getPendingQueue();
     const existing = queue.findIndex(entry => entry.id === item.id);
-    const next = existing === -1
-      ? [...queue, item]
-      : queue.map((entry, index) => index === existing ? {...entry, ...item} : entry);
+
+    // A queue item's id is a stable {sosId}:{type}:{backendSosId} key, so
+    // callers (orchestrator, recovery after an app restart, queueWorker's
+    // own re-enqueue of MEDIA_UPLOAD) can safely call this for a job that
+    // may already exist. When it does, this must be a true no-op: merging
+    // the fresh {status: 'PENDING', attempts: 0, createdAt: now, ...}
+    // fields in would silently reset an in-flight job's retry count and
+    // backoff (or even resurrect one that already reached FAILED) every
+    // time recovery re-derives pending work, which defeats MAX_ATTEMPTS
+    // and loses the job's original creation time. Only a genuinely new id
+    // gets added.
+    if (existing !== -1) {
+      return queue;
+    }
+
+    const next = [...queue, item];
     await this.saveQueue(next);
     return next;
   },
@@ -134,6 +151,45 @@ export const sosLocalStore = {
     const next = queue.filter(item => item.id !== id);
     await this.saveQueue(next);
     return next;
+  },
+
+  // Emergency SMS must not require a live backend call to know who to text.
+  // We cache the last-known emergency contact per collection locally so SMS
+  // can be sent even when the device is offline; this is refreshed opportunistically
+  // whenever the collection is fetched successfully.
+  async getCachedCollectionInfo(collectionId) {
+    if (!collectionId) return null;
+    const cache = await readJson(COLLECTION_CACHE_KEY, {});
+    return (cache && cache[collectionId]) || null;
+  },
+
+  async setCachedCollectionInfo(collectionId, info) {
+    if (!collectionId) return null;
+    const cache = await readJson(COLLECTION_CACHE_KEY, {});
+    const next = {...cache, [collectionId]: {...info, cachedAt: new Date().toISOString()}};
+    await writeJson(COLLECTION_CACHE_KEY, next);
+    return next[collectionId];
+  },
+
+  // Dual-SIM devices need a deterministic, user-chosen SIM for emergency
+  // calling so SOS never has to ask "which SIM?" mid-emergency. This is a
+  // device-local preference (not a backend field) — it persists the Android
+  // subscriptionId the user picked in Profile settings.
+  async getEmergencyCallSimPreference() {
+    const stored = await readJson(EMERGENCY_CALL_SIM_KEY, null);
+    if (stored == null || stored.subscriptionId == null) return null;
+    return stored;
+  },
+
+  async setEmergencyCallSimPreference(subscriptionId, meta = {}) {
+    if (subscriptionId == null) {
+      delete memoryStore[EMERGENCY_CALL_SIM_KEY];
+      await safeAsyncStorage.removeItem(EMERGENCY_CALL_SIM_KEY);
+      return null;
+    }
+    const value = {subscriptionId, ...meta, savedAt: new Date().toISOString()};
+    await writeJson(EMERGENCY_CALL_SIM_KEY, value);
+    return value;
   },
 };
 

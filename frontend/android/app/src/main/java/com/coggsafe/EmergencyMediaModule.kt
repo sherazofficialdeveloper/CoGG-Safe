@@ -389,9 +389,44 @@ class EmergencyMediaModule(
         }
     }
 
+    /**
+     * Lists active SIM/subscriptions so the app can offer a SIM picker on
+     * dual-SIM devices. Single-SIM devices never need this — the caller
+     * should skip any selection UI when only one entry is returned.
+     */
+    @ReactMethod
+    fun getAvailableSims(promise: Promise) {
+        try {
+            val subscriptionManager = reactContext.getSystemService(SubscriptionManager::class.java)
+            val active = subscriptionManager?.activeSubscriptionInfoList ?: emptyList()
+            val defaultSubscriptionId = try {
+                SubscriptionManager.getDefaultVoiceSubscriptionId()
+            } catch (e: Exception) {
+                -1
+            }
+
+            val result = Arguments.createArray()
+            active.forEach { info ->
+                result.pushMap(Arguments.createMap().apply {
+                    putInt("subscriptionId", info.subscriptionId)
+                    putInt("slotIndex", info.simSlotIndex)
+                    putString("displayName", info.displayName?.toString() ?: "SIM ${info.simSlotIndex + 1}")
+                    putString("carrierName", info.carrierName?.toString() ?: "")
+                    putBoolean("isDefault", info.subscriptionId == defaultSubscriptionId)
+                })
+            }
+            promise.resolve(result)
+        } catch (error: Exception) {
+            // No visibility into SIMs shouldn't be fatal — callers treat an
+            // empty/failed list the same as "let Android pick automatically".
+            promise.resolve(Arguments.createArray())
+        }
+    }
+
     @ReactMethod
     fun placeCall(
         phoneNumber: String,
+        preferredSubscriptionId: Int,
         promise: Promise
     ) {
         val cleanNumber = phoneNumber.trim()
@@ -423,22 +458,26 @@ class EmergencyMediaModule(
 
         val callIntent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$cleanNumber"))
         val telecomManager = reactContext.getSystemService(TelecomManager::class.java)
-        val preferredHandle = resolvePreferredPhoneAccountHandle(telecomManager)
+        val resolution = resolvePhoneAccountHandle(telecomManager, preferredSubscriptionId)
 
-        if (preferredHandle != null) {
-            callIntent.putExtra("android.telecom.extra.PHONE_ACCOUNT_HANDLE", preferredHandle)
+        if (resolution.handle != null) {
+            callIntent.putExtra("android.telecom.extra.PHONE_ACCOUNT_HANDLE", resolution.handle)
         }
 
         try {
             activity.startActivity(callIntent)
-            val reason = if (preferredHandle != null) {
-                "Android launched the emergency call intent using a device-exposed telephony account, but the final call status is not yet confirmed by the device."
-            } else {
-                "Android launched the emergency call intent using the default device telephony path, but the final call status is not yet confirmed by the device."
+            val reason = when {
+                resolution.usedFallback ->
+                    "Android launched the emergency call using a fallback telephony account because the saved emergency SIM is no longer active, but the final call status is not yet confirmed by the device."
+                resolution.handle != null ->
+                    "Android launched the emergency call intent using a device-exposed telephony account, but the final call status is not yet confirmed by the device."
+                else ->
+                    "Android launched the emergency call intent using the default device telephony path, but the final call status is not yet confirmed by the device."
             }
             promise.resolve(Arguments.createMap().apply {
                 putString("status", "pending")
                 putString("reason", reason)
+                putBoolean("usedFallbackSim", resolution.usedFallback)
             })
         } catch (error: Exception) {
             promise.reject(
@@ -562,6 +601,59 @@ class EmergencyMediaModule(
         }
     }
 
+    /**
+     * Reports actual SIM/telephony readiness for SMS, independent of which
+     * network interface (Wi-Fi or cellular) is currently carrying internet
+     * traffic. A device on Wi-Fi with a working SIM must still be treated as
+     * cellular-available; a data connection type is not a telephony signal.
+     */
+    @ReactMethod
+    fun getTelephonyState(promise: Promise) {
+        try {
+            val telephonyManager = reactContext.getSystemService(android.telephony.TelephonyManager::class.java)
+            val simState = telephonyManager?.simState ?: android.telephony.TelephonyManager.SIM_STATE_UNKNOWN
+            val hasActiveSubscription = resolvePreferredSubscriptionId() >= 0
+
+            val status: String
+            val reason: String
+            when {
+                simState == android.telephony.TelephonyManager.SIM_STATE_ABSENT -> {
+                    status = "UNSUPPORTED"
+                    reason = "No SIM card is installed."
+                }
+                simState == android.telephony.TelephonyManager.SIM_STATE_PIN_REQUIRED ||
+                    simState == android.telephony.TelephonyManager.SIM_STATE_PUK_REQUIRED ||
+                    simState == android.telephony.TelephonyManager.SIM_STATE_NETWORK_LOCKED -> {
+                    status = "UNSUPPORTED"
+                    reason = "SIM card is locked."
+                }
+                hasActiveSubscription -> {
+                    status = "AVAILABLE"
+                    reason = "SIM/cellular service is available."
+                }
+                else -> {
+                    status = "TEMPORARILY_UNAVAILABLE"
+                    reason = "Cellular service is temporarily unavailable."
+                }
+            }
+
+            promise.resolve(Arguments.createMap().apply {
+                putString("status", status)
+                putString("reason", reason)
+                putBoolean("hasActiveSubscription", hasActiveSubscription)
+            })
+        } catch (error: Exception) {
+            // A failed check must never block emergency SMS. Default to
+            // optimistic availability and let the actual SmsManager attempt
+            // report the true outcome.
+            promise.resolve(Arguments.createMap().apply {
+                putString("status", "AVAILABLE")
+                putString("reason", "Telephony state check failed; assuming available.")
+                putBoolean("hasActiveSubscription", true)
+            })
+        }
+    }
+
     private fun resolvePreferredSubscriptionId(): Int {
         return try {
             val subscriptionManager = reactContext.getSystemService(SubscriptionManager::class.java)
@@ -587,21 +679,49 @@ class EmergencyMediaModule(
         }
     }
 
-    private fun resolvePreferredPhoneAccountHandle(telecomManager: TelecomManager?): PhoneAccountHandle? {
-        if (telecomManager == null) return null
+    private data class PhoneAccountResolution(val handle: PhoneAccountHandle?, val usedFallback: Boolean)
+
+    /**
+     * Resolves which telephony account to place the emergency call on.
+     *
+     * - preferredSubscriptionId >= 0 (a user-saved emergency SIM, or the
+     *   single active SIM on a single-SIM device): use it if it's still
+     *   active; otherwise fall back to the current default/first SIM rather
+     *   than failing the call outright — a disappeared SIM must never
+     *   silently block an emergency call.
+     * - preferredSubscriptionId < 0 (no preference saved, e.g. dual-SIM with
+     *   no configured choice yet): fall back to slot 0 / first active SIM,
+     *   same as the previous automatic behavior.
+     */
+    private fun resolvePhoneAccountHandle(telecomManager: TelecomManager?, preferredSubscriptionId: Int): PhoneAccountResolution {
+        if (telecomManager == null) return PhoneAccountResolution(null, false)
 
         val candidates = telecomManager.callCapablePhoneAccounts
-        if (candidates.isEmpty()) return null
+        if (candidates.isEmpty()) return PhoneAccountResolution(null, false)
 
         val subscriptionManager = reactContext.getSystemService(SubscriptionManager::class.java)
-        val preferredSubscription = subscriptionManager?.activeSubscriptionInfoList
-            ?.firstOrNull { it.simSlotIndex == 0 }
-            ?: subscriptionManager?.activeSubscriptionInfoList?.firstOrNull()
+        val activeSubscriptions = subscriptionManager?.activeSubscriptionInfoList ?: emptyList()
 
-        if (preferredSubscription == null) return candidates.firstOrNull()
+        val requestedSubscription = if (preferredSubscriptionId >= 0) {
+            activeSubscriptions.firstOrNull { it.subscriptionId == preferredSubscriptionId }
+        } else {
+            null
+        }
 
-        return candidates.firstOrNull {
-            it.id.contains(preferredSubscription.subscriptionId.toString(), ignoreCase = true)
+        val usedFallback = preferredSubscriptionId >= 0 && requestedSubscription == null
+
+        val resolvedSubscription = requestedSubscription
+            ?: activeSubscriptions.firstOrNull { it.simSlotIndex == 0 }
+            ?: activeSubscriptions.firstOrNull()
+
+        if (resolvedSubscription == null) {
+            return PhoneAccountResolution(candidates.firstOrNull(), usedFallback)
+        }
+
+        val handle = candidates.firstOrNull {
+            it.id.contains(resolvedSubscription.subscriptionId.toString(), ignoreCase = true)
         } ?: candidates.firstOrNull()
+
+        return PhoneAccountResolution(handle, usedFallback)
     }
 }

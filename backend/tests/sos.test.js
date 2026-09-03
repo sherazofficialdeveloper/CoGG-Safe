@@ -630,6 +630,7 @@ describe('Emergency link (public, unauthenticated)', () => {
     const res = await request(app).get(`/api/emergency/${publicToken}`);
     expect(res.status).toBe(200);
     expect(res.body.data.userName).toBe(user.username);
+    expect(res.body.data.userPhone).toBe(user.mobileNumber);
     expect(res.body.data.collectionName).toBe(collection.name);
     expect(res.body.data.status).toBe(SOS_STATUS.ACTIVE);
     // No raw Mongo ids or the token itself anywhere in the payload.

@@ -17,7 +17,9 @@ export async function recordEmergencyAudio({sosId}) {
   }
 
   try {
+    if (__DEV__) console.log('AUDIO_STARTED', {sosId});
     const localPath = await recordNativeSosAudio(sosId, 5000);
+    if (__DEV__) console.log('AUDIO_COMPLETED', {sosId, localPath});
     return {
       status: 'COMPLETED',
       localPath,

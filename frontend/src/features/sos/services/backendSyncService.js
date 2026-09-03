@@ -1,5 +1,6 @@
 import {createSos, reportSosMedia, uploadSosMedia, reportSosService} from '../../../api/resources';
 import {getConnectivityState} from '../connectivity';
+import {sosLocalStore} from '../storage';
 const MEDIA_COMPONENTS = [
   {component: 'frontImage', service: 'camera', path: 'frontImagePath', mimeType: 'image/jpeg'},
   {component: 'backImage', service: 'camera', path: 'backImagePath', mimeType: 'image/jpeg'},
@@ -25,6 +26,7 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
   };
   if (__DEV__) {
     console.log('[SOS_DEBUG] CREATE_START', {eventId: sosEvent?.id});
+    console.log('BACKEND_SOS_CREATE_STARTED', {eventId: sosEvent?.id});
   }
 
   const response = await createSos(token, payload);
@@ -32,6 +34,7 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
   const backendId = sosRecord?._id || sosRecord?.id || null;
   if (__DEV__) {
     console.log('[SOS_DEBUG] CREATE_RESPONSE', {status: 'received', backendId});
+    if (backendId) console.log('BACKEND_SOS_CREATED', {eventId: sosEvent?.id, backendId});
   }
 
   if (!backendId) {
@@ -45,7 +48,12 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
     status: 'COMPLETED',
     backendId,
     emergencyLink: sosRecord?.emergencyLink || null,
-    backendStatus: sosRecord?.status || null,
+    // Additive fields (already present on the existing createSos response,
+    // just not previously read here) used to reconcile the local event with
+    // server-authoritative state once backend confirmation lands — see
+    // recovery.js / orchestrator.js / queueWorker.js "backend confirmed"
+    // handling. Never used to fabricate ACTIVE locally before this point.
+    serverStatus: sosRecord?.status || null,
     activatedAt: sosRecord?.activatedAt || null,
   };
 }
@@ -53,6 +61,16 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
 /**
  * Transfers captured device files only after the backend SOS exists. Local
  * Android paths are never reported as storage references.
+ *
+ * Each media component (frontImage, backImage, audio) is uploaded
+ * independently: one component's upload failure must never block another
+ * component from being attempted (mirrors the same isolation the native
+ * capture side already guarantees for front/back camera + audio). A
+ * component that has already been durably stored on a previous attempt is
+ * never re-uploaded — `sosEvent.mediaUploadState` persists per-component
+ * outcomes locally so a retried queue job resumes only the components that
+ * still need it, instead of creating duplicate cloud objects for media that
+ * already succeeded.
  */
 export async function uploadCapturedSosMedia({token, sosEvent}) {
   const backendId = sosEvent?.backendId;
@@ -65,37 +83,82 @@ export async function uploadCapturedSosMedia({token, sosEvent}) {
     return {status: 'PENDING', reason: 'Internet unavailable; media upload queued.'};
   }
 
-  const results = await Promise.allSettled(MEDIA_COMPONENTS.map(async item => {
+  if (__DEV__) console.log('MEDIA_UPLOAD_STARTED', {backendId});
+
+  const uploadState = {...(sosEvent.mediaUploadState || {})};
+  const uploaded = [];
+  const failures = [];
+
+  for (const item of MEDIA_COMPONENTS) {
+    // Idempotent skip: this component was already durably stored on a
+    // previous (possibly partially-failed) attempt.
+    if (uploadState[item.component]?.status === 'SUCCESS') {
+      uploaded.push({component: item.component, storageRef: uploadState[item.component].storageRef});
+      continue;
+    }
+
     const capture = sosEvent.services?.[item.service] || {};
     const localPath = capture[item.path];
-    if (localPath) {
-      const response = await uploadSosMedia(token, backendId, item.component, {
-        uri: localPath.startsWith('file://') ? localPath : `file://${localPath}`,
-        type: item.mimeType,
-        name: `${item.component}-${Date.now()}${item.component === 'audio' ? '.m4a' : '.jpg'}`,
-      });
-      const media = response?.sos?.components?.[item.component];
-      if (media?.status !== 'success' || !media.storageRef) {
-        throw new Error(`Backend did not confirm durable storage for ${item.component}.`);
-      }
-      return {component: item.component, storageRef: media.storageRef};
-    }
-    if (capture.status === 'FAILED') {
-      await reportSosMedia(token, backendId, item.component, {
-        status: 'failed',
-        error: capture.error || `${item.component} capture failed on the device.`,
-      });
-    }
-    return null;
-  }));
+    // Per-component error, when the capture layer reports front/back
+    // independently (camera). Falls back to the whole-service error for
+    // single-output services (audio) where there's only one path to begin
+    // with. This must be checked per-component, NOT via capture.status —
+    // capture.status is 'PENDING' for a camera capture where only one lens
+    // failed, and that partial failure still needs to be reported for the
+    // specific missing component instead of silently staying "pending"
+    // forever on the backend/admin panel.
+    const componentErrorKey = item.component === 'frontImage' ? 'frontError'
+      : item.component === 'backImage' ? 'backError'
+      : null;
+    const componentError = componentErrorKey ? capture[componentErrorKey] : capture.error;
+    const componentFailed = !localPath && (componentError || capture.status === 'FAILED');
 
-  const uploaded = results
-    .filter(result => result.status === 'fulfilled' && result.value)
-    .map(result => result.value);
-  const failures = results
-    .filter(result => result.status === 'rejected')
-    .map(result => result.reason?.message || 'Media upload failed');
-  return {status: failures.length ? 'FAILED' : 'COMPLETED', uploaded, failures};
+    try {
+      if (localPath) {
+        const response = await uploadSosMedia(token, backendId, item.component, {
+          uri: localPath.startsWith('file://') ? localPath : `file://${localPath}`,
+          type: item.mimeType,
+          name: `${item.component}-${Date.now()}${item.component === 'audio' ? '.m4a' : '.jpg'}`,
+        });
+        const media = response?.sos?.components?.[item.component];
+        if (media?.status !== 'success' || !media.storageRef) {
+          throw new Error(`Backend did not confirm durable storage for ${item.component}.`);
+        }
+        uploadState[item.component] = {status: 'SUCCESS', storageRef: media.storageRef};
+        uploaded.push({component: item.component, storageRef: media.storageRef});
+        if (__DEV__) {
+          const tag = item.component === 'frontImage' ? 'FRONT_IMAGE_UPLOAD_SUCCESS'
+            : item.component === 'backImage' ? 'BACK_IMAGE_UPLOAD_SUCCESS'
+            : 'AUDIO_UPLOAD_SUCCESS';
+          console.log(tag, {backendId, component: item.component});
+        }
+      } else if (componentFailed && uploadState[item.component]?.status !== 'REPORTED_FAILED') {
+        await reportSosMedia(token, backendId, item.component, {
+          status: 'failed',
+          error: componentError || `${item.component} capture failed on the device.`,
+        });
+        uploadState[item.component] = {status: 'REPORTED_FAILED'};
+      }
+    } catch (error) {
+      // This component stays retryable; every other component still gets
+      // its own attempt below rather than the whole job aborting here.
+      uploadState[item.component] = {status: 'PENDING', error: error?.message || 'Upload failed'};
+      failures.push({component: item.component, error: error?.message || 'Upload failed'});
+    }
+  }
+
+  await sosLocalStore.upsertSos({...sosEvent, mediaUploadState: uploadState});
+
+  if (failures.length > 0) {
+    return {
+      status: 'PENDING',
+      reason: `Media upload incomplete for: ${failures.map(item => item.component).join(', ')}.`,
+      uploaded,
+      failures,
+    };
+  }
+
+  return {status: 'COMPLETED', uploaded};
 }
 
 /**

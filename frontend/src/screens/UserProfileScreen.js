@@ -12,6 +12,11 @@ import {
 } from 'react-native';
 import Icon from '../components/Icon';
 import {updateMyProfile} from '../api/resources';
+import {
+  getAvailableEmergencySims,
+  getSavedEmergencyCallSim,
+  saveEmergencyCallSim,
+} from '../features/sos/services/callService';
 
 const UserProfileScreen = ({
   user,
@@ -27,6 +32,42 @@ const UserProfileScreen = ({
 
   const [isEditingTemplate, setIsEditingTemplate] = useState(false);
   const [tempTemplate, setTempTemplate] = useState(emergencyMessage);
+
+  // Dual-SIM emergency call preference. Only ever shown when the device
+  // actually has more than one active SIM — a single-SIM device has nothing
+  // to choose, so this section stays hidden and no preference is stored.
+  const [availableSims, setAvailableSims] = useState([]);
+  const [selectedSimId, setSelectedSimId] = useState(null);
+  const [simPrefLoaded, setSimPrefLoaded] = useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [sims, saved] = await Promise.all([
+        getAvailableEmergencySims(),
+        getSavedEmergencyCallSim(),
+      ]);
+      if (cancelled) return;
+      setAvailableSims(sims);
+      setSelectedSimId(saved?.subscriptionId ?? null);
+      setSimPrefLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleSelectEmergencySim = async sim => {
+    setSelectedSimId(sim.subscriptionId);
+    try {
+      await saveEmergencyCallSim(sim.subscriptionId, {
+        displayName: sim.displayName,
+        slotIndex: sim.slotIndex,
+      });
+    } catch (error) {
+      Alert.alert('Unable to save SIM preference', error?.message || 'Please try again.');
+    }
+  };
 
   const handleSaveTemplate = async () => {
     try {
@@ -196,6 +237,55 @@ const UserProfileScreen = ({
           Test sirens and system dispatch capabilities daily.
         </Text>
       </View>
+
+      {/* ================= EMERGENCY CALL SIM (dual-SIM devices only) ================= */}
+      {simPrefLoaded && availableSims.length > 1 && (
+        <View style={styles.settingCard}>
+          <View style={styles.cardAccent} />
+
+          <View style={styles.settingTopRow}>
+            <View style={styles.settingIcon}>
+              <Icon name="notifications" size={20} color="#E4002B" />
+            </View>
+          </View>
+
+          <Text style={styles.settingTitle}>Emergency Call SIM</Text>
+          <Text style={styles.settingDescription}>
+            This device has two SIMs. Choose which one places the emergency call during SOS.
+          </Text>
+
+          <View style={styles.simList}>
+            {availableSims.map(sim => {
+              const isSelected = selectedSimId === sim.subscriptionId;
+              return (
+                <TouchableOpacity
+                  key={sim.subscriptionId}
+                  style={styles.simOption}
+                  activeOpacity={0.75}
+                  onPress={() => handleSelectEmergencySim(sim)}>
+                  <View style={[styles.simRadioOuter, isSelected && styles.simRadioOuterSelected]}>
+                    {isSelected && <View style={styles.simRadioInner} />}
+                  </View>
+                  <View style={styles.simOptionText}>
+                    <Text style={styles.simOptionLabel}>
+                      {sim.displayName || `SIM ${sim.slotIndex + 1}`}
+                    </Text>
+                    {!!sim.carrierName && (
+                      <Text style={styles.simOptionCarrier}>{sim.carrierName}</Text>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          {!selectedSimId && (
+            <Text style={styles.simHint}>
+              No SIM selected yet — the device will pick one automatically during SOS.
+            </Text>
+          )}
+        </View>
+      )}
 
     </ScrollView>
   );
@@ -479,6 +569,60 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '900',
+  },
+
+  simList: {
+    marginTop: 10,
+  },
+
+  simOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+
+  simRadioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#D9DCE1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+
+  simRadioOuterSelected: {
+    borderColor: '#E4002B',
+  },
+
+  simRadioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#E4002B',
+  },
+
+  simOptionText: {
+    flex: 1,
+  },
+
+  simOptionLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#1C1F26',
+  },
+
+  simOptionCarrier: {
+    fontSize: 12,
+    color: '#747B86',
+    marginTop: 2,
+  },
+
+  simHint: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 6,
   },
 });
 

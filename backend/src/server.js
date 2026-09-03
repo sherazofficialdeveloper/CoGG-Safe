@@ -16,8 +16,20 @@ let server;
  * purely diagnostic for production boot: it makes missing credentials clear
  * at startup without fabricating a working provider.
  */
-function warnIfProvidersUnconfiguredInProduction() {
-  if (env.nodeEnv !== 'production') return;
+/**
+ * Each provider logs a warning when it is unconfigured and returns an
+ * explicit unsupported result instead of claiming delivery. This remains
+ * purely diagnostic for production boot: it makes missing credentials clear
+ * at startup without fabricating a working provider.
+ *
+ * BUG FIX: this used to only run when NODE_ENV=production, so in normal
+ * local/dev testing (NODE_ENV=development, per backend/.env.example) it
+ * silently never warned — "notifications don't work" had zero startup
+ * signal pointing at missing Firebase/SMTP credentials. It now warns in any
+ * non-test environment, since dev/staging need this visibility just as much.
+ */
+function warnIfProvidersUnconfigured() {
+  if (env.nodeEnv === 'test') return;
 
   const unconfigured = [
     !emailProvider.isConfigured() && 'Email (SMTP)',
@@ -26,7 +38,7 @@ function warnIfProvidersUnconfiguredInProduction() {
 
   if (unconfigured.length > 0) {
     logger.warn(
-      'Running with NODE_ENV=production but one or more dispatch providers are unconfigured — real SOS delivery remains unavailable until credentials are supplied.',
+      `Running with NODE_ENV=${env.nodeEnv} but one or more dispatch providers are unconfigured — push notifications and/or email will silently report "unsupported" for every SOS until real credentials are set in backend/.env (FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY for push, EMAIL_HOST/EMAIL_USER/EMAIL_PASSWORD for email).`,
       { unconfiguredProviders: unconfigured }
     );
   }
@@ -41,7 +53,7 @@ async function start() {
     console.log('[DEBUG 3] DB connected');
 
     console.log('[DEBUG 4] checking providers...');
-    warnIfProvidersUnconfiguredInProduction();
+    warnIfProvidersUnconfigured();
     console.log('[DEBUG 5] providers checked');
 
     console.log('[DEBUG 6] starting scheduler...');

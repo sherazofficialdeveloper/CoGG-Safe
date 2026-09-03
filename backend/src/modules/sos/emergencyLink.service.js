@@ -99,6 +99,12 @@ async function getPublicEmergencyView(token) {
     sosReference: token,
     status: sos.status,
     userName: user ? user.username : 'Unknown',
+    // Shown to the emergency recipient so they know who to call back —
+    // this link is only ever shared with the collection's own trusted
+    // contacts/admins, the same audience the SMS/email already reach.
+    // Never any other user field (email, role, etc.) — allowlisted here,
+    // not passed through from the user document.
+    userPhone: user ? user.mobileNumber : null,
     collectionName: collection ? collection.name : 'Unknown',
     emergencyMessage: sos.emergencyMessage,
     createdAt: sos.createdAt,

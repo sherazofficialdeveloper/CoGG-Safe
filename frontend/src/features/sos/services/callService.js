@@ -1,5 +1,6 @@
 import {NativeModules, PermissionsAndroid, Platform} from 'react-native';
 import {getConnectivityState} from '../connectivity';
+import {sosLocalStore} from '../storage';
 
 function normalizeCallResult(result) {
   const status = String(result?.status || '').toUpperCase();
@@ -23,6 +24,32 @@ function normalizeCallResult(result) {
   }
 
   return {status: 'FAILED', reason: reason || 'Emergency call failed.'};
+}
+
+/**
+ * Lists the device's active SIMs/subscriptions, e.g. for a settings screen
+ * SIM picker. Returns [] on iOS, on jest/no-native environments, or if the
+ * native layer can't enumerate SIMs — callers should treat that the same as
+ * "let the device pick automatically" rather than as an error.
+ */
+export async function getAvailableEmergencySims() {
+  if (Platform.OS !== 'android') return [];
+  const emergencyMedia = NativeModules?.EmergencyMedia;
+  if (!emergencyMedia || typeof emergencyMedia.getAvailableSims !== 'function') return [];
+  try {
+    const sims = await emergencyMedia.getAvailableSims();
+    return Array.isArray(sims) ? sims : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+export async function getSavedEmergencyCallSim() {
+  return sosLocalStore.getEmergencyCallSimPreference();
+}
+
+export async function saveEmergencyCallSim(subscriptionId, meta = {}) {
+  return sosLocalStore.setEmergencyCallSimPreference(subscriptionId, meta);
 }
 
 export async function initiateEmergencyCall({emergencyNumber}) {
@@ -61,8 +88,23 @@ export async function initiateEmergencyCall({emergencyNumber}) {
     return {status: 'FAILED', reason: 'Native Android emergency call module is unavailable.'};
   }
 
+  // On a single-SIM device there's nothing to choose, so no preference is
+  // ever saved and this stays -1 ("let Android pick"). On dual-SIM devices
+  // this is the subscription the user chose in Profile settings; if it has
+  // since disappeared, the native layer falls back gracefully rather than
+  // failing the call.
+  let preferredSubscriptionId = -1;
   try {
-    const result = await emergencyMedia.placeCall(emergencyNumber);
+    const saved = await sosLocalStore.getEmergencyCallSimPreference();
+    if (saved?.subscriptionId != null) {
+      preferredSubscriptionId = saved.subscriptionId;
+    }
+  } catch (error) {
+    // A storage read failure must never block the emergency call.
+  }
+
+  try {
+    const result = await emergencyMedia.placeCall(emergencyNumber, preferredSubscriptionId);
     return normalizeCallResult(result);
   } catch (error) {
     const reason = error?.message || 'Emergency call failed.';
@@ -73,4 +115,9 @@ export async function initiateEmergencyCall({emergencyNumber}) {
   }
 }
 
-export default { initiateEmergencyCall };
+export default {
+  initiateEmergencyCall,
+  getAvailableEmergencySims,
+  getSavedEmergencyCallSim,
+  saveEmergencyCallSim,
+};

@@ -1,4 +1,5 @@
 import NetInfo from '@react-native-community/netinfo';
+import {NativeModules, Platform} from 'react-native';
 
 const DEFAULT_STATE = {
   isConnected: false,
@@ -14,6 +15,7 @@ class ConnectivityService {
     this.state = {...DEFAULT_STATE};
     this.listeners = new Set();
     this.initialized = false;
+    this.telephonyPollHandle = null;
   }
 
   setup() {
@@ -21,18 +23,56 @@ class ConnectivityService {
     this.initialized = true;
 
     NetInfo.addEventListener(state => {
-      const cellularConnected = Boolean(state?.type === 'cellular' && state?.isConnected);
       const nextState = {
+        ...this.state,
         isConnected: Boolean(state?.isConnected),
         isInternetReachable: Boolean(state?.isInternetReachable),
-        isCellularAvailable: cellularConnected,
-        telephonySupported: state?.type === 'cellular' ? true : true,
-        telephonyStatus: cellularConnected ? 'AVAILABLE' : 'TEMPORARILY_UNAVAILABLE',
         details: state || null,
       };
       this.state = nextState;
       this.listeners.forEach(listener => listener(nextState));
+
+      // Switching data interfaces (Wi-Fi <-> cellular) says nothing about
+      // whether the SIM itself has service, so re-check telephony directly
+      // instead of inferring it from which interface currently has internet.
+      this.refreshTelephonyState();
     });
+
+    this.refreshTelephonyState();
+
+    if (Platform.OS === 'android' && !this.telephonyPollHandle) {
+      // SIM/signal state can change (signal lost, SIM removed) without any
+      // NetInfo event firing at all when data is routed over Wi-Fi, so poll
+      // lightly to keep SMS eligibility accurate.
+      this.telephonyPollHandle = setInterval(() => this.refreshTelephonyState(), 15000);
+    }
+  }
+
+  /**
+   * Cellular/SIM readiness for SMS is intentionally independent of which
+   * network interface is currently carrying internet traffic: a phone on
+   * Wi-Fi with a working SIM must still be treated as cellular-available.
+   */
+  async refreshTelephonyState() {
+    const emergencyMedia = NativeModules?.EmergencyMedia;
+    if (Platform.OS !== 'android' || !emergencyMedia || typeof emergencyMedia.getTelephonyState !== 'function') {
+      return;
+    }
+
+    try {
+      const result = await emergencyMedia.getTelephonyState();
+      const status = result?.status || 'TEMPORARILY_UNAVAILABLE';
+      const nextState = {
+        ...this.state,
+        isCellularAvailable: status === 'AVAILABLE',
+        telephonyStatus: status,
+        telephonySupported: status !== 'UNSUPPORTED',
+      };
+      this.state = nextState;
+      this.listeners.forEach(listener => listener(nextState));
+    } catch (error) {
+      // A failed telephony check must never block SMS; keep prior state.
+    }
   }
 
   subscribe(listener) {
@@ -68,6 +108,10 @@ class ConnectivityService {
   resetForTests() {
     this.state = {...DEFAULT_STATE};
     this.listeners.clear();
+    if (this.telephonyPollHandle) {
+      clearInterval(this.telephonyPollHandle);
+      this.telephonyPollHandle = null;
+    }
   }
 }
 

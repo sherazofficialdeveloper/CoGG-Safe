@@ -1,6 +1,8 @@
 import Geolocation from '@react-native-community/geolocation';
 
 export async function getCurrentLocation() {
+  if (__DEV__) console.log('LOCATION_CAPTURE_STARTED');
+
   if (!Geolocation || typeof Geolocation.getCurrentPosition !== 'function') {
     throw new Error('Location services are not available on this device.');
   }
@@ -18,12 +20,14 @@ export async function getCurrentLocation() {
       (position) => {
         if (!timedOut) {
           clearTimeout(timeoutHandle);
-          resolve({
+          const result = {
             latitude: position?.coords?.latitude ?? null,
             longitude: position?.coords?.longitude ?? null,
             accuracy: position?.coords?.accuracy ?? null,
             capturedAt: new Date().toISOString(),
-          });
+          };
+          if (__DEV__) console.log('LOCATION_CAPTURE_SUCCESS', result);
+          resolve(result);
         }
       },
       (error) => {

@@ -48,14 +48,10 @@ const AdminSosScreen = ({
 
   useEffect(() => {
     refresh().catch(() => undefined);
-    const refreshTimer = setInterval(() => refresh().catch(() => undefined), 15000);
     const subscription = AppState.addEventListener('change', nextState => {
       if (nextState === 'active') refresh().catch(() => undefined);
     });
-    return () => {
-      clearInterval(refreshTimer);
-      subscription.remove();
-    };
+    return () => subscription.remove();
   }, [refresh]);
 
   const runAdminAction = async (action, id) => {

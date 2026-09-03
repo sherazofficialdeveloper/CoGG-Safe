@@ -19,6 +19,11 @@ export const deactivateSos = (token, id) => request(`/sos/${id}/deactivate`, {me
 export const deleteSos = (token, id) => request(`/sos/${id}`, {method: 'DELETE', token});
 export const reportLocation = (token, id, body) => request(`/sos/${id}/location`, {method: 'POST', token, body});
 export const reportSosService = (token, id, component, body) => request(`/sos/${id}/service/${component}`, {method: 'PATCH', token, body});
+// Reports a media component's result without a binary attached — used
+// when a capture (front/back camera, audio) failed on-device, so the
+// backend still records the failure instead of the component staying
+// PENDING forever. Actual successful uploads go through uploadSosMedia.
+export const reportSosMedia = (token, id, component, body) => request(`/sos/${id}/media/${component}`, {method: 'PATCH', token, body});
 export const dispatchSosAfterPersistence = (token, id) => request(`/sos/${id}/dispatch`, {method: 'POST', token});
 export const uploadSosMedia = (token, id, component, file) => {
   const body = new FormData();

@@ -4,7 +4,18 @@ import {enqueueSosJob} from './queue/queueWorker';
 import {emitSosToast} from './services/sosToastService';
 import {reportServiceResult} from './services/backendSyncService';
 
-const RETRYABLE_SERVICES = new Set(['sms', 'call', 'backend', 'email', 'notifications', 'liveLocation']);
+// email/notifications are intentionally NOT retryable client-side jobs:
+// their real dispatch is a server-side responsibility
+// (backend/src/modules/sos/dispatch.service.js), triggered automatically
+// when the backend SOS is created/activated. Enqueuing them here as client
+// jobs would create queue entries no processor ever consumes (see
+// frontend/App.js processSosQueue processors) — the client only tracks
+// their status locally for display, it never owns their retry.
+// 'camera' is retryable so a single failed lens (front OR back — see
+// cameraService.js's 'PENDING' status for a partial front/back result) gets
+// picked up again by queueWorker's 'camera' processor (App.js), which
+// re-captures only the missing lens instead of the whole pair.
+const RETRYABLE_SERVICES = new Set(['sms', 'call', 'backend', 'liveLocation', 'camera']);
 
 export function generateClientSosId() {
   const cryptoRef = (typeof window !== 'undefined' && window.crypto)
@@ -29,6 +40,10 @@ export function createBaseServiceState() {
     backend: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null},
     email: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null},
     notifications: {status: 'PENDING', completedAt: null, error: null},
+    // Canonical emergency-link follow-up SMS. This is a durable queue job
+    // (LINK_SMS), never an in-memory Promise — see enqueueSosJob() call in
+    // activateSosFlow below and the `linkSms` processor in App.js.
+    linkSms: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null},
   };
 }
 
@@ -88,6 +103,7 @@ export async function activateSosFlow({
   }
 
   const event = await createSosLocalEvent({userId, collectionId});
+  if (__DEV__) console.log('SOS_ACTIVATED', {eventId: event.id, userId, collectionId});
   emitSosToast('SOS started', 'info', 2000);
   
   if (typeof onPending === 'function') {
@@ -99,6 +115,18 @@ export async function activateSosFlow({
     await sosLocalStore.upsertSos(event);
     return {event, execution: [], cancelled: true};
   }
+
+  // The canonical-link follow-up SMS is enqueued unconditionally and
+  // immediately, regardless of current connectivity or backend timing.
+  // It is a persistent queue job (survives app close/restart/process
+  // death) rather than an in-memory Promise chain: the `linkSms`
+  // processor (frontend/App.js) checks event.emergencyLink on every
+  // attempt and simply stays PENDING/RETRY_WAITING until the backend
+  // has produced a link AND cellular is available. This call is
+  // idempotent — enqueueSosJob keys on {sosId}:{type}, so repeated
+  // calls (e.g. from recovery.js after a restart) never create a
+  // second job for the same SOS.
+  await enqueueSosJob({sosId: event.id, type: 'LINK_SMS', serviceName: 'linkSms'});
 
   const defaultRunners = {
     sms: async () => 'sms',
@@ -161,6 +189,7 @@ export async function activateSosFlow({
         if (result?.backendId) {
           event.backendId = result.backendId;
           event.emergencyLink = result.emergencyLink || null;
+          event.activatedAt = result.activatedAt || event.activatedAt || null;
           backendReady = true;
         }
       }
@@ -173,6 +202,8 @@ export async function activateSosFlow({
           lastResult: result,
           ...(result.frontImagePath !== undefined ? {frontImagePath: result.frontImagePath} : {}),
           ...(result.backImagePath !== undefined ? {backImagePath: result.backImagePath} : {}),
+          ...(result.frontError !== undefined ? {frontError: result.frontError} : {}),
+          ...(result.backError !== undefined ? {backError: result.backError} : {}),
           ...(result.localPath !== undefined ? {localPath: result.localPath} : {}),
           ...(result.error !== undefined ? {error: result.error} : {}),
         } : {}),
@@ -189,25 +220,30 @@ export async function activateSosFlow({
       event.services[serviceName] = next;
       await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
       
-      // Emit toast for critical services
-      if (resultStatus === 'COMPLETED') {
-        if (serviceName === 'location') {
-          const lat = result?.latitude;
-          const lng = result?.longitude;
-          const acc = result?.accuracy;
-          emitSosToast(`Location acquired (${acc?.toFixed(1) || 'unknown'}m accuracy)`, 'success', 2000);
-        } else if (serviceName === 'camera' && result?.frontImagePath) {
-          emitSosToast('Front camera captured', 'success', 2000);
-          if (result?.backImagePath) {
-            emitSosToast('Back camera captured', 'success', 2000);
-          }
-          emitSosToast('Back camera captured', 'success', 2000);
-        } else if (serviceName === 'audio' && result?.localPath) {
-          emitSosToast('Audio recorded (5 seconds)', 'success', 2000);
-        }
-      } else if (serviceName === 'sms' && resultStatus === 'COMPLETED') {
-        emitSosToast('Emergency SMS sent', 'success', 2000);
-      } else if (serviceName === 'call' && resultStatus === 'INITIATED') {
+      // Emit toast for critical services. Each condition here is
+      // independent (not an if/else-if chain) so, for example, the front
+      // camera toast and the back camera toast both fire when both
+      // succeed, and a partial camera result (status 'PENDING', see
+      // cameraService.js) still surfaces whichever lens DID succeed
+      // instead of showing nothing until the retry completes.
+      if (resultStatus === 'COMPLETED' && serviceName === 'location') {
+        const acc = result?.accuracy;
+        emitSosToast(`Location acquired (${acc?.toFixed(1) || 'unknown'}m accuracy)`, 'success', 2000);
+      }
+      if (serviceName === 'camera' && result?.frontImagePath) {
+        emitSosToast('Front camera captured', 'success', 2000);
+      }
+      if (serviceName === 'camera' && result?.backImagePath) {
+        emitSosToast('Back camera captured', 'success', 2000);
+      }
+      if (resultStatus === 'COMPLETED' && serviceName === 'audio' && result?.localPath) {
+        emitSosToast('Audio recorded (5 seconds)', 'success', 2000);
+      }
+      if (serviceName === 'sms' && resultStatus === 'COMPLETED') {
+        const count = result?.sentCount;
+        emitSosToast(count ? `Emergency SMS sent to ${count} number${count === 1 ? '' : 's'}` : 'Emergency SMS sent', 'success', 2000);
+      }
+      if (serviceName === 'call' && resultStatus === 'INITIATED') {
         emitSosToast('Emergency call initiated', 'success', 2000);
       }
       
@@ -236,9 +272,6 @@ export async function activateSosFlow({
     }
   };
 
-  // Start backend persistence and independent device actions together. Device
-  // capture must not wait for network latency; operations that require a
-  // backend ID report their result when one is available.
   const remainingNames = names.filter(name => name !== 'backend');
   const appendSettled = settled => execution.push(...settled.map(result => result.status === 'fulfilled' ? result.value : {
     serviceName: result.reason?.serviceName || 'unknown',
@@ -246,39 +279,34 @@ export async function activateSosFlow({
     error: result.reason?.message || 'Service failed',
   }));
 
-  const backendPromise = names.includes('backend') ? runService('backend') : Promise.resolve(null);
+  // SMS, location, camera, audio and call are independent emergency services:
+  // they must start immediately once the SOS is triggered and must never wait
+  // for the backend SOS record to be created (backend requires internet; SMS
+  // does not). Backend creation and the capture-phase services therefore run
+  // concurrently instead of backend-first. Media upload is the only phase that
+  // genuinely needs the backend SOS id, so it still runs after both finish.
   const captureNames = remainingNames.filter(name => ['location', 'camera', 'audio', 'sms', 'call'].includes(name));
+  const backendPromise = names.includes('backend') ? runService('backend') : null;
   const capturePromise = Promise.allSettled(captureNames.map(serviceName => runService(serviceName)));
+
   const [backendResult, captureResults] = await Promise.all([backendPromise, capturePromise]);
-  if (backendResult) execution.push(backendResult);
+  if (backendResult) {
+    execution.push(backendResult);
+  }
   appendSettled(captureResults);
 
-  if (
-    backendReady &&
-    event.location?.latitude != null &&
-    event.location?.longitude != null &&
-    typeof runners.locationReport === 'function'
-  ) {
-    appendSettled(await Promise.allSettled([runners.locationReport(event)]));
-  }
-
-  // Media upload waits for captured files and the persisted backend SOS, while
-  // notifications and live location remain independent of upload completion.
-  const dispatchPreparationNames = remainingNames.filter(name => !['location', 'camera', 'audio', 'sms', 'call', 'mediaUpload', 'notifications', 'liveLocation', 'locationReport'].includes(name));
-  const postCaptureTasks = [];
   if (remainingNames.includes('mediaUpload')) {
-    postCaptureTasks.push(backendReady
-      ? runService('mediaUpload')
-      : Promise.resolve({
-        serviceName: 'mediaUpload',
-        status: 'PENDING',
-        error: 'Media upload is waiting for backend SOS persistence.',
-      }));
+    execution.push(await runService('mediaUpload'));
   }
-  postCaptureTasks.push(...dispatchPreparationNames.map(serviceName => runService(serviceName)));
-  if (remainingNames.includes('notifications')) postCaptureTasks.push(runService('notifications'));
-  if (remainingNames.includes('liveLocation')) postCaptureTasks.push(runService('liveLocation'));
-  appendSettled(await Promise.allSettled(postCaptureTasks));
+  const dispatchPreparationNames = remainingNames.filter(name => !['location', 'camera', 'audio', 'sms', 'call', 'mediaUpload', 'notifications', 'liveLocation'].includes(name));
+  appendSettled(await Promise.allSettled(dispatchPreparationNames.map(serviceName => runService(serviceName))));
+
+  if (remainingNames.includes('notifications')) {
+    execution.push(await runService('notifications'));
+  }
+  if (remainingNames.includes('liveLocation')) {
+    execution.push(await runService('liveLocation'));
+  }
 
   if (cancelSignal?.cancelled) {
     event.status = 'CANCELLED';
@@ -312,6 +340,7 @@ export async function activateSosFlow({
       serviceResults: execution,
       summary,
     });
+    console.log('SOS_FLOW_COMPLETED', {eventId: event.id, status: event.status, summary});
   }
   await sosLocalStore.upsertSos(event);
 

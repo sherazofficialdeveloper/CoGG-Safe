@@ -35,6 +35,7 @@ jest.mock('react-native', () => ({
       sendEmergencySms: jest.fn(),
       openSmsComposer: jest.fn(),
       placeCall: jest.fn(),
+      getAvailableSims: jest.fn(),
     },
   },
   PermissionsAndroid: {
@@ -85,7 +86,8 @@ describe('SOS media services', () => {
     expect(sms.status).toBe('COMPLETED');
     expect(call.status).toBe('INITIATED');
     expect(NativeModules.EmergencyMedia.sendEmergencySms).toHaveBeenCalledWith('+1234567890', 'help');
-    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1234567890');
+    // No saved SIM preference (e.g. single-SIM device) -> -1, "let Android pick".
+    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1234567890', -1);
   });
 
   test('notification dispatch remains truthful when FCM is not configured', async () => {
@@ -140,6 +142,58 @@ describe('SOS media services', () => {
 
     expect(result.status).toBe('UNSUPPORTED');
     expect(result.reason).toMatch(/telephony|account/i);
+  });
+
+  test('dual-SIM: saved emergency SIM preference is passed to the native call', async () => {
+    const {NativeModules} = require('react-native');
+    const {saveEmergencyCallSim, initiateEmergencyCall: placeCall} = require('../src/features/sos/services/callService');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
+    NativeModules.EmergencyMedia.placeCall.mockResolvedValue({status: 'pending', reason: 'Android launched the emergency call intent but the final device status remains pending.'});
+
+    await saveEmergencyCallSim(2, {displayName: 'SIM 2', slotIndex: 1});
+    const result = await placeCall({emergencyNumber: '+1234567890'});
+
+    expect(result.status).toBe('INITIATED');
+    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1234567890', 2);
+  });
+
+  test('dual-SIM: saved SIM no longer active still results in a call (native falls back)', async () => {
+    const {NativeModules} = require('react-native');
+    const {saveEmergencyCallSim, initiateEmergencyCall: placeCall} = require('../src/features/sos/services/callService');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
+    // Native reports it used a fallback account because the saved SIM disappeared,
+    // but the call still goes out - the SOS must never silently fail here.
+    NativeModules.EmergencyMedia.placeCall.mockResolvedValue({
+      status: 'pending',
+      reason: 'Android launched the emergency call using a fallback telephony account because the saved emergency SIM is no longer active, but the final call status is not yet confirmed by the device.',
+      usedFallbackSim: true,
+    });
+
+    await saveEmergencyCallSim(99, {displayName: 'Old SIM'});
+    const result = await placeCall({emergencyNumber: '+1234567890'});
+
+    expect(result.status).toBe('INITIATED');
+    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1234567890', 99);
+  });
+
+  test('single SIM: getAvailableEmergencySims returning one entry means no picker is needed', async () => {
+    const {NativeModules} = require('react-native');
+    const {getAvailableEmergencySims} = require('../src/features/sos/services/callService');
+    NativeModules.EmergencyMedia.getAvailableSims.mockResolvedValue([
+      {subscriptionId: 1, slotIndex: 0, displayName: 'SIM 1', carrierName: 'Carrier', isDefault: true},
+    ]);
+
+    const sims = await getAvailableEmergencySims();
+
+    expect(sims).toHaveLength(1);
+  });
+
+  test('getAvailableEmergencySims never throws when native enumeration fails', async () => {
+    const {NativeModules} = require('react-native');
+    const {getAvailableEmergencySims} = require('../src/features/sos/services/callService');
+    NativeModules.EmergencyMedia.getAvailableSims.mockRejectedValue(new Error('native failure'));
+
+    await expect(getAvailableEmergencySims()).resolves.toEqual([]);
   });
 
   test('camera permission denied returns a structured failed result', async () => {
@@ -301,6 +355,54 @@ describe('SOS media services', () => {
     }));
     expect(result.uploaded[0].storageRef).toBe('sos/backend-1/front.jpg');
   });
+
+  test('a failed component upload does not block other components and is not retried once it already succeeded', async () => {
+    const {uploadSosMedia, reportSosMedia} = require('../src/api/resources');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true});
+
+    // frontImage succeeds, backImage fails (transient), audio succeeds.
+    uploadSosMedia.mockImplementation(async (token, backendId, component) => {
+      if (component === 'backImage') {
+        throw new Error('Network error uploading backImage');
+      }
+      return {sos: {components: {[component]: {status: 'success', storageRef: `sos/backend-1/${component}.jpg`}}}};
+    });
+
+    const sosEvent = {
+      id: 'sos-partial',
+      backendId: 'backend-1',
+      services: {
+        camera: {status: 'COMPLETED', frontImagePath: '/cache/front.jpg', backImagePath: '/cache/back.jpg'},
+        audio: {status: 'COMPLETED', localPath: '/cache/audio.m4a'},
+      },
+    };
+
+    const firstAttempt = await uploadCapturedSosMedia({token: 'jwt-token', sosEvent});
+
+    // backImage failing must not have prevented audio (attempted after it
+    // in MEDIA_COMPONENTS order) from being uploaded.
+    expect(firstAttempt.status).toBe('PENDING');
+    expect(firstAttempt.uploaded.map(item => item.component)).toEqual(expect.arrayContaining(['frontImage', 'audio']));
+    expect(firstAttempt.failures).toEqual([{component: 'backImage', error: 'Network error uploading backImage'}]);
+    expect(uploadSosMedia).toHaveBeenCalledTimes(3);
+
+    // Retry: backImage now succeeds. frontImage/audio must NOT be
+    // re-uploaded (no duplicate cloud objects for already-stored media).
+    uploadSosMedia.mockClear();
+    uploadSosMedia.mockImplementation(async (token, backendId, component) => ({
+      sos: {components: {[component]: {status: 'success', storageRef: `sos/backend-1/${component}.jpg`}}},
+    }));
+
+    const persisted = await sosLocalStore.getSosById('sos-partial');
+    const secondAttempt = await uploadCapturedSosMedia({token: 'jwt-token', sosEvent: persisted});
+
+    expect(secondAttempt.status).toBe('COMPLETED');
+    expect(uploadSosMedia).toHaveBeenCalledTimes(1);
+    expect(uploadSosMedia).toHaveBeenCalledWith('jwt-token', 'backend-1', 'backImage', expect.any(Object));
+    expect(secondAttempt.uploaded.map(item => item.component).sort()).toEqual(['audio', 'backImage', 'frontImage']);
+    expect(reportSosMedia).not.toHaveBeenCalled();
+  });
+
   test('live-location stop preserves backend failures', async () => {
     const {stopLiveLocation} = require('../src/api/resources');
     stopLiveLocation.mockRejectedValueOnce(new Error('Stop request was rejected'));
