@@ -4,7 +4,7 @@ import {connectivityService} from '../src/features/sos/connectivity';
 import {captureEmergencyPhotos} from '../src/features/sos/services/cameraService';
 import {recordEmergencyAudio} from '../src/features/sos/services/audioService';
 import {captureNativeSosPhotos, recordNativeSosAudio} from '../src/features/sos/services/nativeMedia';
-import {sendEmergencySms} from '../src/features/sos/services/smsService';
+import {sendEmergencySms, sendEmergencySmsToNumbers} from '../src/features/sos/services/smsService';
 import {initiateEmergencyCall} from '../src/features/sos/services/callService';
 import {stopLiveLocationSharing} from '../src/features/sos/services/liveLocationService';
 import {dispatchEmergencyNotifications} from '../src/features/sos/services/notificationService';
@@ -120,6 +120,37 @@ describe('SOS media services', () => {
 
     expect(result.status).toBe('UNSUPPORTED');
     expect(result.reason).toMatch(/SMS application|composer/i);
+  });
+
+  test('SMS tracks recipients independently and retries only pending recipients', async () => {
+    const {NativeModules} = require('react-native');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
+    const event = await createSosLocalEvent({userId: 'user-1', collectionId: 'collection-1'});
+    NativeModules.EmergencyMedia.sendEmergencySms
+      .mockResolvedValueOnce({status: 'sent', subscriptionId: 1})
+      .mockRejectedValueOnce(new Error('carrier temporarily unavailable'))
+      .mockResolvedValueOnce({status: 'sent', subscriptionId: 1});
+
+    const first = await sendEmergencySmsToNumbers({
+      sosId: event.id,
+      phoneNumbers: ['+1 (234) 567-8900', '+12345678901'],
+      message: 'help',
+    });
+
+    expect(first.status).toBe('PENDING');
+    expect(first.sentCount).toBe(1);
+    expect(first.pendingCount).toBe(0);
+    expect(first.failedCount).toBe(1);
+
+    const second = await sendEmergencySmsToNumbers({
+      sosId: event.id,
+      phoneNumbers: ['+12345678900', '+12345678901'],
+      message: 'help',
+    });
+
+    expect(second.status).toBe('COMPLETED');
+    expect(NativeModules.EmergencyMedia.sendEmergencySms).toHaveBeenCalledTimes(3);
+    expect(NativeModules.EmergencyMedia.sendEmergencySms).toHaveBeenLastCalledWith('+12345678901', 'help');
   });
 
   test('SMS no-SIM response stays unsupported and is not treated as success', async () => {

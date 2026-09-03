@@ -9,7 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
  * - CAMERA: Required for front/back emergency photos
  * - RECORD_AUDIO: Required for 5-second emergency audio
  * - POST_NOTIFICATIONS: Required for in-app notification badge updates
- * - SMS: Direct SMS is intentionally not requested; Android opens the system composer instead.
+ * - SEND_SMS: Required for direct emergency SMS delivery.
  * 
  * SERVICE INTERACTION:
  * - All required permissions must be granted before SOS activation
@@ -25,6 +25,7 @@ export const REQUIRED_PERMISSIONS = Object.freeze([
   {key: 'camera', permission: PermissionsAndroid.PERMISSIONS.CAMERA, title: 'Camera', description: 'Camera access is required to capture emergency evidence when SOS is activated.'},
   {key: 'audio', permission: PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, title: 'Microphone', description: 'Microphone access is required to record emergency audio during SOS.'},
   {key: 'call', permission: PermissionsAndroid.PERMISSIONS.CALL_PHONE, title: 'Phone', description: 'Phone access is required to place the emergency call from the user device.'},
+  {key: 'sms', permission: PermissionsAndroid.PERMISSIONS.SEND_SMS, title: 'SMS', description: 'SMS access is required to send emergency messages through the device cellular network.'},
   ...(Platform.Version >= 33 && PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS ? [{key: 'notifications', permission: PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS, title: 'Notifications', description: 'Notifications are required to keep you informed about emergency activity.'}] : []),
 ]);
 
@@ -58,7 +59,7 @@ function buildPermissionState(permissions) {
   const location = permissions[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] || PermissionsAndroid.RESULTS.DENIED;
   const camera = permissions[PermissionsAndroid.PERMISSIONS.CAMERA] || PermissionsAndroid.RESULTS.DENIED;
   const audio = permissions[PermissionsAndroid.PERMISSIONS.RECORD_AUDIO] || PermissionsAndroid.RESULTS.DENIED;
-  const sms = 'composer_required';
+  const sms = permissions[PermissionsAndroid.PERMISSIONS.SEND_SMS] || PermissionsAndroid.RESULTS.DENIED;
   const call = permissions[PermissionsAndroid.PERMISSIONS.CALL_PHONE] || PermissionsAndroid.RESULTS.DENIED;
   const notifPerm = PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS;
   const notifications = Platform.Version >= 33 && notifPerm
@@ -85,6 +86,7 @@ function buildPermissionState(permissions) {
     camera !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
     audio !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
     call !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
+    sms !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
     notifications !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN;
 
   return {
@@ -92,8 +94,8 @@ function buildPermissionState(permissions) {
     camera,
     audio,
     sms,
-    smsDeliveryMode: 'composer',
-    smsAutomaticSendAvailable: false,
+    smsDeliveryMode: 'direct',
+    smsAutomaticSendAvailable: sms === PermissionsAndroid.RESULTS.GRANTED,
     call,
     notifications,
     allRequiredGranted,

@@ -31,7 +31,7 @@ export function generateClientSosId() {
 
 export function createBaseServiceState() {
   return {
-    sms: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null},
+    sms: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null, recipients: []},
     call: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null},
     camera: {status: 'PENDING', frontImagePath: null, backImagePath: null, completedAt: null, error: null},
     audio: {status: 'PENDING', localPath: null, completedAt: null, error: null},

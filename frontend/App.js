@@ -232,6 +232,7 @@ function AppContent() {
                 .catch(() => []);
               const allNumbers = [event.meta?.emergencyNumber, ...cachedContacts].filter(Boolean);
               return sendEmergencySmsToNumbers({
+                sosId: event.id,
                 phoneNumbers: allNumbers,
                 message: `Emergency SOS ${event.id} for ${user?.username || 'user'}.`,
               });
@@ -705,6 +706,7 @@ function AppContent() {
             ].filter(Boolean).join(' ');
 
             const result = await sendEmergencySmsToNumbers({
+              sosId: event.id,
               phoneNumbers: allNumbers,
               message,
             });
