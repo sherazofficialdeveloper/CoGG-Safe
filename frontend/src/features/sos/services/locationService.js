@@ -1,18 +1,19 @@
 import Geolocation from '@react-native-community/geolocation';
-import {PermissionsAndroid, Platform} from 'react-native';
+import {Platform} from 'react-native';
+import {PERMISSION_STATUS, checkPermission, requestPermission} from '../../../permissions/sosPermissions';
 
 async function ensureLocationPermission() {
   if (Platform.OS !== 'android') return true;
 
-  const permission = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
-  let granted = await PermissionsAndroid.check(permission);
+  const permission = 'android.permission.ACCESS_FINE_LOCATION';
+  let granted = await checkPermission(permission);
   if (__DEV__) console.log('[SOS][LOCATION] PERMISSION_STATE', {granted});
-  if (!granted) {
-    const result = await PermissionsAndroid.request(permission);
-    granted = result === PermissionsAndroid.RESULTS.GRANTED;
+  if (granted !== PERMISSION_STATUS.GRANTED) {
+    const result = await requestPermission(permission);
+    granted = result;
     if (__DEV__) console.log('[SOS][LOCATION] PERMISSION_RESULT', {result});
   }
-  if (!granted) {
+  if (granted !== PERMISSION_STATUS.GRANTED) {
     throw new Error('Location permission denied. Enable device location permission for SOS coordinates.');
   }
   return true;

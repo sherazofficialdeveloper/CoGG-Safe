@@ -14,6 +14,7 @@ const AdminHeader = ({
   onNotifications,
   onLogout,
   activeSosCount = 0,
+  notificationCount = 0,
   onSwitchToUser,
 }) => {
   const insets = useSafeAreaInsets();
@@ -53,10 +54,10 @@ const AdminHeader = ({
           activeOpacity={0.75}>
           <Text style={styles.iconText}>🔔</Text>
 
-          {activeSosCount > 0 && (
+          {notificationCount > 0 && (
             <View style={styles.notificationBadge}>
               <Text style={styles.notificationBadgeText}>
-                {activeSosCount}
+                {notificationCount > 99 ? '99+' : notificationCount}
               </Text>
             </View>
           )}

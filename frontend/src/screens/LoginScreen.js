@@ -16,6 +16,7 @@ import {
 import {SafeAreaView} from 'react-native-safe-area-context';
 import Icon from '../components/Icon';
 import {typography} from '../theme';
+import {getAuthErrorMessage} from '../api/errorMessages';
 
 const LoginScreen = ({onLogin}) => {
   const [identifier, setIdentifier] = useState('');
@@ -53,17 +54,12 @@ const LoginScreen = ({onLogin}) => {
     try {
       await onLogin(trimmedIdentifier, password, selectedRole);
     } catch (loginError) {
-      const message =
-        loginError?.status === 403 && /inactive/i.test(loginError.message || '')
-          ? 'Your account is currently inactive. Please contact your administrator.'
-          : loginError?.status === 403 && /mode|authorized/i.test(loginError.message || '')
-            ? 'These credentials are not valid for the selected sign-in mode.'
-            : 'Invalid username or password.';
-      setError(
-        loginError?.status === 0
-          ? 'Unable to connect. Please check your internet connection and try again.'
-          : message,
-      );
+      const message = loginError?.status === 403 && /inactive/i.test(loginError.message || '')
+        ? 'Your account is currently inactive. Please contact your administrator.'
+        : loginError?.status === 403 && /mode|authorized/i.test(loginError.message || '')
+          ? 'These credentials are not valid for the selected sign-in mode.'
+          : getAuthErrorMessage(loginError, 'Invalid username or password.');
+      setError(message);
     } finally {
       setSubmitting(false);
     }

@@ -52,6 +52,56 @@ const EMPTY_PERMISSION_STATE = Object.freeze({
   canRequest: true,
 });
 
+export const PERMISSION_STATUS = Object.freeze({
+  GRANTED: 'granted',
+  DENIED: 'denied',
+  BLOCKED: 'never_ask_again',
+  UNAVAILABLE: 'unavailable',
+});
+
+const pendingRequests = new Map();
+
+export async function checkPermission(permission) {
+  if (Platform.OS !== 'android' || !permission) return PERMISSION_STATUS.UNAVAILABLE;
+  try {
+    const result = await PermissionsAndroid.check(permission);
+    if (result === true || result === PermissionsAndroid.RESULTS.GRANTED) return PERMISSION_STATUS.GRANTED;
+    if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN || result === PermissionsAndroid.RESULTS.BLOCKED) return PERMISSION_STATUS.BLOCKED;
+    if (result === false || result === PermissionsAndroid.RESULTS.DENIED) return PERMISSION_STATUS.DENIED;
+    return PERMISSION_STATUS.UNAVAILABLE;
+  } catch (error) {
+    if (__DEV__) console.warn('[PERMISSIONS] CHECK_FAILED', {permission, reason: error?.message || 'unknown'});
+    return PERMISSION_STATUS.UNAVAILABLE;
+  }
+}
+
+export async function requestPermission(permission) {
+  if (Platform.OS !== 'android' || !permission) return PERMISSION_STATUS.UNAVAILABLE;
+  const existing = pendingRequests.get(permission);
+  if (existing) return existing;
+  const requestPromise = (async () => {
+    const current = await checkPermission(permission);
+    if (current === PERMISSION_STATUS.GRANTED || current === PERMISSION_STATUS.UNAVAILABLE) return current;
+    try {
+      const result = await PermissionsAndroid.request(permission);
+      return result === PermissionsAndroid.RESULTS.GRANTED
+        ? PERMISSION_STATUS.GRANTED
+        : result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN
+          ? PERMISSION_STATUS.BLOCKED
+          : PERMISSION_STATUS.DENIED;
+    } catch (error) {
+      if (__DEV__) console.warn('[PERMISSIONS] REQUEST_FAILED', {permission, reason: error?.message || 'unknown'});
+      return PERMISSION_STATUS.UNAVAILABLE;
+    }
+  })();
+  pendingRequests.set(permission, requestPromise);
+  try {
+    return await requestPromise;
+  } finally {
+    pendingRequests.delete(permission);
+  }
+}
+
 /**
  * Build permission state object from individual permission results
  */
@@ -121,9 +171,7 @@ function buildPermissionStateFromCheckedResults(checkedResults, requestResults =
 async function checkRequiredAndroidPermissions() {
   const entries = await Promise.all(REQUIRED_ANDROID_PERMISSIONS.map(async permission => [
     permission,
-    (await PermissionsAndroid.check(permission))
-      ? PermissionsAndroid.RESULTS.GRANTED
-      : PermissionsAndroid.RESULTS.DENIED,
+    await checkPermission(permission),
   ]));
   return Object.fromEntries(entries);
 }
@@ -189,16 +237,13 @@ export async function requestRequiredPermissions() {
     // moving on so a denial never masks the next permission's real result.
     for (const item of REQUIRED_PERMISSIONS) {
       if (current[item.permission] === PermissionsAndroid.RESULTS.GRANTED) continue;
-      const result = await PermissionsAndroid.request(item.permission);
+      const result = await requestPermission(item.permission);
       results[item.permission] = result;
       if (__DEV__) console.log(`PERMISSION_RESULT_${item.key.toUpperCase()}`, {result});
     }
 
-    const verifiedState = await checkSosPermissions();
-    const nextState = buildPermissionStateFromCheckedResults(
-      Object.fromEntries(REQUIRED_PERMISSIONS.map(item => [item.permission, verifiedState[item.key]])),
-      results,
-    );
+    const verifiedState = await checkRequiredAndroidPermissions();
+    const nextState = buildPermissionStateFromCheckedResults(verifiedState, results);
     if (__DEV__ && nextState.allRequiredGranted) console.log('ALL_REQUIRED_PERMISSIONS_GRANTED');
     return nextState;
   } catch (error) {
@@ -211,15 +256,12 @@ export async function requestSosPermission(key) {
   if (!item || Platform.OS !== 'android') return createInitialSosPermissionState();
 
   try {
-    const alreadyGranted = await PermissionsAndroid.check(item.permission);
-    if (alreadyGranted) return checkSosPermissions();
-    const result = await PermissionsAndroid.request(item.permission);
+    const alreadyGranted = await checkPermission(item.permission);
+    if (alreadyGranted === PERMISSION_STATUS.GRANTED) return checkSosPermissions();
+    const result = await requestPermission(item.permission);
     if (__DEV__) console.log(`PERMISSION_RESULT_${item.key.toUpperCase()}`, {result});
-    const verifiedState = await checkSosPermissions();
-    return buildPermissionStateFromCheckedResults(
-      Object.fromEntries(REQUIRED_PERMISSIONS.map(candidate => [candidate.permission, verifiedState[candidate.key]])),
-      {[item.permission]: result},
-    );
+    const verifiedState = await checkRequiredAndroidPermissions();
+    return buildPermissionStateFromCheckedResults(verifiedState, {[item.permission]: result});
   } catch (error) {
     return {...buildPermissionState({}), error: error?.message || `Unable to request ${item.title} permission.`};
   }

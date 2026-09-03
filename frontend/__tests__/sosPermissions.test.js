@@ -38,16 +38,12 @@ const {
   openSosPermissionSettings,
   requestSosPermissions,
   requestRequiredPermissions,
+  checkPermission,
+  requestPermission,
+  PERMISSION_STATUS,
   subscribeToPermissionChanges,
 } = require('../src/permissions/sosPermissions');
 const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-
-const granted = {
-  [LOCATION]: 'granted',
-  [CAMERA]: 'granted',
-  [AUDIO]: 'granted',
-  [NOTIFICATIONS]: 'granted',
-};
 
 afterEach(() => jest.clearAllMocks());
 
@@ -68,7 +64,7 @@ test('reports all required permissions granted', async () => {
   expect(mockCheck).toHaveBeenCalledWith(CAMERA);
   expect(mockCheck).toHaveBeenCalledWith(AUDIO);
   expect(mockCheck).toHaveBeenCalledWith(NOTIFICATIONS);
-  expect(mockCheck).not.toHaveBeenCalledWith(SMS);
+  expect(mockCheck).toHaveBeenCalledWith(SMS);
 });
 
 test('reports partial permissions as not ready', async () => {
@@ -130,6 +126,17 @@ test('fails closed when the native permission API throws', async () => {
   await expect(checkSosPermissions()).resolves.toMatchObject({
     allRequiredGranted: false, isChecking: false,
   });
+});
+
+test('returns distinct permission states and deduplicates concurrent requests', async () => {
+  mockCheck.mockResolvedValue(false);
+  mockRequest.mockResolvedValue('never_ask_again');
+  await expect(checkPermission(CAMERA)).resolves.toBe(PERMISSION_STATUS.DENIED);
+  await expect(requestPermission(CAMERA)).resolves.toBe(PERMISSION_STATUS.BLOCKED);
+  mockRequest.mockClear();
+  mockRequest.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve('granted'), 0)));
+  await Promise.all([requestPermission(CAMERA), requestPermission(CAMERA)]);
+  expect(mockRequest).toHaveBeenCalledTimes(1);
 });
 
 test('refreshes permission state when the app becomes active', () => {

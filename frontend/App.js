@@ -40,6 +40,7 @@ import AdminUserDetailScreen from './src/screens/admin/AdminUserDetailScreen';
 import AdminSosScreen from './src/screens/admin/AdminSosScreen';
 import AdminSosDetailScreen from './src/screens/admin/AdminSosDetailScreen';
 import AdminNotificationScreen from './src/screens/admin/AdminNotificationScreen';
+import {listNotifications} from './src/api/resources';
 import AdminProfileScreen from './src/screens/admin/AdminProfileScreen';
 import AdminCollectionsScreen from './src/screens/admin/AdminCollectionsBackendScreen';
 import AdminAddCollectionScreen from './src/screens/admin/AdminAddCollectionScreen';
@@ -138,6 +139,21 @@ function AppContent() {
       setScreen('userHome');
     }
   }, [user, loading]);
+
+  useEffect(() => {
+    if (!token || user?.role !== 'admin') return undefined;
+    let mounted = true;
+    listNotifications(token)
+      .then(result => {
+        if (mounted) {
+          setAdminNotificationCount((result.notifications || []).filter(item => !item.isRead).length);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      mounted = false;
+    };
+  }, [token, user?.role]);
 
   const goToLogin = useCallback(async () => {
     if (token) {
@@ -1189,6 +1205,7 @@ location: async event => {
           onProfile={() => setScreen('adminProfile')}
           onLogout={goToLogin}
           activeSosCount={activeSosCount}
+          notificationCount={adminNotificationCount}
           onSwitchToUser={() => {
             setPortal('user');
             setScreen('userHome');

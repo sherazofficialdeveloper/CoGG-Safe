@@ -1,4 +1,5 @@
-import {NativeModules, PermissionsAndroid, Platform} from 'react-native';
+import {NativeModules, Platform} from 'react-native';
+import {PERMISSION_STATUS, checkPermission, requestPermission} from '../../../permissions/sosPermissions';
 import {getConnectivityState} from '../connectivity';
 import {sosLocalStore} from '../storage';
 import {emitSosDiagnostic, ensureSosNativeDiagnosticListener} from './sosDiagnosticService';
@@ -78,21 +79,16 @@ export async function initiateEmergencyCall({emergencyNumber}) {
     return {status: 'PENDING', reason: 'Cellular service is unavailable; emergency call is queued for retry.'};
   }
 
-  const callPermission = PermissionsAndroid.PERMISSIONS.CALL_PHONE;
-  let hasPermission = await PermissionsAndroid.check(callPermission);
+  const callPermission = 'android.permission.CALL_PHONE';
+  let hasPermission = await checkPermission(callPermission);
   if (__DEV__) console.log('[SOS][CALL] CALL_PHONE_PERMISSION', {state: hasPermission});
-  if (hasPermission === false || hasPermission === PermissionsAndroid.RESULTS.DENIED || hasPermission === PermissionsAndroid.RESULTS.BLOCKED || hasPermission === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
-    const isJestMock = typeof PermissionsAndroid.request === 'function' && !!PermissionsAndroid.request._isMockFunction;
-    if (isJestMock) {
-      return {status: 'FAILED', reason: 'Phone permission denied. Emergency call cannot be placed.'};
-    }
-
-    const permissionResult = await PermissionsAndroid.request(callPermission);
-    hasPermission = permissionResult === PermissionsAndroid.RESULTS.GRANTED;
+  if (hasPermission !== PERMISSION_STATUS.GRANTED) {
+    const permissionResult = await requestPermission(callPermission);
+    hasPermission = permissionResult;
     if (__DEV__) console.log('[SOS][CALL] CALL_PHONE_PERMISSION_RESULT', {state: permissionResult});
   }
 
-  if (!hasPermission) {
+  if (hasPermission !== PERMISSION_STATUS.GRANTED) {
     emitSosDiagnostic('CALL ERROR — CALL_PHONE permission denied', 'error');
     return {status: 'FAILED', reason: 'Phone permission denied. Emergency call cannot be placed.'};
   }

@@ -3,13 +3,14 @@ import {ActivityIndicator, FlatList, SafeAreaView, StyleSheet, Text, TouchableOp
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import Icon from '../../components/Icon';
 import {listNotifications, markNotificationRead} from '../../api/resources';
-
-const notificationsCache = new Map();
+import {emitSosToast} from '../../features/sos/services/sosToastService';
+import {getCachedApiData} from '../../api/client';
 
 const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCountChange}) => {
   const insets = useSafeAreaInsets();
-  const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const cachedData = getCachedApiData('/notifications', token);
+  const [notifications, setNotifications] = useState(() => cachedData?.notifications || []);
+  const [loading, setLoading] = useState(() => !cachedData);
   const [error, setError] = useState('');
   const requestIdRef = useRef(0);
 
@@ -35,15 +36,12 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCou
         return;
       }
 
-      const cacheKey = token;
-      const cached = notificationsCache.get(cacheKey);
-      const hasCachedNotifications = Array.isArray(cached);
-      if (hasCachedNotifications && mounted && requestId === requestIdRef.current) {
-        setNotifications(cached);
+      setError('');
+      const existingNotifications = getCachedApiData('/notifications', token)?.notifications || [];
+      if (existingNotifications.length > 0 && mounted && requestId === requestIdRef.current) {
+        setNotifications(existingNotifications);
         setLoading(false);
       }
-      if (!hasCachedNotifications) setLoading(true);
-      setError('');
 
       try {
         const result = await listNotifications(token);
@@ -51,13 +49,15 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCou
           return;
         }
         setNotifications(result.notifications || []);
-        notificationsCache.set(cacheKey, result.notifications || []);
       } catch (requestError) {
         if (!mounted || requestId !== requestIdRef.current) {
           return;
         }
-        if (!hasCachedNotifications) setNotifications([]);
-        setError(requestError.message || 'Unable to load notifications. Please try again later.');
+        if (existingNotifications.length > 0) {
+          emitSosToast(requestError.message || 'Unable to refresh notifications.', 'error');
+        } else {
+          setError(requestError.message || 'Unable to load notifications. Please try again later.');
+        }
       } finally {
         if (mounted && requestId === requestIdRef.current) {
           setLoading(false);
@@ -104,8 +104,8 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCou
         <Text style={styles.count}>{notifications.filter(item => !item.isRead).length}</Text>
       </View>
       {loading ? <View style={styles.state}><ActivityIndicator color="#E4002B" /><Text style={styles.stateText}>Loading notifications...</Text></View> : null}
-      {!loading && error ? <View style={styles.state}><Text style={styles.stateTitle}>Unable to load notifications</Text><Text style={styles.stateText}>{error}</Text></View> : null}
-      {!loading && !error ? <FlatList data={notifications} renderItem={renderItem} keyExtractor={item => item._id || item.id} contentContainerStyle={styles.list} ListEmptyComponent={<View style={styles.state}><Text style={styles.stateTitle}>No notifications</Text><Text style={styles.stateText}>There are no alerts for this account.</Text></View>} /> : null}
+      {!loading && error && notifications.length === 0 ? <View style={styles.state}><Text style={styles.stateTitle}>Unable to load notifications</Text><Text style={styles.stateText}>{error}</Text></View> : null}
+      {(!loading && !error) || notifications.length > 0 ? <FlatList data={notifications} renderItem={renderItem} keyExtractor={item => item._id || item.id} contentContainerStyle={styles.list} ListEmptyComponent={<View style={styles.state}><Text style={styles.stateTitle}>No notifications</Text><Text style={styles.stateText}>There are no alerts for this account.</Text></View>} /> : null}
     </SafeAreaView>
   );
 };

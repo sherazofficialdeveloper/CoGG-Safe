@@ -1,4 +1,5 @@
-import {PermissionsAndroid, Platform} from 'react-native';
+import {Platform} from 'react-native';
+import {PERMISSION_STATUS, checkPermission} from '../../../permissions/sosPermissions';
 import {recordNativeSosAudio} from './nativeMedia';
 
 export async function recordEmergencyAudio({sosId}) {
@@ -10,10 +11,9 @@ export async function recordEmergencyAudio({sosId}) {
     return {status: 'FAILED', localPath: null, error: 'Audio capture is only supported on Android.'};
   }
 
-  const hasPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
-  const deniedStates = [false, PermissionsAndroid.RESULTS.DENIED, PermissionsAndroid.RESULTS.BLOCKED, PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN];
-  if (deniedStates.includes(hasPermission)) {
-    return {status: 'FAILED', localPath: null, error: 'Microphone permission denied'};
+  const permissionState = await checkPermission('android.permission.RECORD_AUDIO');
+  if (permissionState !== PERMISSION_STATUS.GRANTED) {
+    return {status: 'FAILED', localPath: null, error: permissionState === PERMISSION_STATUS.BLOCKED ? 'Microphone permission is blocked' : 'Microphone permission denied'};
   }
 
   try {

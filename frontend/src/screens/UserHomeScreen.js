@@ -53,7 +53,6 @@ const UserHomeScreen = ({
   // TODO: restore hasActiveSosSession here before production release.
   const isSosButtonDisabled = Boolean(
     permissionState.isChecking ||
-    !permissionState.triggerPermissionsGranted ||
     sosLoading
   );
 
@@ -88,7 +87,7 @@ const UserHomeScreen = ({
       mounted = false;
       unsubscribe();
     };
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (!token) {

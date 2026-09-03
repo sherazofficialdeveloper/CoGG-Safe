@@ -1,4 +1,5 @@
-import {NativeModules, PermissionsAndroid, Platform} from 'react-native';
+import {NativeModules, Platform} from 'react-native';
+import {PERMISSION_STATUS, checkPermission} from '../../../permissions/sosPermissions';
 import {connectivityService, getConnectivityState} from '../connectivity';
 import {sosLocalStore} from '../storage';
 import {emitSosDiagnostic, ensureSosNativeDiagnosticListener} from './sosDiagnosticService';
@@ -41,10 +42,20 @@ export async function sendEmergencySms({phoneNumber, message}) {
   }
 
   try {
-    const permissionState = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.SEND_SMS);
+    const permissionState = await checkPermission('android.permission.SEND_SMS');
     if (__DEV__) console.log('[SOS][SMS] SEND_SMS_PERMISSION', {state: permissionState});
-    const permissionGranted = permissionState === PermissionsAndroid.RESULTS.GRANTED || permissionState === true;
+    const permissionGranted = permissionState === PERMISSION_STATUS.GRANTED;
     emitSosDiagnostic(permissionGranted ? 'SMS DEBUG — SEND_SMS permission granted' : 'SMS ERROR — SEND_SMS permission denied', permissionGranted ? 'info' : 'error');
+    if (!permissionGranted) {
+      return {
+        status: 'FAILED',
+        reason: permissionState === PERMISSION_STATUS.BLOCKED
+          ? 'SMS permission is blocked. Enable SMS permission in Android Settings.'
+          : permissionState === PERMISSION_STATUS.UNAVAILABLE
+            ? 'SMS permission is unavailable on this device.'
+            : 'SMS permission denied. Emergency SMS cannot be sent.',
+      };
+    }
     if (typeof emergencyMedia.sendEmergencySms === 'function') {
       if (__DEV__) console.log('[SOS][SMS] SERVICE_INVOKED', {nativeMethod: 'EmergencyMedia.sendEmergencySms'});
       emitSosDiagnostic('SMS DEBUG — Native SMS method invoked');

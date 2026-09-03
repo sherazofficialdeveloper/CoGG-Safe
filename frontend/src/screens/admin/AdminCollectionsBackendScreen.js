@@ -3,6 +3,7 @@ import {ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, St
 import Clipboard from '@react-native-clipboard/clipboard';
 import {SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 import {createUser, deleteUser, listCollectionUsers, listCollections, updateCollection, updateUser} from '../../api/resources';
+import {getAuthErrorMessage} from '../../api/errorMessages';
 
 const EMPTY_USER = {username: '', mobileNumber: '', email: '', password: ''};
 const TYPES = ['family', 'children', 'workers', 'other'];
@@ -119,7 +120,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
       await openCollection(selected);
       Alert.alert('User created', 'The user can now sign in with these credentials.');
     } catch (requestError) {
-      setError(requestError.message || 'Unable to create user.');
+      setError(getAuthErrorMessage(requestError, 'Unable to create user.'));
     } finally {
       setSubmitting(false);
     }

@@ -26,3 +26,11 @@ jest.mock('@react-native-community/netinfo', () => ({
 jest.mock('@react-native-community/geolocation', () => ({
   getCurrentPosition: jest.fn(),
 }));
+
+jest.mock('@react-native-clipboard/clipboard', () => ({
+  __esModule: true,
+  default: {
+    setString: jest.fn(() => Promise.resolve()),
+    getString: jest.fn(() => Promise.resolve('')),
+  },
+}));

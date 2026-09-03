@@ -1,4 +1,5 @@
-import {PermissionsAndroid, Platform} from 'react-native';
+import {Platform} from 'react-native';
+import {PERMISSION_STATUS, checkPermission} from '../../../permissions/sosPermissions';
 import {captureNativeSosPhotos} from './nativeMedia';
 
 /**
@@ -51,9 +52,8 @@ export async function captureEmergencyPhotos({sosId, previousResult = null}) {
     };
   }
 
-  const hasPermission = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.CAMERA);
-  const deniedStates = [false, PermissionsAndroid.RESULTS.DENIED, PermissionsAndroid.RESULTS.BLOCKED, PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN];
-  if (deniedStates.includes(hasPermission)) {
+  const hasPermission = await checkPermission('android.permission.CAMERA');
+  if (hasPermission !== PERMISSION_STATUS.GRANTED) {
     return {
       status: 'FAILED',
       frontImagePath: previousResult?.frontImagePath || null,
