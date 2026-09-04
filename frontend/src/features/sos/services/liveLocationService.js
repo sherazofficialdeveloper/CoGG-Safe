@@ -7,6 +7,7 @@ export const LIVE_LOCATION_MAX_DURATION_MS = 3 * 60 * 60 * 1000;
 export const LIVE_LOCATION_POLL_INTERVAL_MS = 30 * 1000;
 
 const liveLocationPollers = {};
+const liveLocationPings = new Set();
 
 export function hasLiveLocationExpired(startedAt, now = Date.now()) {
   return Boolean(startedAt) && now - new Date(startedAt).getTime() >= LIVE_LOCATION_MAX_DURATION_MS;
@@ -52,6 +53,7 @@ function startLocationPolling({token, backendId, sosId}) {
   if (liveLocationPollers[sosId]) return;
 
   const poll = async () => {
+    if (liveLocationPings.has(sosId)) return;
     const event = await sosLocalStore.getSosById(sosId);
     if (event?.liveLocationStartedAt && hasLiveLocationExpired(event.liveLocationStartedAt)) {
       stopLocationPolling(sosId);
@@ -59,11 +61,14 @@ function startLocationPolling({token, backendId, sosId}) {
     }
     const state = getConnectivityState();
     if (!Boolean(state.isInternetReachable || state.isConnected)) return;
+    liveLocationPings.add(sosId);
     try {
       // A ping is periodic by design; it is not conditional on movement.
       await sendCurrentLocation({token, backendId, sosId});
     } catch (error) {
       console.log('[LiveLocation] Ping failed:', error?.message);
+    } finally {
+      liveLocationPings.delete(sosId);
     }
   };
 
@@ -76,6 +81,7 @@ export function stopLocationPolling(sosId) {
     clearInterval(liveLocationPollers[sosId]);
     delete liveLocationPollers[sosId];
   }
+  liveLocationPings.delete(sosId);
 }
 
 export function stopAllLocationPolling() {

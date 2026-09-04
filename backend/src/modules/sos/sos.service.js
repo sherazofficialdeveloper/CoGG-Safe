@@ -31,6 +31,7 @@ const schedulerService = require('../scheduler/scheduler.service');
 // on the scheduler firing at exactly the right moment, only on it
 // firing eventually.
 // ---------------------------------------------------------------------
+const JOB_TYPE_SOS_ACTIVATION = 'sos_activation';
 const JOB_TYPE_LIVE_LOCATION_EXPIRY = 'live_location_expiry';
 
 const DEFAULT_EMERGENCY_MESSAGE_TEMPLATE = 'I am [Username]. I may be in danger. Please help me.';
@@ -66,6 +67,8 @@ async function activateSosIfPending({ sosId, dispatch = true }) {
   }
   return activated;
 }
+
+schedulerService.registerHandler(JOB_TYPE_SOS_ACTIVATION, activateSosIfPending);
 
 /**
  * The LIVE_LOCATION_EXPIRY job handler. Delegates to the same atomic
@@ -195,11 +198,6 @@ async function createSos({ userId, idempotencyKey, location }) {
     if (existing) return { sos: existing, alreadyExisted: true };
   }
 
-  // TEMPORARY TESTING OVERRIDE:
-  // Idempotency above still protects retries of the same request, but the
-  // separate open-SOS guard is disabled so repeated testing can create a
-  // fresh SOS. TODO: re-enable this protection before production release.
-  /*
   const openSos = await Sos.findOne({
     userId: user._id,
     status: { $in: [SOS_STATUS.PENDING, SOS_STATUS.ACTIVE] },
@@ -207,7 +205,7 @@ async function createSos({ userId, idempotencyKey, location }) {
   if (openSos) {
     throw ApiError.conflict('An SOS is already pending or active for this user');
   }
-  */
+
   let sos;
   try {
     sos = await Sos.create({
@@ -216,8 +214,8 @@ async function createSos({ userId, idempotencyKey, location }) {
       emergencyMessage: resolveEmergencyMessage(user),
       emergencyToken: generateEmergencyToken(),
       idempotencyKey: idempotencyKey || undefined,
-      status: SOS_STATUS.ACTIVE,
-      activatedAt: new Date(),
+      status: SOS_STATUS.PENDING,
+      activatedAt: null,
     });
     console.log('[SOS_DEBUG] MONGO_CREATED', { sosId: String(sos._id) });
   } catch (err) {
@@ -244,12 +242,13 @@ async function createSos({ userId, idempotencyKey, location }) {
     await sos.save();
   }
 
-  console.log('[SOS_DEBUG] ACTIVE_AT_CREATION', { sosId: String(sos._id) });
-  void dispatchService.dispatchSos(sos).catch(error => {
-    console.error('[SOS_DEBUG] DISPATCH_FAILED', {
-      sosId: String(sos._id),
-      error: error?.message || 'SOS dispatch failed',
-    });
+  const cancellationWindowMs = Math.max(0, (env.sos.cancellationWindowSeconds || 0) * 1000);
+  const activationRunAt = new Date(Date.now() + cancellationWindowMs);
+  await schedulerService.scheduleJob(JOB_TYPE_SOS_ACTIVATION, { sosId: String(sos._id) }, activationRunAt);
+
+  console.log('[SOS_DEBUG] PENDING_WITH_SCHEDULED_ACTIVATION', {
+    sosId: String(sos._id),
+    activationRunAt: activationRunAt.toISOString(),
   });
 
   return { sos, alreadyExisted: false };
@@ -319,6 +318,8 @@ async function cancelSos(id, reqUser) {
     // Lost the race against activation.
     throw ApiError.conflict('This SOS can no longer be cancelled');
   }
+
+  await schedulerService.cancelJobsForSos(JOB_TYPE_SOS_ACTIVATION, id);
 
   return updated;
 }

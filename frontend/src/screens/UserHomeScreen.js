@@ -50,11 +50,10 @@ const UserHomeScreen = ({
   const smsRequiresUserConfirmation = permissionState.smsDeliveryMode === 'composer';
   // SMS is intentionally absent: it is a downstream capability and must not
   // prevent testing or activating the Home SOS flow.
-  // TEMPORARY TESTING OVERRIDE: active-session duplicate blocking is disabled.
-  // TODO: restore hasActiveSosSession here before production release.
   const isSosButtonDisabled = Boolean(
     permissionState.isChecking ||
-    sosLoading
+    sosLoading ||
+    hasActiveSosSession
   );
 
   useEffect(() => {
@@ -174,9 +173,9 @@ const UserHomeScreen = ({
       });
     }
 
-    if (sosLoading) {
+    if (sosLoading || hasActiveSosSession) {
       if (__DEV__) {
-        console.log('SOS_HOLD_CANCELLED', 'button unavailable due to app state');
+        console.log('SOS_HOLD_CANCELLED', hasActiveSosSession ? 'an active SOS session already exists' : 'button unavailable due to app state');
       }
       return;
     }

@@ -6,6 +6,7 @@ const COLLECTION_CACHE_KEY = 'cogg_safe.sos.collectionCache';
 const EMERGENCY_CALL_SIM_KEY = 'cogg_safe.sos.emergencyCallSubscriptionId';
 const memoryStore = {};
 let queueMutation = Promise.resolve();
+let eventMutation = Promise.resolve();
 const storageApi = AsyncStorage && AsyncStorage.default ? AsyncStorage.default : AsyncStorage;
 const safeAsyncStorage = {
   async getItem(key) {
@@ -72,31 +73,44 @@ export const sosLocalStore = {
   },
 
   async upsertSos(event) {
-    const events = await this.getAllEvents();
-    const next = [...events.filter(item => item.id !== event.id), event];
-    await this.saveEvents(next);
-    return event;
+    const mutation = eventMutation.then(async () => {
+      const events = await this.getAllEvents();
+      const next = [...events.filter(item => item.id !== event.id), event];
+      await this.saveEvents(next);
+      return event;
+    });
+    eventMutation = mutation.catch(() => undefined);
+    return mutation;
   },
 
   async updateSosServiceState(sosId, serviceKey, patch) {
-    const events = await this.getAllEvents();
-    const index = events.findIndex(item => item.id === sosId);
-    if (index === -1) return null;
+    const mutation = eventMutation.then(async () => {
+      const events = await this.getAllEvents();
+      const index = events.findIndex(item => item.id === sosId);
+      if (index === -1) return null;
 
-    const event = events[index];
-    event.services = {
-      ...event.services,
-      [serviceKey]: {
-        ...(event.services?.[serviceKey] || {}),
-        ...patch,
-      },
-    };
-    events[index] = event;
-    await this.saveEvents(events);
-    return event;
+      const event = events[index];
+      const updatedEvent = {
+        ...event,
+        services: {
+          ...event.services,
+          [serviceKey]: {
+            ...(event.services?.[serviceKey] || {}),
+            ...patch,
+          },
+        },
+      };
+      events[index] = updatedEvent;
+      await this.saveEvents(events);
+      return updatedEvent;
+    });
+    eventMutation = mutation.catch(() => undefined);
+    return mutation;
   },
 
   async clear() {
+    await eventMutation;
+    eventMutation = Promise.resolve();
     delete memoryStore[SOS_EVENT_KEY];
     delete memoryStore[SOS_QUEUE_KEY];
     delete memoryStore[EMERGENCY_CALL_SIM_KEY];
