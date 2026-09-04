@@ -1,6 +1,7 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {ActivityIndicator, FlatList, SafeAreaView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
-import {getCachedApiData, listSos} from '../api/resources';
+import {listSos} from '../api/resources';
+import {getCachedApiData} from '../api/client';
 
 const UserHistoryScreen = ({token, onBack, onHistoryDetail}) => {
   const [records, setRecords] = useState([]);

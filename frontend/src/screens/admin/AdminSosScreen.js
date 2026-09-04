@@ -13,7 +13,8 @@ import {
   Alert,
   AppState,
 } from 'react-native';
-import {deleteSos, deactivateSos, getCachedApiData, listSos} from '../../api/resources';
+import {deleteSos, deactivateSos, listSos} from '../../api/resources';
+import {getCachedApiData} from '../../api/client';
 import Icon from '../../components/Icon';
 
 const sosSnapshots = new Map();

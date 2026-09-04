@@ -11,6 +11,9 @@ const mockGetCachedApiData = jest.fn();
 jest.mock('../src/api/resources', () => ({
   listSos: (...args) => mockListSos(...args),
   getSos: (...args) => mockGetSos(...args),
+}));
+
+jest.mock('../src/api/client', () => ({
   getCachedApiData: (...args) => mockGetCachedApiData(...args),
 }));
 

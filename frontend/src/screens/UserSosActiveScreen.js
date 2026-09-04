@@ -1,6 +1,7 @@
 import React, {useEffect, useState} from 'react';
 import {SafeAreaView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
-import {getCachedApiData, getSos} from '../api/resources';
+import {getSos} from '../api/resources';
+import {getCachedApiData} from '../api/client';
 
 const UserSosActiveScreen = ({sos, token, onBack}) => {
   const [detail, setDetail] = useState(sos || null);
