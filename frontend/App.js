@@ -52,6 +52,7 @@ import {activateSosFlow} from './src/features/sos/orchestrator';
 
 import {
   syncSosToBackend,
+  syncSosLocation,
   uploadCapturedSosMedia,
 } from './src/features/sos/services/backendSyncService';
 import {getCollection} from './src/api/resources';
@@ -67,6 +68,7 @@ import {
 
 import {captureEmergencyPhotos} from './src/features/sos/services/cameraService';
 import {recordEmergencyAudio} from './src/features/sos/services/audioService';
+import {rememberCredential} from './src/utils/adminCredentials';
 
 import {connectivityService} from './src/features/sos/connectivity';
 import {processSosQueue} from './src/features/sos/queue/queueWorker';
@@ -214,6 +216,13 @@ function AppContent() {
                 token,
                 sosEvent: event,
                 component: item.payload?.component || null,
+              }),
+
+            location: async (item, event) =>
+              syncSosLocation({
+               token,
+               sosId: event.backendId,
+               location: event.location,
               }),
 
             // Capture jobs are durable too.  A foreground capture can fail
@@ -939,6 +948,9 @@ function AppContent() {
             <AdminCollectionsScreen
               token={token}
               initialCredentials={adminCredentialMap}
+              onCredentialRemember={(createdUser, password) => {
+                setAdminCredentialMap(current => rememberCredential(current, createdUser, password));
+              }}
               onAddCollection={() => setScreen('adminAddCollection')}
               onUserDetail={userData => {
                 setSelectedUser(userData);

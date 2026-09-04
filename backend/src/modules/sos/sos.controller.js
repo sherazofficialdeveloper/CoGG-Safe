@@ -66,8 +66,10 @@ const deleteSos = asyncHandler(async (req, res) => {
 });
 
 const reportLocation = asyncHandler(async (req, res) => {
-  const { status, latitude, longitude, error } = req.body;
-  const sos = await sosService.reportLocation(req.params.id, req.user, { status, latitude, longitude, error });
+  const { status, latitude, longitude, accuracy, capturedAt, source, providerTimestamp, error } = req.body;
+  const sos = await sosService.reportLocation(req.params.id, req.user, {
+    status, latitude, longitude, accuracy, capturedAt, source, providerTimestamp, error,
+  });
   ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Location updated', data: { sos } });
 });
 
@@ -128,8 +130,10 @@ const startLiveLocation = asyncHandler(async (req, res) => {
 });
 
 const pingLiveLocation = asyncHandler(async (req, res) => {
-  const { latitude, longitude, capturedAt } = req.body;
-  const ping = await sosService.pingLiveLocation(req.params.id, req.user, { latitude, longitude, capturedAt });
+  const { latitude, longitude, accuracy, capturedAt, source } = req.body;
+  const ping = await sosService.pingLiveLocation(req.params.id, req.user, {
+    latitude, longitude, accuracy, capturedAt, source,
+  });
   ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Location update recorded', data: { ping } });
 });
 

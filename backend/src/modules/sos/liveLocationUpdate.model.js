@@ -22,7 +22,9 @@ const liveLocationUpdateSchema = new Schema(
     },
     latitude: { type: Number, required: true },
     longitude: { type: Number, required: true },
+    accuracy: { type: Number, default: null },
     capturedAt: { type: Date, required: true },
+    source: { type: String, default: null },
   },
   {
     timestamps: true,

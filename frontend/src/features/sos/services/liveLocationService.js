@@ -30,9 +30,20 @@ async function sendCurrentLocation({token, backendId, sosId}) {
     source: location.source,
   };
   try {
-    await pingLiveLocation(token, backendId, ping);
+    const response = await pingLiveLocation(token, backendId, ping);
+    const event = await sosLocalStore.getSosById(sosId);
+    if (event) {
+      await sosLocalStore.upsertSos({
+        ...event,
+        latestLiveLocation: response?.ping || ping,
+      });
+    }
+    return response;
   } catch (error) {
     await persistPendingPing(sosId, ping);
+    if (error?.status === 409 || /not currently active|deactivated|stopped/i.test(error?.message || '')) {
+      stopLocationPolling(sosId);
+    }
     throw error;
   }
 }
@@ -88,7 +99,11 @@ export async function startLiveLocationSharing({token, sosId, backendId, started
     const response = await startLiveLocation(token, backendId);
     const serverStartedAt = response?.sos?.liveLocation?.startedAt || startedAt;
     startLocationPolling({token, backendId, sosId});
-    return {status: 'COMPLETED', startedAt: serverStartedAt};
+    return {
+      status: 'COMPLETED',
+      startedAt: serverStartedAt,
+      liveLocation: response?.sos?.liveLocation || null,
+    };
   } catch (error) {
     if (/already active/i.test(error?.message || '')) {
       startLocationPolling({token, backendId, sosId});
@@ -123,7 +138,22 @@ export async function stopLiveLocationSharing({token, sosId, backendId}) {
   if (!sosId) throw new Error('Live location stop requires a local SOS identifier.');
   stopLocationPolling(sosId);
   if (!token || !backendId) return {status: 'COMPLETED'};
-  await stopLiveLocation(token, backendId);
+  const response = await stopLiveLocation(token, backendId);
+  const event = await sosLocalStore.getSosById(sosId);
+  if (event) {
+    await sosLocalStore.upsertSos({
+      ...event,
+      liveLocationStatus: response?.sos?.liveLocation?.status || 'STOPPED_BY_USER',
+      services: {
+        ...event.services,
+        liveLocation: {
+          ...(event.services?.liveLocation || {}),
+          status: 'STOPPED_BY_USER',
+          stoppedAt: response?.sos?.liveLocation?.stoppedAt || new Date().toISOString(),
+        },
+      },
+    });
+  }
   return {status: 'COMPLETED'};
 }
 

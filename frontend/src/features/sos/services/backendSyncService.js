@@ -1,4 +1,4 @@
-import {createSos, reportSosMedia, uploadSosMedia, reportSosService} from '../../../api/resources';
+import {createSos, reportLocation, reportSosMedia, uploadSosMedia, reportSosService} from '../../../api/resources';
 import {getConnectivityState} from '../connectivity';
 import {sosLocalStore} from '../storage';
 import {validateNativeSosMedia} from './nativeMedia';
@@ -7,6 +7,29 @@ const MEDIA_COMPONENTS = [
   {component: 'backImage', service: 'camera', path: 'backImagePath', mimeType: 'image/jpeg'},
   {component: 'audio', service: 'audio', path: 'localPath', mimeType: 'audio/mp4'},
 ];
+
+export async function syncSosLocation({token, sosId, location}) {
+  const latitude = Number(location?.latitude);
+  const longitude = Number(location?.longitude);
+  if (!token || !sosId || !Number.isFinite(latitude) || latitude < -90 || latitude > 90
+    || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    return {status: 'FAILED', error: 'A valid location and authenticated backend SOS are required.'};
+  }
+
+  if (!Boolean(getConnectivityState().isInternetReachable || getConnectivityState().isConnected)) {
+    return {status: 'PENDING', reason: 'Internet unavailable; location delivery queued.'};
+  }
+
+  const response = await reportLocation(token, sosId, {
+    status: 'success',
+    latitude,
+    longitude,
+    ...(location.accuracy != null ? {accuracy: location.accuracy} : {}),
+    capturedAt: location.capturedAt || new Date().toISOString(),
+    ...(location.source ? {source: location.source} : {}),
+  });
+  return {status: 'COMPLETED', response};
+}
 
 export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
   const connectivity = getConnectivityState();
@@ -22,6 +45,9 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
       ? {
           latitude: sosEvent.location.latitude,
           longitude: sosEvent.location.longitude,
+          ...(sosEvent.location.accuracy != null ? {accuracy: sosEvent.location.accuracy} : {}),
+          ...(sosEvent.location.capturedAt ? {capturedAt: sosEvent.location.capturedAt} : {}),
+          ...(sosEvent.location.source ? {source: sosEvent.location.source} : {}),
         }
       : undefined,
   };

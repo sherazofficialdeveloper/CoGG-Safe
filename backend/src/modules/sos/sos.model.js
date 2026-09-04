@@ -35,7 +35,10 @@ const locationSchema = new Schema(
   {
     latitude: { type: Number, default: null },
     longitude: { type: Number, default: null },
+    accuracy: { type: Number, default: null },
     capturedAt: { type: Date, default: null },
+    source: { type: String, default: null },
+    providerTimestamp: { type: Date, default: null },
     status: { type: String, enum: Object.values(COMPONENT_STATUS), default: COMPONENT_STATUS.PENDING },
     error: { type: String, default: null },
   },
@@ -58,7 +61,9 @@ const liveLocationSchema = new Schema(
     lastLocation: {
       latitude: { type: Number, default: null },
       longitude: { type: Number, default: null },
+      accuracy: { type: Number, default: null },
       capturedAt: { type: Date, default: null },
+      source: { type: String, default: null },
     },
   },
   { _id: false }
@@ -174,7 +179,6 @@ const Sos = mongoose.model('Sos', sosSchema);
 
 module.exports = Sos;
 module.exports.COMPONENT_NAMES = COMPONENT_NAMES;
-
 
 
 

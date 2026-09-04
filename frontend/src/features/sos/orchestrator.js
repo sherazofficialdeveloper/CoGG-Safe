@@ -228,7 +228,7 @@ export async function activateSosFlow({
       if (serviceName === 'location' && result?.latitude != null && result?.longitude != null) {
         event.location = {...event.location, ...result};
       }
-      if (serviceName === 'liveLocation' && result?.startedAt) {
+      if (serviceName === 'liveLocation' && resultStatus === 'COMPLETED' && result?.startedAt) {
         event.liveLocationStartedAt = result.startedAt;
         event.liveLocationStatus = 'ACTIVE';
       }
@@ -236,7 +236,6 @@ export async function activateSosFlow({
       event.services[serviceName] = next;
       if (serviceName === 'location' && isValidLocation(event.location)) {
         await sosLocalStore.upsertSos({...event, location: {...event.location}, services: {...event.services}});
-        await enqueueSosJob({sosId: event.id, type: 'LOCATION', serviceName: 'location'});
       } else {
         await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
       }
@@ -316,6 +315,13 @@ export async function activateSosFlow({
     execution.push(backendResult);
   }
   appendSettled(captureResults);
+
+  // Location capture and backend creation run concurrently. Deliver the
+  // captured coordinates only after the backend has returned its id; this
+  // avoids losing a successful location when the create request won the race.
+  if (backendReady && isValidLocation(event.location)) {
+    await enqueueSosJob({sosId: event.id, type: 'LOCATION', serviceName: 'location'});
+  }
 
   if (remainingNames.includes('mediaUpload')) {
     execution.push(await runService('mediaUpload'));

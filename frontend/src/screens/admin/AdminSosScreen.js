@@ -13,7 +13,7 @@ import {
   Alert,
   AppState,
 } from 'react-native';
-import {deleteSos, deactivateSos, listSos} from '../../api/resources';
+import {deleteSos, deactivateSos, getCachedApiData, listSos} from '../../api/resources';
 import Icon from '../../components/Icon';
 
 const AdminSosScreen = ({
@@ -47,12 +47,26 @@ const AdminSosScreen = ({
   }, [token]);
 
   useEffect(() => {
-    refresh().catch(() => undefined);
+    const cached = getCachedApiData('/sos?limit=50', token);
+    if (cached?.sos) {
+      setSosAlerts(cached.sos.map(record => ({
+        ...record,
+        userName: record.userId?.username || 'CoGG Safe user',
+        mobileNumber: record.userId?.mobileNumber || 'Mobile unavailable',
+        initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
+        collectionName: record.collectionId?.name || 'Assigned collection',
+        location: record.location?.latitude != null ? `${record.location.latitude.toFixed(5)}, ${record.location.longitude.toFixed(5)}` : 'Location unavailable',
+        time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
+        status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Pending',
+        emergencyMessage: record.emergencyMessage || 'Emergency assistance requested.',
+      })));
+    }
+    refresh().catch(requestError => setError(requestError.message || 'Unable to load SOS alerts.'));
     const subscription = AppState.addEventListener('change', nextState => {
       if (nextState === 'active') refresh().catch(() => undefined);
     });
     return () => subscription.remove();
-  }, [refresh]);
+  }, [refresh, token]);
 
   const runAdminAction = async (action, id) => {
     try {

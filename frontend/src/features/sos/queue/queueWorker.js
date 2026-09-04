@@ -15,6 +15,7 @@ const BASE_BACKOFF_MS = 5000;
 // independent of the exponential backoff used for real failures.
 const WAITING_FOR_LINK_POLL_MS = 4000;
 const processingQueueItems = new Set();
+let activeQueueRun = null;
 
 function requiresInternet(item) {
   return ['BACKEND_SYNC', 'BACKEND', 'MEDIA_UPLOAD', 'EMAIL', 'NOTIFICATIONS', 'LIVELOCATION', 'LOCATION'].includes(item.type)
@@ -60,7 +61,7 @@ export async function enqueueSosJob({sosId, backendSosId = null, type, serviceNa
   });
 }
 
-export async function processSosQueue({processors = {}, now = Date.now()} = {}) {
+async function processSosQueueRun({processors = {}, now = Date.now()} = {}) {
   const state = getConnectivityState();
   const priority = {BACKEND: 0, BACKEND_SYNC: 0};
   const queue = (await sosLocalStore.getPendingQueue()).sort(
@@ -79,6 +80,9 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
       continue;
     }
     if (item.type.startsWith('MEDIA_UPLOAD:') && !event.backendId) {
+      continue;
+    }
+    if (['LOCATION', 'LIVELOCATION'].includes(item.type) && !event.backendId) {
       continue;
     }
 
@@ -137,6 +141,16 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
         ...(result && typeof result === 'object' ? {lastResult: result} : {}),
       };
       await sosLocalStore.updateSosServiceState(event.id, item.serviceName, servicePatch);
+      if (item.serviceName === 'liveLocation' && result?.status === 'COMPLETED') {
+        const latestEvent = await sosLocalStore.getSosById(event.id);
+        if (latestEvent) {
+          await sosLocalStore.upsertSos({
+            ...latestEvent,
+            liveLocationStartedAt: result.startedAt || latestEvent.liveLocationStartedAt || null,
+            liveLocationStatus: 'ACTIVE',
+          });
+        }
+      }
       if (result?.backendId) {
         const latestEvent = await sosLocalStore.getSosById(event.id);
         // Reconcile local state with the backend, which remains the
@@ -206,10 +220,20 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
         processed.push({id: item.id, status: 'RETRY_WAITING'});
       }
       processingQueueItems.delete(item.id);
+    } finally {
+      processingQueueItems.delete(item.id);
     }
   }
 
   return processed;
+}
+
+export function processSosQueue(options = {}) {
+  if (activeQueueRun) return activeQueueRun;
+  activeQueueRun = processSosQueueRun(options).finally(() => {
+    activeQueueRun = null;
+  });
+  return activeQueueRun;
 }
 
 export default {enqueueSosJob, processSosQueue};

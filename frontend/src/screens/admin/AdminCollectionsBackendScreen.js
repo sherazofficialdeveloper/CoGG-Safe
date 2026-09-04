@@ -7,7 +7,7 @@ import {rememberCredential} from '../../utils/adminCredentials';
 const EMPTY_USER = {username: '', mobileNumber: '', email: '', password: ''};
 const TYPES = ['family', 'children', 'workers', 'other'];
 
-export default function AdminCollectionsBackendScreen({token, onBack, onAddCollection, onUserDetail, onEditUser, initialCredentials = {}}) {
+export default function AdminCollectionsBackendScreen({token, onBack, onAddCollection, onUserDetail, onEditUser, initialCredentials = {}, onCredentialRemember}) {
   const insets = useSafeAreaInsets();
   const [collections, setCollections] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -91,6 +91,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
 
       if (createdId) {
         setCredentialMap(current => rememberCredential(current, createdUser, payload.password));
+        onCredentialRemember?.(createdUser, payload.password);
       }
 
       setUserForm(EMPTY_USER);
@@ -104,15 +105,15 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
     }
   };
 
-  const handleCopyField = async (member, field) => {
-    const value = field === 'username' ? member?.username : credentialMap[member?._id || member?.id] || '';
-    if (!value) {
-      Alert.alert('Copy unavailable', `This ${field} is not available in the current session.`);
+  const handleCopyCredentials = async member => {
+    const password = credentialMap[member?._id || member?.id] || '';
+    if (!member?.username || !password) {
+      Alert.alert('Copy unavailable', 'These credentials are not available in the current session.');
       return;
     }
     try {
-      await Clipboard.setString(value);
-      Alert.alert('Copied', `${field === 'username' ? 'Username' : 'Password'} copied to clipboard.`);
+      await Clipboard.setString(`${member.username}\n${password}`);
+      Alert.alert('Copied', 'Username and password copied to clipboard.');
     } catch (requestError) {
       Alert.alert('Copy failed', requestError.message || 'Unable to copy.');
     }
@@ -178,11 +179,8 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
                 </View>
               </TouchableOpacity>
               <View style={styles.memberActions}>
-                <TouchableOpacity style={styles.memberActionButton} onPress={() => handleCopyField(member, 'username')}>
-                  <Text style={styles.memberActionText}>Copy Username</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.memberActionButton} onPress={() => handleCopyField(member, 'password')}>
-                  <Text style={styles.memberActionText}>Copy Password</Text>
+                <TouchableOpacity style={styles.memberActionButton} onPress={() => handleCopyCredentials(member)}>
+                  <Text style={styles.memberActionText}>Copy</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.memberActionButton} onPress={() => (onEditUser || onUserDetail)?.({...member, name: member.username, phone: member.mobileNumber, email: member.email || 'No email configured', accountStatus: member.status, status: statusLabel, initials: (member.username || 'U').slice(0, 2).toUpperCase(), joined: member.createdAt ? new Date(member.createdAt).toLocaleDateString() : 'Date unavailable', color: '#E4002B'})}>
                   <Text style={styles.memberActionText}>Edit</Text>

@@ -232,7 +232,12 @@ async function createSos({ userId, idempotencyKey, location }) {
     sos.location = {
       latitude: location.latitude,
       longitude: location.longitude,
-      capturedAt: new Date(),
+      ...(location.accuracy !== undefined ? {accuracy: location.accuracy} : {}),
+      capturedAt: location.capturedAt && !isNaN(new Date(location.capturedAt).getTime())
+        ? new Date(location.capturedAt) : new Date(),
+      ...(location.source ? {source: String(location.source).trim().toLowerCase()} : {}),
+      ...(location.providerTimestamp && !isNaN(new Date(location.providerTimestamp).getTime())
+        ? {providerTimestamp: new Date(location.providerTimestamp)} : {}),
       status: COMPONENT_STATUS.SUCCESS,
       error: null,
     };
@@ -384,7 +389,12 @@ async function reportLocation(id, reqUser, payload) {
         'location.error': null,
         'location.latitude': payload.latitude,
         'location.longitude': payload.longitude,
-        'location.capturedAt': new Date(),
+        'location.accuracy': payload.accuracy ?? null,
+        'location.capturedAt': payload.capturedAt && !isNaN(new Date(payload.capturedAt).getTime())
+          ? new Date(payload.capturedAt) : new Date(),
+        'location.source': payload.source ? String(payload.source).trim().toLowerCase() : null,
+        'location.providerTimestamp': payload.providerTimestamp && !isNaN(new Date(payload.providerTimestamp).getTime())
+          ? new Date(payload.providerTimestamp) : null,
       };
 
   await Sos.updateOne({ _id: id }, { $set: update });
@@ -496,7 +506,7 @@ async function startLiveLocation(id, reqUser) {
 }
 
 /** Owner only. */
-async function pingLiveLocation(id, reqUser, { latitude, longitude, capturedAt }) {
+async function pingLiveLocation(id, reqUser, { latitude, longitude, accuracy, capturedAt, source }) {
   const sos = await getOwnedSosOrThrow(id, reqUser, 'You do not have permission to update this SOS live location');
   await enforceLiveLocationExpiry(sos);
 
@@ -505,7 +515,10 @@ async function pingLiveLocation(id, reqUser, { latitude, longitude, capturedAt }
   }
 
   const pingTime = (capturedAt && !isNaN(new Date(capturedAt).getTime())) ? new Date(capturedAt) : new Date();
-  await LiveLocationUpdate.create({ sosId: sos._id, latitude, longitude, capturedAt: pingTime });
+  await LiveLocationUpdate.create({
+    sosId: sos._id, latitude, longitude, accuracy: accuracy ?? null, capturedAt: pingTime,
+    source: source ? String(source).trim().toLowerCase() : null,
+  });
 
   const currentCapturedAt = sos.liveLocation?.lastLocation?.capturedAt
     ? new Date(sos.liveLocation.lastLocation.capturedAt).getTime()
@@ -514,11 +527,14 @@ async function pingLiveLocation(id, reqUser, { latitude, longitude, capturedAt }
   if (pingTime.getTime() >= currentCapturedAt) {
     await Sos.updateOne(
       { _id: id },
-      { $set: { 'liveLocation.lastLocation': { latitude, longitude, capturedAt: pingTime } } }
+      { $set: { 'liveLocation.lastLocation': {
+        latitude, longitude, accuracy: accuracy ?? null, capturedAt: pingTime,
+        source: source ? String(source).trim().toLowerCase() : null,
+      } } }
     );
   }
 
-  return { latitude, longitude, capturedAt: pingTime };
+  return { latitude, longitude, accuracy: accuracy ?? null, capturedAt: pingTime, source: source || null };
 }
 
 /**

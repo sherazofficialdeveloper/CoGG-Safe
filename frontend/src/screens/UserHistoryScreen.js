@@ -1,13 +1,25 @@
 import React, {useEffect, useMemo, useState} from 'react';
 import {ActivityIndicator, FlatList, SafeAreaView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
-import {listSos} from '../api/resources';
+import {getCachedApiData, listSos} from '../api/resources';
 
 const UserHistoryScreen = ({token, onBack, onHistoryDetail}) => {
   const [records, setRecords] = useState([]);
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  useEffect(() => { let mounted = true; listSos(token).then(result => mounted && setRecords(result.sos || [])).catch(requestError => mounted && setError(requestError.message)).finally(() => mounted && setLoading(false)); return () => { mounted = false; }; }, [token]);
+  useEffect(() => {
+    let mounted = true;
+    const cached = getCachedApiData('/sos', token);
+    if (cached?.sos) {
+      setRecords(cached.sos);
+      setLoading(false);
+    }
+    listSos(token)
+      .then(result => mounted && setRecords(result.sos || []))
+      .catch(requestError => mounted && setError(requestError.message))
+      .finally(() => mounted && setLoading(false));
+    return () => { mounted = false; };
+  }, [token]);
   const filtered = useMemo(() => filter === 'all' ? records : records.filter(item => item.status === filter), [filter, records]);
   const renderItem = ({item}) => <TouchableOpacity style={styles.card} onPress={() => onHistoryDetail?.(item)}><View style={styles.mark}><Text style={styles.markText}>!</Text></View><View style={styles.body}><Text style={styles.date}>{item.createdAt ? new Date(item.createdAt).toLocaleString() : 'Date unavailable'}</Text><Text style={styles.location}>{item.location?.latitude != null ? `${item.location.latitude}, ${item.location.longitude}` : 'Location unavailable'}</Text><Text style={styles.status}>{item.status}</Text></View><Text style={styles.arrow}>›</Text></TouchableOpacity>;
   return <SafeAreaView style={styles.safe}><View style={styles.header}><TouchableOpacity onPress={onBack}><Text style={styles.back}>‹</Text></TouchableOpacity><View><Text style={styles.title}>SOS History</Text><Text style={styles.subtitle}>{records.length} records</Text></View></View><View style={styles.filters}>{['all', 'cancelled', 'deactivated'].map(value => <TouchableOpacity key={value} style={[styles.filter, filter === value && styles.activeFilter]} onPress={() => setFilter(value)}><Text style={filter === value ? styles.activeFilterText : styles.filterText}>{value}</Text></TouchableOpacity>)}</View>{loading ? <View style={styles.state}><ActivityIndicator color="#E4002B" /><Text style={styles.text}>Loading history...</Text></View> : error ? <View style={styles.state}><Text style={styles.stateTitle}>Unable to load history</Text><Text style={styles.text}>{error}</Text></View> : <FlatList data={filtered} renderItem={renderItem} keyExtractor={item => item._id} contentContainerStyle={styles.list} ListEmptyComponent={<View style={styles.state}><Text style={styles.stateTitle}>No SOS records</Text><Text style={styles.text}>Your completed emergency records will appear here.</Text></View>} />}</SafeAreaView>;

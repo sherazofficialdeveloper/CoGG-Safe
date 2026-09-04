@@ -19,6 +19,19 @@ const createSosValidation = [
     .if(body('location').exists())
     .isFloat({ min: -180, max: 180 })
     .withMessage('location.longitude must be between -180 and 180'),
+  body('location.accuracy')
+    .optional()
+    .isFloat({ min: 0 })
+    .withMessage('location.accuracy must be a non-negative number'),
+  body('location.capturedAt')
+    .optional()
+    .isISO8601()
+    .withMessage('location.capturedAt must be a valid ISO8601 timestamp'),
+  body('location.source')
+    .optional()
+    .isString()
+    .isLength({ max: 32 })
+    .withMessage('location.source must be a short string'),
 ];
 
 const listSosValidation = [
@@ -90,7 +103,9 @@ const liveLocationPingValidation = [
   ...sosIdParamValidation,
   body('latitude').isFloat({ min: -90, max: 90 }).withMessage('latitude must be between -90 and 90'),
   body('longitude').isFloat({ min: -180, max: 180 }).withMessage('longitude must be between -180 and 180'),
+  body('accuracy').optional().isFloat({ min: 0 }).withMessage('accuracy must be a non-negative number'),
   body('capturedAt').optional().isISO8601().withMessage('capturedAt must be a valid ISO8601 timestamp'),
+  body('source').optional().isString().isLength({ max: 32 }).withMessage('source must be a short string'),
 ];
 
 const getLiveLocationValidation = [...sosIdParamValidation, ...paginationValidation];

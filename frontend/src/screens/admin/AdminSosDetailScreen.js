@@ -1,5 +1,5 @@
 // AdminSosDetailScreen.js
-import React, {useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
   Linking,
   Image,
 } from 'react-native';
-import {deactivateSos, stopLiveLocation} from '../../api/resources';
+import {deactivateSos, getLiveLocation, getSos, stopLiveLocation} from '../../api/resources';
 import {API_BASE_URL} from '../../api/config';
 import AudioPlayer from '../../components/AudioPlayer';
 import {buildMediaUrl} from '../../utils/media';
@@ -26,28 +26,19 @@ const AdminSosDetailScreen = ({
   token,
   onUpdated,
 }) => {
-  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [liveLocation, setLiveLocation] = useState(null);
+  const [liveLocationStatus, setLiveLocationStatus] = useState(null);
   const [locationUpdateTime, setLocationUpdateTime] = useState('Just now');
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
   const [selectedImage, setSelectedImage] = useState(null);
+  const [detailRecord, setDetailRecord] = useState(null);
+  const detailRequestRef = useRef(0);
 
-  const record = sos || {};
+  const record = detailRecord || sos || {};
+  const recordId = record.id || record._id;
 
   const isActive = record.status === 'Active' || record.status === 'active';
-  const waveformHeights = record.audioWaveform || [];
-
-  // ✅ Default location object to prevent undefined errors
-  const handlePlayAudio = () => {
-    if (!record.components?.audio?.storageRef && !record.services?.audio?.localPath) {
-      Alert.alert('Audio unavailable', 'No audio recording was captured for this SOS.');
-      return;
-    }
-    setIsPlayingAudio(true);
-    setTimeout(() => setIsPlayingAudio(false), 5000);
-  };
-
   const handleMarkResolved = () => {
     Alert.alert('Mark as Resolved', 'Are you sure this emergency has been resolved?', [
       {text: 'Cancel', style: 'cancel'},
@@ -75,6 +66,7 @@ const AdminSosDetailScreen = ({
     setActionError('');
     try {
       const response = await stopLiveLocation(token, record.id || record._id);
+      setLiveLocationStatus(response?.sos?.liveLocation?.status || 'stopped_by_admin');
       onUpdated?.(response.sos);
     } catch (error) {
       setActionError(error.message || 'Unable to stop live location.');
@@ -99,22 +91,67 @@ const AdminSosDetailScreen = ({
   const displayAddress = displayLocation?.address || (displayLat != null ? 'Location captured' : 'Location unavailable');
   const displayAccuracy = displayLocation?.accuracy;
   const serviceResults = Object.entries(record.components || record.services || {});
-  const liveLocationActive = record.liveLocation?.status === 'active' || record.liveLocation?.status === 'ACTIVE';
+  const liveLocationActive = String(liveLocationStatus || record.liveLocation?.status || '').toLowerCase() === 'active';
+  const initialLiveLocationStatus = record.liveLocation?.status || null;
+  const initialLiveLocation = record.liveLocation?.lastLocation || null;
   const frontImage = record.components?.frontImage;
   const backImage = record.components?.backImage;
   const audio = record.components?.audio;
   const localCamera = record.services?.camera;
   const localAudio = record.services?.audio;
-  const frontMediaUrl = frontImage?.status === 'success' && frontImage.storageRef
+  const frontMediaUrl = ['success', 'uploaded', 'ready', 'completed'].includes(String(frontImage?.status || '').toLowerCase()) && frontImage.storageRef
     ? buildMediaUrl(API_BASE_URL, record.id || record._id, 'frontImage')
     : null;
-  const backMediaUrl = backImage?.status === 'success' && backImage.storageRef
+  const backMediaUrl = ['success', 'uploaded', 'ready', 'completed'].includes(String(backImage?.status || '').toLowerCase()) && backImage.storageRef
     ? buildMediaUrl(API_BASE_URL, record.id || record._id, 'backImage')
     : null;
-  const audioMediaUrl = audio?.status === 'success' && audio.storageRef
+  const audioMediaUrl = ['success', 'uploaded', 'ready', 'completed'].includes(String(audio?.status || '').toLowerCase()) && audio.storageRef
     ? buildMediaUrl(API_BASE_URL, record.id || record._id, 'audio')
     : null;
-  const hasLiveLocationData = [liveLocation, record.liveLocation, record.location].some((entry) => {
+  useEffect(() => {
+    const id = recordId;
+    setLiveLocationStatus(initialLiveLocationStatus);
+    setLiveLocation(initialLiveLocation);
+    if (!token || !id) return undefined;
+
+    const requestId = ++detailRequestRef.current;
+    let mounted = true;
+    getSos(token, id).then(result => {
+      if (mounted && requestId === detailRequestRef.current && result?.sos) setDetailRecord(result.sos);
+    }).catch(error => {
+      if (mounted && requestId === detailRequestRef.current) setActionError(error.message || 'Unable to load SOS details.');
+    });
+    return () => { mounted = false; };
+  }, [initialLiveLocation, initialLiveLocationStatus, recordId, token]);
+
+  useEffect(() => {
+    const id = recordId;
+    if (!token || !id) return undefined;
+    let mounted = true;
+    const refreshLiveLocation = async () => {
+      try {
+        const result = await getLiveLocation(token, id, {limit: 1});
+        if (!mounted) return;
+        setLiveLocationStatus(result?.liveLocation?.status || null);
+        const latest = result?.liveLocation?.lastLocation || result?.pings?.[0] || null;
+        if (latest) {
+          setLiveLocation(latest);
+          setLocationUpdateTime(latest.capturedAt ? new Date(latest.capturedAt).toLocaleString() : 'Just now');
+        }
+      } catch (error) {
+        if (mounted) setActionError(error.message || 'Unable to refresh live location.');
+      }
+    };
+
+    refreshLiveLocation();
+    const interval = liveLocationActive ? setInterval(refreshLiveLocation, 30000) : null;
+    return () => {
+      mounted = false;
+      if (interval) clearInterval(interval);
+    };
+  }, [liveLocationActive, recordId, token]);
+
+  const hasLiveLocationData = [liveLocation, record.liveLocation?.lastLocation, record.liveLocation, record.location].some((entry) => {
     if (!entry || typeof entry !== 'object') return false;
     const latitude = Number(entry.lat ?? entry.latitude ?? 'NaN');
     const longitude = Number(entry.lng ?? entry.longitude ?? 'NaN');
@@ -205,8 +242,8 @@ const AdminSosDetailScreen = ({
         {hasLiveLocationData ? (
           <View style={styles.locationSection}>
             <View style={styles.locationHeader}>
-              <Text style={styles.locationLabel}>📍 LIVE LOCATION</Text>
-              {isActive && (
+              <Text style={styles.locationLabel}>📍 {liveLocationActive ? 'LIVE LOCATION' : 'LOCATION'}</Text>
+              {liveLocationActive && (
                 <View style={styles.liveBadge}>
                   <View style={styles.liveDot} />
                   <Text style={styles.liveText}>LIVE</Text>
@@ -243,7 +280,7 @@ const AdminSosDetailScreen = ({
                   {displayLat != null && displayLng != null ? `${Number(displayLat).toFixed(4)}°, ${Number(displayLng).toFixed(4)}°` : 'Location unavailable'}
                 </Text>
                 <Text style={styles.locationAccuracy}>
-                  ±{displayAccuracy}m
+                  {displayAccuracy != null ? `±${displayAccuracy}m` : 'Accuracy unavailable'}
                 </Text>
               </View>
               <View style={styles.locationRow}>
@@ -310,45 +347,17 @@ const AdminSosDetailScreen = ({
               <AudioPlayer audioUrl={audioMediaUrl} localPath={localAudio?.localPath} token={token} style={styles.audioPlayer} />
             ) : (
               <>
-                <TouchableOpacity
-                  style={[
-                    styles.audioButton,
-                    isPlayingAudio && styles.audioButtonPlaying,
-                  ]}
-                  activeOpacity={0.7}
-                  onPress={handlePlayAudio}>
-                  <Text style={styles.audioButtonText}>
-                    {isPlayingAudio ? '⏸' : '▶'}
-                  </Text>
-                </TouchableOpacity>
-
                 <View style={styles.waveformContainer}>
                   {audio?.status === 'failed' || localAudio?.status === 'FAILED' ? (
                     <Text style={styles.noAudioText}>Failed: {audio?.error || localAudio?.error || 'Audio capture failed'}</Text>
                   ) : audio?.status === 'success' && audio.storageRef ? (
                     <Text style={styles.noAudioText}>Audio recording available</Text>
-                  ) : waveformHeights.length > 0 ? (
-                    waveformHeights.map((h, i) => (
-                      <View
-                        key={i}
-                        style={[
-                          styles.waveformBar,
-                          {
-                            height: h,
-                            backgroundColor: isPlayingAudio ? '#E4002B' : '#E4002B',
-                            opacity: isPlayingAudio ? 1 : 0.5,
-                          },
-                        ]}
-                      />
-                    ))
                   ) : (
                     <Text style={styles.noAudioText}>Status: {audio?.status || localAudio?.status || 'pending'}</Text>
                   )}
                 </View>
 
-                <Text style={styles.audioDuration}>
-                  {isPlayingAudio ? '00:05' : '00:00'}
-                </Text>
+                <Text style={styles.audioDuration}>Playback unavailable</Text>
               </>
             )}
           </View>
