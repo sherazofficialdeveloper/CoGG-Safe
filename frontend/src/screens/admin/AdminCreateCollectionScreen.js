@@ -74,7 +74,7 @@ export default function AdminCreateCollectionScreen({onBack, onSave, token}) {
   const save = async () => {
     const nextErrors = {};
     if (!name.trim() || name.trim().length < 2) nextErrors.name = 'Collection name must be at least 2 characters.';
-    if (!/^\+?[0-9]{3,15}$/.test(emergencyCallNumber.trim())) nextErrors.emergencyCallNumber = 'Enter a valid emergency number.';
+    if (!/^\+?[0-9\s()-]+$/.test(emergencyCallNumber.trim())) nextErrors.emergencyCallNumber = 'Enter a valid emergency number.';
     users.forEach((user, index) => { nextErrors[`user-${index}`] = validateUser(user, index, users); });
     setErrors(nextErrors);
     if (nextErrors.name || nextErrors.emergencyCallNumber || users.some((_, index) => Object.keys(nextErrors[`user-${index}`]).length)) return;

@@ -3,7 +3,7 @@ const { COLLECTION_TYPES } = require('../../constants/sosConstants');
 const paginationValidation = require('../../utils/paginationValidation');
 
 const ALLOWED_TYPES = Object.values(COLLECTION_TYPES);
-const PHONE_REGEX = /^\+?[0-9]{3,15}$/;
+const PHONE_REGEX = /^\+?[0-9\s()-]+$/;
 
 const createCollectionValidation = [
   body('type')

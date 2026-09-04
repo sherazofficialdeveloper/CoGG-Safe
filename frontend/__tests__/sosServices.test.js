@@ -78,15 +78,46 @@ describe('SOS media services', () => {
   });
 
   test('recognizes configured short emergency service codes', () => {
-    expect(normalizePhoneNumber('15')).toBe('+15');
+    expect(normalizePhoneNumber('15')).toBe('15');
   });
 
-  test('normalizes a local Pakistani mobile number for the native dialer', () => {
-    expect(normalizePhoneNumber('03427948471')).toBe('+923427948471');
+  test('preserves a local Pakistani mobile number for the native dialer', () => {
+    expect(normalizePhoneNumber('03427948471')).toBe('03427948471');
+  });
+
+  test('preserves the configured number without a digit-count restriction', () => {
+    expect(normalizePhoneNumber('030000000000')).toBe('030000000000');
   });
 
   test('keeps an international Pakistani mobile number valid', () => {
     expect(normalizePhoneNumber('+923427948471')).toBe('+923427948471');
+  });
+
+  test.each([
+    ['1-digit number', '7'],
+    ['10-digit number', '1234567890'],
+    ['UK local number', '07123456789'],
+    ['UK international number', '+447123456789'],
+    ['short service code', '15'],
+  ])('preserves %s at the call boundary', async (_label, emergencyNumber) => {
+    const {NativeModules} = require('react-native');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
+    NativeModules.EmergencyMedia.placeCall.mockResolvedValue({status: 'initiated', reason: 'Android launched the emergency call.'});
+
+    const result = await initiateEmergencyCall({emergencyNumber});
+
+    expect(result.status).toBe('INITIATED');
+    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith(emergencyNumber, -1);
+  });
+
+  test('removes only safe formatting before calling Android', async () => {
+    const {NativeModules} = require('react-native');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
+    NativeModules.EmergencyMedia.placeCall.mockResolvedValue({status: 'initiated', reason: 'Android launched the emergency call.'});
+
+    await initiateEmergencyCall({emergencyNumber: '+44 7123-456789'});
+
+    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+447123456789', -1);
   });
 
   test('passes the configured local Pakistani collection number to the native call', async () => {
@@ -97,7 +128,19 @@ describe('SOS media services', () => {
     const result = await initiateEmergencyCall({emergencyNumber: '03427948471'});
 
     expect(result.status).toBe('INITIATED');
-    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+923427948471', -1);
+    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('03427948471', -1);
+    expect(NativeModules.EmergencyMedia.placeCall).not.toHaveBeenCalledWith('+15', -1);
+  });
+
+  test('passes the configured 12-digit local Pakistani collection number to the native call', async () => {
+    const {NativeModules} = require('react-native');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
+    NativeModules.EmergencyMedia.placeCall.mockResolvedValue({status: 'initiated', reason: 'Android launched the emergency call.'});
+
+    const result = await initiateEmergencyCall({emergencyNumber: '030000000000'});
+
+    expect(result.status).toBe('INITIATED');
+    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('030000000000', -1);
     expect(NativeModules.EmergencyMedia.placeCall).not.toHaveBeenCalledWith('+15', -1);
   });
 
@@ -109,8 +152,26 @@ describe('SOS media services', () => {
     const result = await initiateEmergencyCall({emergencyNumber: '1122'});
 
     expect(result.status).toBe('INITIATED');
-    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1122', -1);
+    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('1122', -1);
     expect(NativeModules.EmergencyMedia.placeCall).not.toHaveBeenCalledWith('+15', -1);
+  });
+
+  test('does not fall back to 15 when no emergency number is configured', async () => {
+    const {NativeModules} = require('react-native');
+
+    const result = await initiateEmergencyCall({emergencyNumber: null});
+
+    expect(result.status).toBe('NOT_CONFIGURED');
+    expect(NativeModules.EmergencyMedia.placeCall).not.toHaveBeenCalled();
+  });
+
+  test('rejects an invalid configured number without falling back to 15', async () => {
+    const {NativeModules} = require('react-native');
+
+    const result = await initiateEmergencyCall({emergencyNumber: 'not-a-number'});
+
+    expect(result.status).toBe('NOT_CONFIGURED');
+    expect(NativeModules.EmergencyMedia.placeCall).not.toHaveBeenCalled();
   });
 
   test('SMS sends directly and the call is initiated through the Android telephony intent', async () => {

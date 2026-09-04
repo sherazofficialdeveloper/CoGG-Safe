@@ -4,16 +4,11 @@ export function normalizePhoneNumber(value) {
   if (!trimmed) return null;
 
   const compact = trimmed.replace(/[\s()-]/g, '');
-  // Pakistani mobile numbers are commonly stored in the local 03xxxxxxxxx
-  // form. Convert that form to the international representation used by the
-  // native dialer without requiring the administrator to reformat it.
-  if (/^03[0-9]{9}$/.test(compact)) return `+92${compact.slice(1)}`;
-  if (/^92[0-9]{10}$/.test(compact)) return `+${compact}`;
-  // Preserve short emergency service codes (for example, 15) as well as
-  // ordinary international phone numbers.
-  if (/^\+[1-9]\d{1,14}$/.test(compact)) return compact;
-  if (/^[1-9]\d{1,14}$/.test(compact)) return `+${compact}`;
-  return null;
+  // Strip only common display formatting. Country codes, leading zeroes,
+  // short service codes, and the administrator's exact dialable digits remain
+  // unchanged for Android's platform-level telephone validation.
+  if (!/^\+?[0-9]+$/.test(compact)) return null;
+  return compact;
 }
 
 export function getCollectionCacheKey(collectionId) {
