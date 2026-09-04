@@ -10,6 +10,7 @@ import {stopLiveLocationSharing} from '../src/features/sos/services/liveLocation
 import {dispatchEmergencyNotifications} from '../src/features/sos/services/notificationService';
 import {enqueueSosJob, processSosQueue} from '../src/features/sos/queue/queueWorker';
 import {uploadCapturedSosMedia} from '../src/features/sos/services/backendSyncService';
+import {normalizePhoneNumber} from '../src/features/sos/services/phoneNumber';
 
 jest.mock('../src/api/resources', () => ({
   createSos: jest.fn(),
@@ -74,6 +75,22 @@ describe('SOS media services', () => {
     const {PermissionsAndroid} = require('react-native');
     PermissionsAndroid.check.mockImplementation(async () => 'granted');
     PermissionsAndroid.request.mockImplementation(async () => 'granted');
+  });
+
+  test('recognizes configured short emergency service codes', () => {
+    expect(normalizePhoneNumber('15')).toBe('+15');
+  });
+
+  test('passes the configured collection emergency number to the native call', async () => {
+    const {NativeModules} = require('react-native');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
+    NativeModules.EmergencyMedia.placeCall.mockResolvedValue({status: 'initiated', reason: 'Android launched the emergency call.'});
+
+    const result = await initiateEmergencyCall({emergencyNumber: '1122'});
+
+    expect(result.status).toBe('INITIATED');
+    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1122', -1);
+    expect(NativeModules.EmergencyMedia.placeCall).not.toHaveBeenCalledWith('+15', -1);
   });
 
   test('SMS sends directly and the call is initiated through the Android telephony intent', async () => {

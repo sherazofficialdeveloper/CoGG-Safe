@@ -6,8 +6,10 @@ export function normalizePhoneNumber(value) {
   const compact = trimmed.replace(/[\s()-]/g, '');
   if (/^03\d{9}$/.test(compact)) return `+92${compact.slice(1)}`;
   if (/^92\d{10}$/.test(compact)) return `+${compact}`;
-  if (/^\+[1-9]\d{6,14}$/.test(compact)) return compact;
-  if (/^[1-9]\d{6,14}$/.test(compact)) return `+${compact}`;
+  // Preserve short emergency service codes (for example, 15) as well as
+  // ordinary international phone numbers.
+  if (/^\+[1-9]\d{1,14}$/.test(compact)) return compact;
+  if (/^[1-9]\d{1,14}$/.test(compact)) return `+${compact}`;
   return null;
 }
 

@@ -106,6 +106,21 @@ test('location failure does not block backend creation, SMS, call, camera or aud
   expect(result.event.services.location.status).toBe('FAILED');
 });
 
+test('backend validation failure remains a pending SOS service error', async () => {
+  const result = await activateSosFlow({
+    userId: 'user-1',
+    collectionId: 'collection-1',
+    serviceRunners: {
+      backend: async () => ({status: 'FAILED', error: 'Validation failed'}),
+      location: async () => 'location okay',
+    },
+  });
+
+  expect(result.event.status).toBe('PENDING');
+  expect(result.event.services.backend.status).toBe('FAILED');
+  expect(result.event.services.backend.error).toBe('Validation failed');
+});
+
 test('connectivity service tracks internet, cellular and telephony separately', () => {
   connectivityService.updateState({
     isConnected: true,

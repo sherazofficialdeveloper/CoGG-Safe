@@ -196,12 +196,6 @@ export async function activateSosFlow({
       }
 
       if (serviceName === 'backend') {
-        if (resultStatus === 'FAILED') {
-          throw new Error(result?.error || result?.reason || 'SOS backend creation failed');
-        }
-        if (resultStatus === 'COMPLETED' && !result?.backendId) {
-          throw new Error(result?.error || result?.reason || 'SOS backend creation did not return a valid backend identifier.');
-        }
         if (result?.backendId) {
           event.backendId = result.backendId;
           event.emergencyLink = result.emergencyLink || null;

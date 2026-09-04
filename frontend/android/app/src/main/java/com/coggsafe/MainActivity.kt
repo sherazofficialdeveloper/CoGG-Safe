@@ -49,7 +49,7 @@ class MainActivity : ReactActivity() {
       powerPressTimestamps.addLast(now)
 
       // Check if we've reached the threshold
-      if (powerPressTimestamps.size >= requiredPowerPresses) {
+      if (powerPressTimestamps.size == requiredPowerPresses) {
         powerPressTimestamps.clear()
         lastPowerKeyEventTimeMs = 0L
         emitPowerButtonTrigger()
@@ -67,4 +67,3 @@ class MainActivity : ReactActivity() {
       .emit("powerButtonSosTrigger", Arguments.createMap())
   }
 }
-

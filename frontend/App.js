@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Text,
   BackHandler,
+  DeviceEventEmitter,
 } from 'react-native';
 
 import {SafeAreaProvider} from 'react-native-safe-area-context';
@@ -101,6 +102,8 @@ function AppContent() {
   const [userNotificationCount, setUserNotificationCount] = useState(0);
   const [adminNotificationCount, setAdminNotificationCount] = useState(0);
   const sosCancelSignalRef = useRef({cancelled: false});
+  const sosTriggerInFlightRef = useRef(false);
+  const handleTriggerSosRef = useRef(null);
 
   // Toast State
   const [toast, setToast] = useState({
@@ -460,7 +463,9 @@ function AppContent() {
   // SOS HANDLER
   // ============================================================
 
-  const handleTriggerSos = async () => {
+  const handleTriggerSos = async ({fromPowerButton = false} = {}) => {
+    if (sosTriggerInFlightRef.current) return;
+    sosTriggerInFlightRef.current = true;
     setSosError('');
     setSosLoading(true);
     sosCancelSignalRef.current = {cancelled: false};
@@ -475,7 +480,7 @@ function AppContent() {
         cancelSignal: sosCancelSignalRef.current,
         onPending: async event => {
           setSelectedSos(event);
-          setScreen('userSosActive');
+          if (!fromPowerButton) setScreen('userSosActive');
           await sosLocalStore.upsertSos({
             ...event,
             meta: {
@@ -576,7 +581,7 @@ function AppContent() {
         showToast('SOS cancelled before dispatch.', 'info');
       } else if (result?.event) {
         setSelectedSos(result.event);
-        setScreen('userSosActive');
+        if (!fromPowerButton) setScreen('userSosActive');
 
         showToast(
           'SOS alert triggered locally and queued for delivery.',
@@ -592,8 +597,21 @@ function AppContent() {
       showToast('Failed to trigger SOS', 'error');
     } finally {
       setSosLoading(false);
+      sosTriggerInFlightRef.current = false;
     }
   };
+
+  handleTriggerSosRef.current = handleTriggerSos;
+
+  useEffect(() => {
+    if (!token || !user?.collectionId) return undefined;
+
+    const subscription = DeviceEventEmitter.addListener('powerButtonSosTrigger', () => {
+      handleTriggerSosRef.current?.({fromPowerButton: true});
+    });
+
+    return () => subscription.remove();
+  }, [token, user?.collectionId]);
 
   // ============================================================
   // LOADING SCREEN
