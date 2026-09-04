@@ -15,12 +15,12 @@ jest.mock('../src/api/resources', () => ({
   listSos: (...args) => mockListSos(...args),
 }));
 
-async function renderDashboard() {
+async function renderDashboard(token = 'admin-token') {
   let renderer;
   await ReactTestRenderer.act(async () => {
     renderer = ReactTestRenderer.create(
       <SafeAreaProvider initialMetrics={{insets: {top: 0, right: 0, bottom: 0, left: 0}, frame: {x: 0, y: 0, width: 320, height: 640}}}>
-        <AdminDashboardScreen token="admin-token" />
+        <AdminDashboardScreen token={token} />
       </SafeAreaProvider>,
     );
     for (let attempt = 0; attempt < 5; attempt += 1) await Promise.resolve();
@@ -55,7 +55,7 @@ test('shows the backend error and does not replace it with fake statistics', asy
   mockListUsers.mockResolvedValue({meta: {total: 0}, users: []});
   mockListSos.mockResolvedValue({sos: [], meta: {total: 0}});
 
-  const renderer = await renderDashboard();
+  const renderer = await renderDashboard('admin-token-error');
   const text = renderer.root.findAllByType(Text).map(node => JSON.stringify(node.props.children)).join(' ');
 
   expect(text).toContain('Dashboard request failed');

@@ -8,8 +8,9 @@ import {
   ScrollView,
   TextInput,
 } from 'react-native';
-import {listUsers} from '../../api/resources';
+import {listUsers, updateUser} from '../../api/resources';
 import {SafeAreaView as ContextSafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
+import {InlineUserForm} from './AdminCollectionsBackendScreen';
 
 const AdminUsersScreen = ({
   token,
@@ -26,6 +27,9 @@ const AdminUsersScreen = ({
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [editingUser, setEditingUser] = useState(null);
+  const [editForm, setEditForm] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -109,6 +113,46 @@ const AdminUsersScreen = ({
     ).length;
   };
 
+  const startUserEdit = user => {
+    setEditingUser(user);
+    setEditForm({
+      username: user.username || user.name || '',
+      mobileNumber: user.mobileNumber || user.phone || '',
+      email: user.email === 'No email configured' ? '' : (user.email || ''),
+      password: '',
+    });
+  };
+
+  const saveUserEdit = async () => {
+    const userId = editingUser?._id || editingUser?.id;
+    if (!userId || !editForm?.username?.trim() || !editForm?.mobileNumber?.trim()) {
+      setError('Username and mobile number are required.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const updated = await updateUser(token, userId, {
+        username: editForm.username.trim(),
+        mobileNumber: editForm.mobileNumber.trim(),
+        ...(editForm.email.trim() ? {email: editForm.email.trim()} : {}),
+      });
+      const next = updated?.user || updated;
+      setUsers(current => current.map(item => (item._id || item.id) === userId ? {
+        ...item,
+        ...next,
+        name: next.username,
+        phone: next.mobileNumber,
+        email: next.email || 'No email configured',
+      } : item));
+      setEditingUser(null);
+      setEditForm(null);
+    } catch (requestError) {
+      setError(requestError.message || 'Unable to update user.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <ContextSafeAreaView style={[styles.safeArea, {paddingTop: insets.top}]}>
       <StatusBar
@@ -146,6 +190,7 @@ const AdminUsersScreen = ({
       </View>
 
       <View style={styles.container}>
+        {editingUser ? <InlineUserForm editMode form={editForm} setForm={setEditForm} submitting={submitting} onCancel={() => {setEditingUser(null); setEditForm(null);}} onSubmit={saveUserEdit} /> : null}
 
         {/* Search */}
         <View style={styles.searchContainer}>
@@ -395,7 +440,7 @@ const AdminUsersScreen = ({
                     </View>
 
                     <View style={styles.joinedContainer}>
-                      {onEditUser ? <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Edit ${user.name}`} onPress={() => onEditUser(user)} style={styles.editButton}><Text style={styles.editButtonText}>Edit</Text></TouchableOpacity> : null}
+                      <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Edit ${user.name}`} onPress={() => startUserEdit(user)} style={styles.editButton}><Text style={styles.editButtonText}>Edit</Text></TouchableOpacity>
                       <Text style={styles.joinedText}>
                         {user.joined}
                       </Text>

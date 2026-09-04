@@ -6,6 +6,8 @@ import {listNotifications, markNotificationRead} from '../../api/resources';
 import {emitSosToast} from '../../features/sos/services/sosToastService';
 import {getCachedApiData} from '../../api/client';
 
+const notificationSnapshots = new Map();
+
 const AdminNotificationScreen = ({
   token,
   onBack,
@@ -16,8 +18,9 @@ const AdminNotificationScreen = ({
 }) => {
   const insets = useSafeAreaInsets();
   const cachedData = getCachedApiData('/notifications', token);
-  const [notifications, setNotifications] = useState(() => cachedData?.notifications || initialNotifications);
-  const [loading, setLoading] = useState(() => !cachedData && initialNotifications.length === 0);
+  const snapshotNotifications = notificationSnapshots.get(token);
+  const [notifications, setNotifications] = useState(() => snapshotNotifications || cachedData?.notifications || initialNotifications);
+  const [loading, setLoading] = useState(() => !snapshotNotifications && !cachedData && initialNotifications.length === 0);
   const [error, setError] = useState('');
   const requestIdRef = useRef(0);
   const initialNotificationsRef = useRef(initialNotifications);
@@ -64,6 +67,7 @@ const AdminNotificationScreen = ({
           return;
         }
         const nextNotifications = result.notifications || [];
+        notificationSnapshots.set(token, nextNotifications);
         setNotifications(nextNotifications);
         onNotificationsChangeRef.current?.(nextNotifications);
       } catch (requestError) {
@@ -82,7 +86,7 @@ const AdminNotificationScreen = ({
       }
     };
 
-    loadNotifications();
+    if (!notificationSnapshots.has(token)) loadNotifications();
 
     return () => {
       mounted = false;
@@ -97,6 +101,7 @@ const AdminNotificationScreen = ({
     markNotificationRead(token, notificationId)
       .then(() => setNotifications(items => {
         const nextNotifications = items.map(item => (item._id || item.id) === notificationId ? {...item, isRead: true} : item);
+        notificationSnapshots.set(token, nextNotifications);
         onNotificationsChangeRef.current?.(nextNotifications);
         return nextNotifications;
       }))

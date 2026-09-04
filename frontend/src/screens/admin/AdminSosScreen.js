@@ -16,6 +16,8 @@ import {
 import {deleteSos, deactivateSos, getCachedApiData, listSos} from '../../api/resources';
 import Icon from '../../components/Icon';
 
+const sosSnapshots = new Map();
+
 const AdminSosScreen = ({
   onBack,
   onSosDetail,
@@ -24,13 +26,13 @@ const AdminSosScreen = ({
 }) => {
   const [search, setSearch] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
-  const [sosAlerts, setSosAlerts] = useState([]);
+  const [sosAlerts, setSosAlerts] = useState(() => sosSnapshots.get(token) || []);
   const [error, setError] = useState('');
 
   const refresh = useCallback(async () => {
     try {
       const response = await listSos(token, {limit: 50});
-      setSosAlerts((response?.sos || []).map(record => ({
+      const nextAlerts = (response?.sos || []).map(record => ({
         ...record,
         userName: record.userId?.username || 'CoGG Safe user',
         mobileNumber: record.userId?.mobileNumber || 'Mobile unavailable',
@@ -40,7 +42,9 @@ const AdminSosScreen = ({
         time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
         status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Pending',
         emergencyMessage: record.emergencyMessage || 'Emergency assistance requested.',
-      })));
+      }));
+      sosSnapshots.set(token, nextAlerts);
+      setSosAlerts(nextAlerts);
     } catch (requestError) {
       setError(requestError.message || 'Unable to load SOS alerts.');
     }
@@ -61,7 +65,7 @@ const AdminSosScreen = ({
         emergencyMessage: record.emergencyMessage || 'Emergency assistance requested.',
       })));
     }
-    refresh().catch(requestError => setError(requestError.message || 'Unable to load SOS alerts.'));
+    if (!sosSnapshots.has(token)) refresh().catch(requestError => setError(requestError.message || 'Unable to load SOS alerts.'));
     const subscription = AppState.addEventListener('change', nextState => {
       if (nextState === 'active') refresh().catch(() => undefined);
     });

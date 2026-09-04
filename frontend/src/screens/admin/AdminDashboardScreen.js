@@ -6,6 +6,8 @@ import {listCollections, listSos, listUsers} from '../../api/resources';
 import StatCard from '../../components/StatCard';
 import Icon from '../../components/Icon';
 
+const dashboardSnapshots = new Map();
+
 const AdminDashboardScreen = ({
   onNavigate,
   onCollections,
@@ -20,13 +22,14 @@ const AdminDashboardScreen = ({
   token,
   onSwitchToUser,
 }) => {
-  const [collections, setCollections] = useState([]);
-  const [totalCollections, setTotalCollections] = useState(0);
-  const [totalUsers, setTotalUsers] = useState(0);
-  const [activeUsers, setActiveUsers] = useState(0);
-  const [inactiveUsers, setInactiveUsers] = useState(0);
-  const [totalSos, setTotalSos] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const snapshot = dashboardSnapshots.get(token);
+  const [collections, setCollections] = useState(() => snapshot?.collections || []);
+  const [totalCollections, setTotalCollections] = useState(() => snapshot?.totalCollections || 0);
+  const [totalUsers, setTotalUsers] = useState(() => snapshot?.totalUsers || 0);
+  const [activeUsers, setActiveUsers] = useState(() => snapshot?.activeUsers || 0);
+  const [inactiveUsers, setInactiveUsers] = useState(() => snapshot?.inactiveUsers || 0);
+  const [totalSos, setTotalSos] = useState(() => snapshot?.totalSos || 0);
+  const [loading, setLoading] = useState(() => !snapshot);
   const [error, setError] = useState('');
 
   const loadDashboard = useCallback(async (isMounted = () => true) => {
@@ -48,6 +51,14 @@ const AdminDashboardScreen = ({
       setActiveUsers(activeUserResult.meta?.total ?? 0);
       setInactiveUsers(inactiveUserResult.meta?.total ?? 0);
       setTotalSos(sosResult.meta?.total ?? 0);
+      dashboardSnapshots.set(token, {
+        collections: collectionResult.collections || [],
+        totalCollections: collectionResult.meta?.total ?? (collectionResult.collections || []).length,
+        totalUsers: userResult.meta?.total ?? 0,
+        activeUsers: activeUserResult.meta?.total ?? 0,
+        inactiveUsers: inactiveUserResult.meta?.total ?? 0,
+        totalSos: sosResult.meta?.total ?? 0,
+      });
     } catch (requestError) {
       if (isMounted()) setError(requestError.message || 'Unable to load the admin overview.');
     } finally {
@@ -57,9 +68,9 @@ const AdminDashboardScreen = ({
 
   useEffect(() => {
     let mounted = true;
-    loadDashboard(() => mounted);
+    if (!snapshot) loadDashboard(() => mounted);
     return () => { mounted = false; };
-  }, [loadDashboard]);
+  }, [loadDashboard, snapshot]);
 
   const recentSos = [];
 

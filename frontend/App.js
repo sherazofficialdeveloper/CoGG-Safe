@@ -1018,11 +1018,6 @@ function AppContent() {
                 setSelectedUser(userData);
                 setScreen('adminUserDetail');
               }}
-              onEditUser={userData => {
-                setSelectedUser(userData);
-                setUserDetailBackScreen('adminUsers');
-                setScreen('adminUserDetailEdit');
-              }}
               onBack={() => setScreen('adminDashboard')}
               onProfile={() => setScreen('adminProfile')}
             />
