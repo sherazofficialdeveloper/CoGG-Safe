@@ -1,6 +1,7 @@
 import {createSos, reportSosMedia, uploadSosMedia, reportSosService} from '../../../api/resources';
 import {getConnectivityState} from '../connectivity';
 import {sosLocalStore} from '../storage';
+import {validateNativeSosMedia} from './nativeMedia';
 const MEDIA_COMPONENTS = [
   {component: 'frontImage', service: 'camera', path: 'frontImagePath', mimeType: 'image/jpeg'},
   {component: 'backImage', service: 'camera', path: 'backImagePath', mimeType: 'image/jpeg'},
@@ -72,7 +73,7 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
  * still need it, instead of creating duplicate cloud objects for media that
  * already succeeded.
  */
-export async function uploadCapturedSosMedia({token, sosEvent}) {
+export async function uploadCapturedSosMedia({token, sosEvent, component = null}) {
   const backendId = sosEvent?.backendId;
   if (!token || !backendId) {
     return {status: 'PENDING', reason: 'Media upload is waiting for an authenticated backend SOS.'};
@@ -89,13 +90,14 @@ export async function uploadCapturedSosMedia({token, sosEvent}) {
   const uploaded = [];
   const failures = [];
 
-  for (const item of MEDIA_COMPONENTS) {
+  for (const item of MEDIA_COMPONENTS.filter(candidate => !component || candidate.component === component)) {
     // Idempotent skip: this component was already durably stored on a
     // previous (possibly partially-failed) attempt.
     if (uploadState[item.component]?.status === 'SUCCESS') {
       uploaded.push({component: item.component, storageRef: uploadState[item.component].storageRef});
       continue;
     }
+    if (['FAILED', 'REPORTED_FAILED'].includes(uploadState[item.component]?.status)) continue;
 
     const capture = sosEvent.services?.[item.service] || {};
     const localPath = capture[item.path];
@@ -115,6 +117,16 @@ export async function uploadCapturedSosMedia({token, sosEvent}) {
 
     try {
       if (localPath) {
+        const validFile = await validateNativeSosMedia(localPath);
+        if (!validFile) {
+          uploadState[item.component] = {
+            status: 'FAILED',
+            component: item.component === 'frontImage' ? 'FRONT_CAMERA' : item.component === 'backImage' ? 'BACK_CAMERA' : 'AUDIO',
+            error: `${item.component} file is missing, unreadable, or empty.`,
+          };
+          failures.push({component: item.component, error: uploadState[item.component].error, permanent: true});
+          continue;
+        }
         const response = await uploadSosMedia(token, backendId, item.component, {
           uri: localPath.startsWith('file://') ? localPath : `file://${localPath}`,
           type: item.mimeType,
@@ -124,7 +136,11 @@ export async function uploadCapturedSosMedia({token, sosEvent}) {
         if (media?.status !== 'success' || !media.storageRef) {
           throw new Error(`Backend did not confirm durable storage for ${item.component}.`);
         }
-        uploadState[item.component] = {status: 'SUCCESS', storageRef: media.storageRef};
+        uploadState[item.component] = {
+          status: 'SUCCESS',
+          component: item.component === 'frontImage' ? 'FRONT_CAMERA' : item.component === 'backImage' ? 'BACK_CAMERA' : 'AUDIO',
+          storageRef: media.storageRef,
+        };
         uploaded.push({component: item.component, storageRef: media.storageRef});
         if (__DEV__) {
           const tag = item.component === 'frontImage' ? 'FRONT_IMAGE_UPLOAD_SUCCESS'
@@ -150,8 +166,9 @@ export async function uploadCapturedSosMedia({token, sosEvent}) {
   await sosLocalStore.upsertSos({...sosEvent, mediaUploadState: uploadState});
 
   if (failures.length > 0) {
+    const onlyPermanentFailures = failures.every(item => item.permanent);
     return {
-      status: 'PENDING',
+      status: onlyPermanentFailures ? 'FAILED' : 'PENDING',
       reason: `Media upload incomplete for: ${failures.map(item => item.component).join(', ')}.`,
       uploaded,
       failures,

@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   Text,
   BackHandler,
-  DeviceEventEmitter,
 } from 'react-native';
 
 import {SafeAreaProvider} from 'react-native-safe-area-context';
@@ -40,7 +39,6 @@ import AdminUserDetailScreen from './src/screens/admin/AdminUserDetailScreen';
 import AdminSosScreen from './src/screens/admin/AdminSosScreen';
 import AdminSosDetailScreen from './src/screens/admin/AdminSosDetailScreen';
 import AdminNotificationScreen from './src/screens/admin/AdminNotificationScreen';
-import {listNotifications} from './src/api/resources';
 import AdminProfileScreen from './src/screens/admin/AdminProfileScreen';
 import AdminCollectionsScreen from './src/screens/admin/AdminCollectionsBackendScreen';
 import AdminAddCollectionScreen from './src/screens/admin/AdminAddCollectionScreen';
@@ -56,8 +54,7 @@ import {
   syncSosToBackend,
   uploadCapturedSosMedia,
 } from './src/features/sos/services/backendSyncService';
-import {getCollection, reportLocation, reportSosService, getSos, listContacts} from './src/api/resources';
-import {checkApiReachability} from './src/api/config';
+import {getCollection} from './src/api/resources';
 
 import {getCurrentLocation} from './src/features/sos/services/locationService';
 import {sendEmergencySms, sendEmergencySmsToNumbers} from './src/features/sos/services/smsService';
@@ -75,8 +72,6 @@ import {connectivityService} from './src/features/sos/connectivity';
 import {processSosQueue} from './src/features/sos/queue/queueWorker';
 import {recoverActiveSosWork} from './src/features/sos/recovery';
 import {sosLocalStore} from './src/features/sos/storage';
-import {getCollectionCacheKey, normalizePhoneNumber} from './src/features/sos/services/phoneNumber';
-import {emitSosToast} from './src/features/sos/services/sosToastService';
 import {
   observeFirebaseNotifications,
   registerDeviceToken,
@@ -88,7 +83,7 @@ import {
 // ============================================================
 
 function AppContent() {
-  const {token, user, loading, signIn, signOut, updateUser} = useAuth();
+  const {token, user, loading, signIn, signOut} = useAuth();
 
   const [screen, setScreen] = useState('loading');
   const [portal, setPortal] = useState('admin');
@@ -103,18 +98,27 @@ function AppContent() {
   const [userNotificationCount, setUserNotificationCount] = useState(0);
   const [adminNotificationCount, setAdminNotificationCount] = useState(0);
   const sosCancelSignalRef = useRef({cancelled: false});
-  const sosTriggerInFlightRef = useRef(false);
+
+  // Toast State
+  const [toast, setToast] = useState({
+    visible: false,
+    message: '',
+    type: 'success',
+  });
 
   const showToast = useCallback((message, type = 'success') => {
-    emitSosToast(message, type);
+    setToast({
+      visible: true,
+      message,
+      type,
+    });
   }, []);
 
-  const handleUserNotificationCountChange = useCallback((count) => {
-    setUserNotificationCount(count);
-  }, []);
-
-  const handleAdminNotificationCountChange = useCallback((count) => {
-    setAdminNotificationCount(count);
+  const hideToast = useCallback(() => {
+    setToast(prev => ({
+      ...prev,
+      visible: false,
+    }));
   }, []);
 
   // ============================================================
@@ -139,21 +143,6 @@ function AppContent() {
       setScreen('userHome');
     }
   }, [user, loading]);
-
-  useEffect(() => {
-    if (!token || user?.role !== 'admin') return undefined;
-    let mounted = true;
-    listNotifications(token)
-      .then(result => {
-        if (mounted) {
-          setAdminNotificationCount((result.notifications || []).filter(item => !item.isRead).length);
-        }
-      })
-      .catch(() => undefined);
-    return () => {
-      mounted = false;
-    };
-  }, [token, user?.role]);
 
   const goToLogin = useCallback(async () => {
     if (token) {
@@ -201,15 +190,6 @@ function AppContent() {
   // SOS QUEUE / RECOVERY / CONNECTIVITY
   // ============================================================
 
-  // One-shot, non-blocking backend reachability check on app start. Purely
-  // diagnostic (logs only) — see checkApiReachability in src/api/config.js
-  // for why this matters: an unreachable API_BASE_URL (e.g. 10.0.2.2 on a
-  // physical device) otherwise looks identical to "SOS just isn't working"
-  // with no indication of why.
-  useEffect(() => {
-    checkApiReachability();
-  }, []);
-
   useEffect(() => {
     connectivityService.setup();
 
@@ -232,6 +212,7 @@ function AppContent() {
               uploadCapturedSosMedia({
                 token,
                 sosEvent: event,
+                component: item.payload?.component || null,
               }),
 
             liveLocation: async (item, event) =>
@@ -242,80 +223,26 @@ function AppContent() {
                 startedAt: event.liveLocationStartedAt,
               }),
 
-            sms: async (item, event) => {
-              const cachedContacts = await sosLocalStore
-                .getCachedCollectionInfo(event.collectionId)
-                .then(cached => Array.isArray(cached?.contactNumbers) ? cached.contactNumbers : [])
-                .catch(() => []);
-              const allNumbers = [event.meta?.emergencyNumber, ...cachedContacts].filter(Boolean);
+            sms: async (item, event) => sendEmergencySms({
+              phoneNumber: event.meta?.emergencyNumber,
+              message: `Emergency SOS ${event.id} for ${user?.username || 'user'}.`,
+            }),
+
+            linkSms: async (item, event) => {
+              if (!event.emergencyLink) {
+                return {status: 'WAITING_FOR_LINK', reason: 'Waiting for the backend emergency link.'};
+              }
               return sendEmergencySmsToNumbers({
+                phoneNumbers: [event.meta?.emergencyNumber],
+                message: `Emergency assistance requested. Track the SOS here: ${event.emergencyLink}`,
                 sosId: event.id,
-                phoneNumbers: allNumbers,
-                message: `Emergency SOS ${event.id} for ${user?.username || 'user'}.`,
+                serviceKey: 'linkSms',
               });
             },
 
             call: async (item, event) => initiateEmergencyCall({
               emergencyNumber: event.meta?.emergencyNumber,
             }),
-
-            // Retries only the SPECIFIC camera lens that failed on the
-            // original attempt — captureEmergencyPhotos merges its result
-            // with previousResult so an already-succeeded lens is never
-            // re-captured or overwritten. Enqueued automatically by
-            // orchestrator.js whenever camera resolves 'PENDING' (exactly
-            // one lens missing) — see RETRYABLE_SERVICES.
-            camera: async (item, event) =>
-              captureEmergencyPhotos({
-                sosId: event.id,
-                previousResult: event.services?.camera || null,
-              }),
-
-            // Durable canonical-link follow-up SMS. Replaces the old
-            // in-memory `emergencyLinkPromise.then(...)` chain: this
-            // processor is re-invoked by the persistent queue (on every
-            // connectivity change and app restart, via
-            // recoverActiveSosWork/processSosQueue) until it succeeds, so
-            // the link SMS can no longer be lost to a process death. It
-            // has two independent dependencies, checked separately:
-            //   - the canonical link itself, which only exists once the
-            //     `backend` job has completed (requires internet) — if
-            //     it's not there yet, we return WAITING_FOR_LINK, which
-            //     queueWorker treats as "no attempt was made" rather than
-            //     a failed send, so it never burns MAX_ATTEMPTS;
-            //   - cellular for the actual send, enforced upstream by
-            //     queueWorker's requiresCellular('LINK_SMS').
-            linkSms: async (item, event) => {
-              if (!event.emergencyLink) {
-                // Distinct from 'PENDING': no SMS send has been attempted
-                // here, we're only waiting on the backend to produce the
-                // canonical link. queueWorker treats WAITING_FOR_LINK as a
-                // non-attempt, so it can never exhaust MAX_ATTEMPTS just
-                // because the link is slow to arrive.
-                return {
-                  status: 'WAITING_FOR_LINK',
-                  reason: 'Waiting for the canonical emergency link from the backend.',
-                };
-              }
-
-              const cachedNumber = await sosLocalStore
-                .getCachedCollectionInfo(event.collectionId)
-                .then(cached => normalizePhoneNumber(cached?.emergencyCallNumber))
-                .catch(() => null);
-              const phoneNumber = normalizePhoneNumber(event.meta?.emergencyNumber) || cachedNumber;
-
-              if (!phoneNumber) {
-                return {
-                  status: 'NOT_CONFIGURED',
-                  reason: 'No emergency SMS number is configured for this collection.',
-                };
-              }
-
-              return sendEmergencySms({
-                phoneNumber,
-                message: `Emergency SOS details (photos, audio, live location): ${event.emergencyLink}`,
-              });
-            },
           },
         });
 
@@ -343,44 +270,21 @@ function AppContent() {
     return connectivityService.subscribe(processQueue);
   }, [token, user?.username]);
 
-  // Emergency SMS must be sendable with zero network dependency. We proactively
-  // cache the user's collection emergency number locally (best-effort, outside
-  // the SOS path) so it is already available offline by the time SOS is ever
-  // triggered, instead of requiring a live backend call at emergency time.
   useEffect(() => {
-    if (!token || !user || user.role !== 'user' || !user.collectionId) {
-      return undefined;
-    }
-
-    let cancelled = false;
+    if (!token || !user?.collectionId) return undefined;
+    let active = true;
     getCollection(token, user.collectionId)
       .then(response => {
-        if (cancelled) return;
-        const emergencyCallNumber = normalizePhoneNumber(response?.collection?.emergencyCallNumber);
-        const cacheKey = getCollectionCacheKey(user.collectionId);
-        if (emergencyCallNumber && cacheKey) {
-          sosLocalStore.setCachedCollectionInfo(cacheKey, {emergencyCallNumber}).catch(() => undefined);
+        if (active && response?.collection) {
+          return sosLocalStore.setCachedCollectionInfo(user.collectionId, response.collection);
         }
+        return undefined;
       })
       .catch(() => undefined);
-
-    // Same reasoning, for the full list of collection member numbers SMS
-    // must reach (see sendEmergencySmsToNumbers). Cached here too, so a
-    // user who never opens the app between login and an emergency still
-    // has an up-to-date recipient list by the time SOS triggers.
-    listContacts(token)
-      .then(contacts => {
-        if (cancelled) return;
-        const numbers = (contacts || []).map(c => c?.mobileNumber).filter(Boolean);
-        const cacheKey = getCollectionCacheKey(user.collectionId);
-        if (cacheKey) sosLocalStore.setCachedCollectionInfo(cacheKey, {contactNumbers: numbers}).catch(() => undefined);
-      })
-      .catch(() => undefined);
-
     return () => {
-      cancelled = true;
+      active = false;
     };
-  }, [token, user]);
+  }, [token, user?.collectionId]);
 
   useEffect(() => {
     if (!token || !user) {
@@ -438,32 +342,6 @@ function AppContent() {
       unsubscribe();
     };
   }, [handleIncomingNotification, showToast, signOut, token, user]);
-
-  // ============================================================
-  // SOS GLOBAL TOAST LISTENER
-  // ============================================================
-
-  useEffect(() => {
-    const smsStatusSubscription = DeviceEventEmitter.addListener('sosSmsStatus', payload => {
-      const stage = payload?.stage || 'sent';
-      const status = payload?.status || 'success';
-      const reason = payload?.reason || 'SMS status updated';
-
-      if (stage === 'delivered') {
-        showToast('SMS delivered', 'success');
-        return;
-      }
-
-      if (status === 'failed') {
-        showToast('SMS failed', 'error');
-        return;
-      }
-
-      showToast('SMS sent', 'success');
-    });
-
-    return () => smsStatusSubscription.remove();
-  }, [showToast]);
 
   // ============================================================
   // HANDLE ANDROID BACK BUTTON
@@ -559,282 +437,81 @@ function AppContent() {
   // SOS HANDLER
   // ============================================================
 
-  /**
-   * Wait for backend to confirm ACTIVE status (after cancellation window).
-   * Polls with exponential backoff, times out after 30 seconds.
-   */
-  const waitForSosActive = useCallback(async (sosId, maxWaitMs = 30000, initialDelayMs = 500) => {
-    const startTime = Date.now();
-    let delayMs = initialDelayMs;
-    
-    while (Date.now() - startTime < maxWaitMs) {
-      try {
-        const sosResponse = await getSos(token, sosId);
-        const sos = sosResponse?.sos || sosResponse;
-        if (__DEV__) {
-          console.log('[SOS_DEBUG] POLL_RESPONSE', {backendId: sosId, status: sos?.status});
-        }
-        if (sos?.status === 'active') {
-          return {success: true, sos};
-        }
-      } catch (err) {
-        // Network error, retry
-        if (__DEV__) {
-          console.log('WAIT_FOR_ACTIVE_POLL_ERROR', {sosId, error: err?.message});
-        }
-      }
-      
-      // Exponential backoff with cap
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-      delayMs = Math.min(delayMs * 1.5, 2000);
-    }
-    
-    return {success: false, reason: 'Timeout waiting for backend to activate SOS'};
-  }, [token]);
-
-  const handleTriggerSos = useCallback(async ({skipNavigation = false} = {}) => {
-    if (__DEV__) console.log('[SOS][TRIGGER] HANDLE_TRIGGER_START', {skipNavigation});
-    if (__DEV__) {
-      console.log('SOS_ACTIVATION_REQUESTED', {
-        sosLoading,
-        userId: user?._id || user?.id,
-        skipNavigation,
-      });
-    }
-
-    if (sosLoading || sosTriggerInFlightRef.current) {
-      return;
-    }
-
-    sosTriggerInFlightRef.current = true;
+  const handleTriggerSos = async () => {
     setSosError('');
     setSosLoading(true);
     sosCancelSignalRef.current = {cancelled: false};
 
-    if (__DEV__) {
-      console.log('SOS_ORCHESTRATOR_STARTED', {source: 'app-trigger', skipNavigation});
-    }
-
     try {
-      let collection = null;
-      let collectionPromise = Promise.resolve();
-      // A locally cached emergency number (see the collection-prefetch effect
-      // above) is the primary source for SMS, so sending never has to wait on
-      // a live backend call. It is read once per trigger, before activation,
-      // so it is ready the instant the SMS branch starts.
-      const collectionCacheKey = getCollectionCacheKey(user?.collectionId);
-      const cachedEmergencyNumberPromise = sosLocalStore
-        .getCachedCollectionInfo(collectionCacheKey)
-        .then(cached => normalizePhoneNumber(cached?.emergencyCallNumber))
-        .catch(() => null);
-
-      // Same offline-first reasoning as the emergency number above, but for
-      // the full set of "all valid phone numbers belonging to the selected
-      // collection" that SMS must reach (unlike the call, which still only
-      // rings the single configured emergencyCallNumber). Cached from the
-      // last successful /api/contacts fetch (see the contacts-prefetch
-      // effect below) so a triggered SOS never waits on a live request to
-      // know who to text.
-      const cachedContactNumbersPromise = sosLocalStore
-        .getCachedCollectionInfo(collectionCacheKey)
-        .then(cached => Array.isArray(cached?.contactNumbers) ? cached.contactNumbers : [])
-        .catch(() => []);
-
+      let collection = await sosLocalStore.getCachedCollectionInfo(user?.collectionId);
+      if (collection?.collection) collection = collection.collection;
       const result = await activateSosFlow({
         userId: user?._id || user?.id,
         collectionId: user?.collectionId,
         countdownMs: 10000,
         cancelSignal: sosCancelSignalRef.current,
-        onPending: event => {
-          if (__DEV__) console.log('[SOS_DEBUG] LOCAL_EVENT', {eventId: event.id});
-          if (!skipNavigation) {
-            setSelectedSos(event);
-            setScreen('userSosActive');
-          }
-
-          collectionPromise = getCollection(token, user?.collectionId)
-            .then(collectionResponse => {
-            collection = collectionResponse?.collection || null;
-            const emergencyNumber = normalizePhoneNumber(collection?.emergencyCallNumber || event?.meta?.emergencyNumber);
-            if (emergencyNumber) {
-              sosLocalStore.setCachedCollectionInfo(collectionCacheKey, {emergencyCallNumber: emergencyNumber}).catch(() => undefined);
-              return sosLocalStore.upsertSos({
-                ...event,
-                meta: {
-                  ...event.meta,
-                  emergencyNumber,
-                },
-              });
-            }
-            return undefined;
-          })
-          .catch(error => {
-            if (__DEV__) {
-              console.log('SOS_COLLECTION_LOAD_FAILED', {error: error?.message || error});
-            }
+        onPending: async event => {
+          setSelectedSos(event);
+          setScreen('userSosActive');
+          await sosLocalStore.upsertSos({
+            ...event,
+            meta: {
+              ...event.meta,
+              emergencyNumber: collection?.emergencyCallNumber || null,
+            },
           });
-
-          // Best-effort refresh of the "everyone in this collection" number
-          // list, in parallel with the collection fetch above. This never
-          // blocks the SMS branch — it only refreshes the local cache
-          // (which cachedContactNumbersPromise above reads from) for the
-          // NEXT trigger; the current trigger already read whatever was
-          // cached before this run started, by design (no live-fetch wait).
-          listContacts(token)
-            .then(contacts => {
-              const numbers = (contacts || [])
-                .map(c => c?.mobileNumber)
-                .filter(Boolean);
-              if (collectionCacheKey) {
-                sosLocalStore.setCachedCollectionInfo(collectionCacheKey, {contactNumbers: numbers}).catch(() => undefined);
-              }
-            })
-            .catch(error => {
-              if (__DEV__) {
-                console.log('SOS_CONTACTS_LOAD_FAILED', {error: error?.message || error});
-              }
-            });
         },
 
         serviceRunners: {
+          // ------------------------------------------------------
+          // SMS
+          // ------------------------------------------------------
           sms: async event => {
-            // SMS is an independent emergency service: it must never wait on
-            // the backend, on internet, or on any other SOS branch. The
-            // numbers come from the local cache (instant, works offline);
-            // the live backend/contacts fetch is not awaited here.
-            const [cachedNumber, cachedContacts] = await Promise.all([
-              cachedEmergencyNumberPromise,
-              cachedContactNumbersPromise,
-            ]);
-            const primaryNumber = cachedNumber || normalizePhoneNumber(collection?.emergencyCallNumber || event?.meta?.emergencyNumber);
-            // ALL valid numbers belonging to the selected collection: the
-            // configured primary emergency line PLUS every other member of
-            // the collection's own mobile number (deduplicated). Never just
-            // the single primary number.
-            const allNumbers = [primaryNumber, ...cachedContacts].filter(Boolean);
+            const location = await getCurrentLocation().catch(() => null);
 
-            // Location enriches the SMS body when it's already available, but
-            // a slow or unavailable GPS fix must never delay the emergency SMS.
-            const location = await Promise.race([
-              getCurrentLocation().catch(() => null),
-              new Promise(resolve => setTimeout(() => resolve(null), 1500)),
-            ]);
-            const mapsLink = location
-              ? `https://maps.google.com/?q=${location.latitude},${location.longitude}`
-              : '';
-            const message = [
-              `Emergency SOS Alert! ${user?.username || 'A user'} needs help.`,
-              location ? `Location: ${mapsLink}` : null,
-              `Time: ${new Date().toLocaleString()}`,
-            ].filter(Boolean).join(' ');
+            const message = location
+              ? `Emergency assistance requested. Location: ${location.latitude}, ${location.longitude}`
+              : 'Emergency assistance requested.';
 
-            const result = await sendEmergencySmsToNumbers({
-              sosId: event.id,
-              phoneNumbers: allNumbers,
+            return sendEmergencySmsToNumbers({
+              phoneNumbers: [collection?.emergencyCallNumber],
               message,
+              sosId: event.id,
             });
-
-            // Reporting the outcome to the backend is best-effort and must
-            // never hold up the SMS operation itself, so it is fired after
-            // SMS completes without being awaited by the SMS branch. The
-            // backend's `sms` component is a single aggregate status (it has
-            // no per-recipient schema) — result.status already reflects
-            // "at least one recipient succeeded" per sendEmergencySmsToNumbers.
-            collectionPromise.finally(() => {
-              if (event.backendId) {
-                const statusMap = {
-                  'COMPLETED': 'success',
-                  'PENDING': 'pending',
-                  'FAILED': 'failed',
-                  'UNSUPPORTED': 'unsupported',
-                  'NOT_CONFIGURED': 'unsupported',
-                };
-                reportSosService(token, event.backendId, 'sms', {
-                  status: statusMap[result.status] || 'failed',
-                  ...(result.reason ? {error: result.reason} : {}),
-                }).catch(() => undefined);
-              }
-            });
-
-            // The canonical emergency-link follow-up SMS is no longer sent
-            // from here. It is a durable queue job (LINK_SMS, enqueued
-            // unconditionally in orchestrator.js/activateSosFlow) handled
-            // by the `linkSms` processor above, so it survives app close/
-            // process death instead of depending on this in-flight call
-            // still being alive when the backend eventually confirms.
-
-            return result;
           },
 
-          call: async event => {
-            // The call rings ONE primary number (kept intentionally separate
-            // from SMS-to-everyone, per the collection's configured
-            // emergencyCallNumber) and must never wait on the live
-            // collection API — the cached number is read first, exactly
-            // like the SMS branch, so a slow/offline network never delays
-            // dialing. The live collectionPromise is only consulted as a
-            // last-resort fallback, with a short timeout, for a brand-new
-            // device that has no cache yet.
-            if (__DEV__) console.log('CALL_STARTED', {eventId: event.id});
-            const cachedNumber = await cachedEmergencyNumberPromise;
-            let emergencyNumber = cachedNumber || event?.meta?.emergencyNumber;
-            if (!emergencyNumber) {
-              await Promise.race([
-                collectionPromise,
-                new Promise(resolve => setTimeout(resolve, 1500)),
-              ]);
-              emergencyNumber = normalizePhoneNumber(collection?.emergencyCallNumber || event?.meta?.emergencyNumber);
-            }
+          // ------------------------------------------------------
+          // EMERGENCY CALL
+          // ------------------------------------------------------
+          call: async () =>
+            initiateEmergencyCall({
+              emergencyNumber: collection?.emergencyCallNumber,
+            }),
 
-            const result = await initiateEmergencyCall({emergencyNumber});
-            if (__DEV__) {
-              console.log(result.status === 'INITIATED' ? 'CALL_SUCCESS' : 'CALL_FAILED', {eventId: event.id, result});
-            }
-            if (event.backendId) {
-              // Map result status to COMPONENT_STATUS values
-              const statusMap = {
-                'INITIATED': 'success',
-                'PENDING': 'pending',
-                'FAILED': 'failed',
-                'UNSUPPORTED': 'unsupported',
-                'NOT_CONFIGURED': 'unsupported',
-              };
-              await reportSosService(token, event.backendId, 'call', {
-                status: statusMap[result.status] || 'failed',
-                ...(result.reason ? {error: result.reason} : {}),
-              });
-            }
-            return result;
-          },
-
+          // ------------------------------------------------------
+          // CAMERA
+          // ------------------------------------------------------
           camera: async event =>
             captureEmergencyPhotos({
               sosId: event.id,
             }),
 
+          // ------------------------------------------------------
+          // AUDIO
+          // ------------------------------------------------------
           audio: async event =>
             recordEmergencyAudio({
               sosId: event.id,
             }),
 
-          mediaUpload: async event =>
-            uploadCapturedSosMedia({token, sosEvent: event}),
+          // ------------------------------------------------------
+          // LOCATION
+          // ------------------------------------------------------
+          location: async () => getCurrentLocation(),
 
-location: async event => {
-            try {
-              const result = await getCurrentLocation();
-              if (event.backendId) {
-                await reportLocation(token, event.backendId, {status: 'success', latitude: result.latitude, longitude: result.longitude});
-              }
-              return result;
-            } catch (error) {
-              if (event.backendId) {
-                await reportLocation(token, event.backendId, {status: 'failed', error: error?.message || 'Location capture failed'});
-              }
-              throw error;
-            }
-          },
-
+          // ------------------------------------------------------
+          // LIVE LOCATION
+          // ------------------------------------------------------
           liveLocation: async event =>
             startLiveLocationSharing({
               token,
@@ -842,83 +519,56 @@ location: async event => {
               backendId: event.backendId,
             }),
 
-          backend: async event => {
-            // The canonical link (once available) is picked up by the
-            // durable LINK_SMS queue job via event.emergencyLink — no
-            // in-memory hand-off needed here any more.
-            return syncSosToBackend({
+          // ------------------------------------------------------
+          // BACKEND
+          // ------------------------------------------------------
+          backend: async event =>
+            syncSosToBackend({
               token,
               sosEvent: event,
               idempotencyKey: event.id,
-            });
-          },
+            }),
 
+          // ------------------------------------------------------
+          // EMAIL
+          // ------------------------------------------------------
           email: async () => ({
-            status: 'PENDING',
-            reason: 'Email dispatch is pending backend confirmation.',
+            status: 'COMPLETED',
+            reason: 'Email dispatch is handled by the backend after activation.',
           }),
 
+          // ------------------------------------------------------
+          // NOTIFICATIONS
+          // ------------------------------------------------------
           notifications: async () => ({
-            status: 'PENDING',
-            reason: 'Push notification will be dispatched by the backend after activation.',
+            status: 'COMPLETED',
+            reason: 'Notification dispatch is handled by the backend after activation.',
           }),
         },
       });
 
       if (result?.cancelled) {
         showToast('SOS cancelled before dispatch.', 'info');
-      } else if (result?.event && result.event.backendId) {
-        // Wait for backend to confirm ACTIVE status
-        if (!skipNavigation) {
-          showToast('Waiting for server confirmation...', 'info');
-          const activationResult = await waitForSosActive(result.event.backendId);
-          
-          if (activationResult.success) {
-            showToast('SOS Active', 'success');
-            setSelectedSos({...result.event, ...activationResult.sos});
-            setScreen('userHome');
-          } else {
-            showToast(`Backend confirmation was not received: ${activationResult.reason}`, 'error');
-            setSelectedSos({...result.event, status: 'PENDING', activationError: activationResult.reason});
-          }
-        } else {
-          showToast('SOS alert triggered and queued for delivery.', 'success');
-        }
       } else if (result?.event) {
-        setSelectedSos({...result.event, status: 'PENDING', activationError: 'Backend SOS creation is pending.'});
-        if (!skipNavigation) {
-          setScreen('userSosActive');
-        }
-        showToast('SOS started; waiting for backend confirmation.', 'info');
+        setSelectedSos(result.event);
+        setScreen('userSosActive');
+
+        showToast(
+          'SOS alert triggered locally and queued for delivery.',
+          'success',
+        );
       }
     } catch (error) {
       const message =
         error?.message || 'Unable to trigger the SOS alert.';
 
       setSosError(message);
+
       showToast('Failed to trigger SOS', 'error');
     } finally {
       setSosLoading(false);
-      sosTriggerInFlightRef.current = false;
     }
-  }, [sosLoading, showToast, token, user, waitForSosActive]);
-
-  useEffect(() => {
-    if (!user || user.role !== 'user') {
-      return undefined;
-    }
-
-    const listener = DeviceEventEmitter.addListener(
-      'powerButtonSosTrigger',
-      () => {
-        if (!sosLoading) {
-          handleTriggerSos({skipNavigation: true});
-        }
-      },
-    );
-
-    return () => listener.remove();
-  }, [handleTriggerSos, sosLoading, user]);
+  };
 
   // ============================================================
   // LOADING SCREEN
@@ -1035,8 +685,6 @@ location: async event => {
             }>
             <UserProfileScreen
               user={user}
-              token={token}
-              onUserUpdated={updateUser}
               onLogout={goToLogin}
               onBack={() => setScreen('userHome')}
             />
@@ -1090,7 +738,7 @@ location: async event => {
                 setSelectedNotification(notification);
                 setScreen('userNotificationDetail');
               }}
-              onBadgeCountChange={handleUserNotificationCountChange}
+              onBadgeCountChange={count => setUserNotificationCount(count)}
               onBack={() => setScreen('userHome')}
             />
           </AppShell>
@@ -1180,7 +828,6 @@ location: async event => {
 
     const AdminLayoutNoHeader = ({children, bottomNav}) => (
       <View style={styles.adminContainer}>
-        <Toast />
         <View style={styles.adminContent}>
           {children}
         </View>
@@ -1196,7 +843,6 @@ location: async event => {
 
     const AdminLayoutWithHeader = ({children, bottomNav}) => (
       <View style={styles.adminContainer}>
-        <Toast />
         <AdminHeader
           user={user}
           onNotifications={() =>
@@ -1205,7 +851,6 @@ location: async event => {
           onProfile={() => setScreen('adminProfile')}
           onLogout={goToLogin}
           activeSosCount={activeSosCount}
-          notificationCount={adminNotificationCount}
           onSwitchToUser={() => {
             setPortal('user');
             setScreen('userHome');
@@ -1235,7 +880,6 @@ location: async event => {
               />
             }>
             <AdminDashboardScreen
-              token={token}
               user={user}
               onNavigate={handleAdminNavigation}
               onCollections={() =>
@@ -1429,7 +1073,7 @@ location: async event => {
                 setSelectedNotification(notification);
                 setScreen('adminNotificationDetail');
               }}
-              onBadgeCountChange={handleAdminNotificationCountChange}
+              onBadgeCountChange={count => setAdminNotificationCount(count)}
             />
           </AdminLayoutNoHeader>
         );
@@ -1485,7 +1129,6 @@ location: async event => {
               />
             }>
             <AdminDashboardScreen
-              token={token}
               user={user}
               onNavigate={handleAdminNavigation}
               onCollections={() =>

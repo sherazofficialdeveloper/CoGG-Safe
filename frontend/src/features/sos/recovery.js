@@ -6,6 +6,7 @@ const RECOVERABLE_SERVICES = {
   sms: 'SMS',
   call: 'CALL',
   backend: 'BACKEND',
+  location: 'LOCATION',
   liveLocation: 'LIVELOCATION',
   // Durable canonical-link follow-up SMS (see orchestrator.js /
   // queueWorker.js). Included here as a safety net so recovery also
@@ -67,6 +68,23 @@ export async function recoverActiveSosWork(now = Date.now()) {
       if (status === 'PENDING' || status === 'FAILED' || status === 'RETRY_WAITING') {
         await enqueueSosJob({sosId: event.id, type, serviceName});
         recovered.push({sosId: event.id, serviceName});
+      }
+    }
+    if (
+      event.services?.camera?.frontImagePath ||
+      event.services?.camera?.backImagePath ||
+      event.services?.audio?.localPath ||
+      event.services?.camera?.status === 'FAILED' ||
+      event.services?.audio?.status === 'FAILED'
+    ) {
+      for (const component of ['frontImage', 'backImage', 'audio']) {
+        await enqueueSosJob({
+          sosId: event.id,
+          backendSosId: event.backendId || null,
+          type: `MEDIA_UPLOAD:${component}`,
+          serviceName: 'mediaUpload',
+          payload: {component},
+        });
       }
     }
   }

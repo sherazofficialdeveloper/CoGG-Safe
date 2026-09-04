@@ -75,6 +75,34 @@ describe('Problem 1 — offline SOS restart recovery', () => {
     expect(reconciled.activatedAt).toBe('2026-01-01T00:00:00.000Z');
   });
 
+  test('a valid location captured before backendId is durably persisted and queued for later delivery', async () => {
+    const result = await createSosLocalEvent({userId: 'user-1', collectionId: 'collection-1'});
+    const location = {
+      status: 'COMPLETED',
+      latitude: 12.34,
+      longitude: 56.78,
+      accuracy: 15,
+      capturedAt: '2026-09-03T00:00:00.000Z',
+      source: 'gps',
+    };
+
+    await sosLocalStore.upsertSos({
+      ...result,
+      location,
+      services: {
+        ...result.services,
+        location: {status: 'COMPLETED', completedAt: new Date().toISOString(), error: null},
+      },
+    });
+
+    await enqueueSosJob({sosId: result.id, type: 'LOCATION', serviceName: 'location'});
+
+    const persisted = await sosLocalStore.getSosById(result.id);
+    expect(persisted.location.latitude).toBe(12.34);
+    expect(persisted.location.longitude).toBe(56.78);
+    expect((await sosLocalStore.getPendingQueue()).some(item => item.localSosId === result.id && item.type === 'LOCATION')).toBe(true);
+  });
+
   test('does not resurrect a CANCELLED event even if a stale backend job later succeeds', async () => {
     const event = await createSosLocalEvent({userId: 'user-1', collectionId: 'collection-1'});
     await sosLocalStore.upsertSos({...event, status: 'CANCELLED'});

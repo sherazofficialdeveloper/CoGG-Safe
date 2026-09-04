@@ -1,5 +1,7 @@
 import {sosLocalStore} from '../storage';
 import {getConnectivityState} from '../connectivity';
+import {SOS_STATES, transitionSosState} from '../stateMachine';
+import {isValidLocation} from '../services/locationService';
 
 const MAX_ATTEMPTS = 5;
 const BASE_BACKOFF_MS = 5000;
@@ -12,9 +14,11 @@ const BASE_BACKOFF_MS = 5000;
 // below). WAITING_FOR_LINK is polled on its own short fixed interval,
 // independent of the exponential backoff used for real failures.
 const WAITING_FOR_LINK_POLL_MS = 4000;
+const processingQueueItems = new Set();
 
 function requiresInternet(item) {
-  return ['BACKEND_SYNC', 'BACKEND', 'MEDIA_UPLOAD', 'EMAIL', 'NOTIFICATIONS', 'LIVELOCATION'].includes(item.type);
+  return ['BACKEND_SYNC', 'BACKEND', 'MEDIA_UPLOAD', 'EMAIL', 'NOTIFICATIONS', 'LIVELOCATION', 'LOCATION'].includes(item.type)
+    || item.type.startsWith('MEDIA_UPLOAD:');
 }
 
 function requiresCellular(item) {
@@ -40,7 +44,7 @@ function isEligible(item, state, now = Date.now()) {
 
 export async function enqueueSosJob({sosId, backendSosId = null, type, serviceName, payload = {}, idempotencyKey = null}) {
   return sosLocalStore.enqueueQueueItem({
-    id: `${sosId}:${type}:${backendSosId || 'local'}`,
+    id: `${sosId}:${type}`,
     localSosId: sosId,
     backendSosId,
     operationType: type,
@@ -68,9 +72,13 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
     const localSosId = item.localSosId || item.sosId;
     if (!localSosId) continue;
     if (!isEligible(item, state, now) || typeof processors[item.serviceName] !== 'function') continue;
+    if (processingQueueItems.has(item.id)) continue;
     const event = await sosLocalStore.getSosById(localSosId);
     if (!event) {
       await sosLocalStore.removeQueueItem(item.id);
+      continue;
+    }
+    if (item.type.startsWith('MEDIA_UPLOAD:') && !event.backendId) {
       continue;
     }
 
@@ -80,6 +88,7 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
     // guards against a second, concurrently-triggered processSosQueue run
     // picking up the same item (isEligible only matches PENDING/
     // RETRY_WAITING/WAITING_FOR_LINK, never PROCESSING).
+    processingQueueItems.add(item.id);
     await sosLocalStore.updateQueueItem(item.id, {
       status: 'PROCESSING',
       lastAttemptAt: new Date(now).toISOString(),
@@ -104,10 +113,23 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
           nextAttemptAt: new Date(now + WAITING_FOR_LINK_POLL_MS).toISOString(),
         });
         processed.push({id: item.id, status: 'WAITING_FOR_LINK'});
+        processingQueueItems.delete(item.id);
         continue;
       }
 
-      if (result?.status === 'PENDING') throw new Error(result.reason || 'Service remains pending.');
+      if (result?.status === 'PENDING') {
+        if (item.type.startsWith('MEDIA_UPLOAD:') && !event.backendId) {
+          await sosLocalStore.updateQueueItem(item.id, {
+            status: 'PENDING',
+            error: null,
+            nextAttemptAt: null,
+            updatedAt: new Date(now).toISOString(),
+          });
+          processed.push({id: item.id, status: 'PENDING'});
+          continue;
+        }
+        throw new Error(result.reason || 'Service remains pending.');
+      }
       const servicePatch = {
         status: result?.status || 'COMPLETED',
         completedAt: new Date().toISOString(),
@@ -127,14 +149,18 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
         // ever copy what the backend reported (result.serverStatus /
         // result.activatedAt), defaulting to ACTIVE only because a
         // successful createSos response IS the backend's confirmation.
+        const activation = transitionSosState(latestEvent, SOS_STATES.ACTIVE);
         const syncedEvent = {
           ...latestEvent,
           backendId: result.backendId,
           emergencyLink: result.emergencyLink || null,
-          status: latestEvent.status === 'CANCELLED' ? latestEvent.status : 'ACTIVE',
+          ...(activation.ok ? activation.event : {}),
           activatedAt: result.activatedAt || latestEvent.activatedAt || new Date().toISOString(),
         };
         await sosLocalStore.upsertSos(syncedEvent);
+        if (item.serviceName === 'backend' && isValidLocation(syncedEvent.location)) {
+          await enqueueSosJob({sosId: event.id, type: 'LOCATION', serviceName: 'location'});
+        }
         if (
           syncedEvent.services?.camera?.frontImagePath ||
           syncedEvent.services?.camera?.backImagePath ||
@@ -142,16 +168,20 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
           syncedEvent.services?.camera?.status === 'FAILED' ||
           syncedEvent.services?.audio?.status === 'FAILED'
         ) {
-          await enqueueSosJob({
-            sosId: event.id,
-            backendSosId: result.backendId,
-            type: 'MEDIA_UPLOAD',
-            serviceName: 'mediaUpload',
-          });
+          for (const component of ['frontImage', 'backImage', 'audio']) {
+            await enqueueSosJob({
+              sosId: event.id,
+              backendSosId: result.backendId,
+              type: `MEDIA_UPLOAD:${component}`,
+              serviceName: 'mediaUpload',
+              payload: {component},
+            });
+          }
         }
       }
       await sosLocalStore.removeQueueItem(item.id);
       processed.push({id: item.id, status: 'COMPLETED'});
+      processingQueueItems.delete(item.id);
     } catch (error) {
       // A real send attempt was made (or the processor threw for some other
       // transient reason) — this is what actually consumes MAX_ATTEMPTS.
@@ -174,6 +204,7 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
         });
         processed.push({id: item.id, status: 'RETRY_WAITING'});
       }
+      processingQueueItems.delete(item.id);
     }
   }
 

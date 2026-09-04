@@ -6,13 +6,23 @@ import {listNotifications, markNotificationRead} from '../../api/resources';
 import {emitSosToast} from '../../features/sos/services/sosToastService';
 import {getCachedApiData} from '../../api/client';
 
-const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCountChange}) => {
+const AdminNotificationScreen = ({
+  token,
+  onBack,
+  onNotificationPress,
+  onBadgeCountChange,
+  initialNotifications = [],
+  onNotificationsChange,
+}) => {
   const insets = useSafeAreaInsets();
   const cachedData = getCachedApiData('/notifications', token);
-  const [notifications, setNotifications] = useState(() => cachedData?.notifications || []);
-  const [loading, setLoading] = useState(() => !cachedData);
+  const [notifications, setNotifications] = useState(() => cachedData?.notifications || initialNotifications);
+  const [loading, setLoading] = useState(() => !cachedData && initialNotifications.length === 0);
   const [error, setError] = useState('');
   const requestIdRef = useRef(0);
+  const initialNotificationsRef = useRef(initialNotifications);
+  const onNotificationsChangeRef = useRef(onNotificationsChange);
+  onNotificationsChangeRef.current = onNotificationsChange;
 
   const unreadCount = notifications.filter(item => !item.isRead).length;
 
@@ -38,6 +48,11 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCou
 
       setError('');
       const existingNotifications = getCachedApiData('/notifications', token)?.notifications || [];
+      if (initialNotificationsRef.current.length > 0 && existingNotifications.length === 0) {
+        setNotifications(initialNotificationsRef.current);
+        setLoading(false);
+        return;
+      }
       if (existingNotifications.length > 0 && mounted && requestId === requestIdRef.current) {
         setNotifications(existingNotifications);
         setLoading(false);
@@ -48,7 +63,9 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCou
         if (!mounted || requestId !== requestIdRef.current) {
           return;
         }
-        setNotifications(result.notifications || []);
+        const nextNotifications = result.notifications || [];
+        setNotifications(nextNotifications);
+        onNotificationsChangeRef.current?.(nextNotifications);
       } catch (requestError) {
         if (!mounted || requestId !== requestIdRef.current) {
           return;
@@ -78,7 +95,11 @@ const AdminNotificationScreen = ({token, onBack, onNotificationPress, onBadgeCou
     if (notification.isRead) return;
     const notificationId = notification._id || notification.id;
     markNotificationRead(token, notificationId)
-      .then(() => setNotifications(items => items.map(item => (item._id || item.id) === notificationId ? {...item, isRead: true} : item)))
+      .then(() => setNotifications(items => {
+        const nextNotifications = items.map(item => (item._id || item.id) === notificationId ? {...item, isRead: true} : item);
+        onNotificationsChangeRef.current?.(nextNotifications);
+        return nextNotifications;
+      }))
       .catch(requestError => setError(requestError.message));
   };
 

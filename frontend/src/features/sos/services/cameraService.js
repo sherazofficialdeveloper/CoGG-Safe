@@ -1,6 +1,39 @@
 import {Platform} from 'react-native';
 import {PERMISSION_STATUS, checkPermission} from '../../../permissions/sosPermissions';
+import {sosLocalStore} from '../storage';
 import {captureNativeSosPhotos} from './nativeMedia';
+
+function isUsableMediaPath(value) {
+  if (typeof value !== 'string') return false;
+  const cleaned = value.trim();
+  if (!cleaned || cleaned === 'null' || cleaned === 'undefined') return false;
+  return cleaned.length > 0;
+}
+
+async function persistPendingCameraMedia(event, {frontImagePath, backImagePath}) {
+  if (!event || !event.id) return;
+  const uploadState = {...(event.mediaUploadState || {})};
+  const nextState = {...uploadState};
+  if (isUsableMediaPath(frontImagePath)) {
+    nextState.frontImage = {
+      ...(nextState.frontImage || {}),
+      status: 'PENDING',
+      localPath: frontImagePath,
+      component: 'frontImage',
+      capturedAt: new Date().toISOString(),
+    };
+  }
+  if (isUsableMediaPath(backImagePath)) {
+    nextState.backImage = {
+      ...(nextState.backImage || {}),
+      status: 'PENDING',
+      localPath: backImagePath,
+      component: 'backImage',
+      capturedAt: new Date().toISOString(),
+    };
+  }
+  await sosLocalStore.upsertSos({...event, mediaUploadState: nextState});
+}
 
 /**
  * Captures BOTH front and back SOS photos, tracking each independently.
@@ -25,7 +58,7 @@ import {captureNativeSosPhotos} from './nativeMedia';
  *  - 'FAILED': both lenses failed, or permission/platform blocked capture
  *    entirely.
  */
-export async function captureEmergencyPhotos({sosId, previousResult = null}) {
+export async function captureEmergencyPhotos({sosId, previousResult = null, event = null}) {
   if (!sosId) {
     throw new Error('Camera capture requires a local SOS identifier.');
   }
@@ -68,38 +101,45 @@ export async function captureEmergencyPhotos({sosId, previousResult = null}) {
     if (__DEV__) console.log('FRONT_CAMERA_STARTED', {sosId});
     const result = await captureNativeSosPhotos(sosId);
 
-    // Never overwrite an already-succeeded lens from a previous attempt
-    // with a missing value from this one.
     const frontImagePath = result?.frontImagePath || previousResult?.frontImagePath || null;
     const backImagePath = result?.backImagePath || previousResult?.backImagePath || null;
-    const frontError = frontImagePath ? null : (result?.frontError || 'Front camera capture failed');
-    const backError = backImagePath ? null : (result?.backError || 'Back camera capture failed');
+    const frontIsUsable = isUsableMediaPath(frontImagePath);
+    const backIsUsable = isUsableMediaPath(backImagePath);
+    const frontError = frontIsUsable ? null : (result?.frontError || 'Front camera capture failed');
+    const backError = backIsUsable ? null : (result?.backError || 'Back camera capture failed');
 
-    if (__DEV__ && frontImagePath) console.log('FRONT_IMAGE_CAPTURED', {sosId});
+    if (__DEV__ && frontIsUsable) console.log('FRONT_IMAGE_CAPTURED', {sosId});
     if (__DEV__) console.log('BACK_CAMERA_STARTED', {sosId});
-    if (__DEV__ && backImagePath) console.log('BACK_IMAGE_CAPTURED', {sosId});
+    if (__DEV__ && backIsUsable) console.log('BACK_IMAGE_CAPTURED', {sosId});
 
-    const bothSucceeded = Boolean(frontImagePath) && Boolean(backImagePath);
-    const bothFailed = !frontImagePath && !backImagePath;
+    const bothSucceeded = frontIsUsable && backIsUsable;
+    const bothFailed = !frontIsUsable && !backIsUsable;
 
-    return {
+    const output = {
       status: bothSucceeded ? 'COMPLETED' : bothFailed ? 'FAILED' : 'PENDING',
-      frontImagePath,
-      backImagePath,
+      frontImagePath: frontIsUsable ? frontImagePath : null,
+      backImagePath: backIsUsable ? backImagePath : null,
+      frontComponent: 'FRONT_CAMERA',
+      backComponent: 'BACK_CAMERA',
       frontError,
       backError,
       ...(bothFailed ? {error: frontError || backError} : {}),
       ...(bothSucceeded ? {completedAt: new Date().toISOString()} : {}),
     };
+
+    if (event && event.id && (frontIsUsable || backIsUsable)) {
+      await persistPendingCameraMedia(event, {
+        frontImagePath: frontIsUsable ? frontImagePath : null,
+        backImagePath: backIsUsable ? backImagePath : null,
+      });
+    }
+
+    return output;
   } catch (error) {
-    // The native side only rejects the whole promise when BOTH lenses
-    // failed (see capturePhotos in EmergencyMediaModule.kt) — but a
-    // previous partial attempt may already have one lens saved, which
-    // must still be preserved and never re-reported as failed.
     const frontImagePath = previousResult?.frontImagePath || null;
     const backImagePath = previousResult?.backImagePath || null;
     const message = error?.message || 'Camera capture failed';
-    return {
+    const output = {
       status: (frontImagePath || backImagePath) ? 'PENDING' : 'FAILED',
       frontImagePath,
       backImagePath,
@@ -107,6 +147,11 @@ export async function captureEmergencyPhotos({sosId, previousResult = null}) {
       backError: backImagePath ? null : message,
       error: message,
     };
+
+    if (event && event.id && (frontImagePath || backImagePath)) {
+      await persistPendingCameraMedia(event, {frontImagePath, backImagePath});
+    }
+    return output;
   }
 }
 

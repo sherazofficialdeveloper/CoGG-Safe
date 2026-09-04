@@ -1,7 +1,7 @@
 import {startLiveLocation, stopLiveLocation, pingLiveLocation} from '../../../api/resources';
 import {getConnectivityState} from '../connectivity';
 import {sosLocalStore} from '../storage';
-import {getCurrentLocation} from './locationService';
+import {getCurrentLocation, isValidLocation} from './locationService';
 
 export const LIVE_LOCATION_MAX_DURATION_MS = 3 * 60 * 60 * 1000;
 export const LIVE_LOCATION_POLL_INTERVAL_MS = 30 * 1000;
@@ -21,8 +21,14 @@ async function persistPendingPing(sosId, ping) {
 
 async function sendCurrentLocation({token, backendId, sosId}) {
   const location = await getCurrentLocation();
-  if (!location || location.status === 'FAILED' || location.latitude == null || location.longitude == null) return;
-  const ping = {latitude: location.latitude, longitude: location.longitude, capturedAt: new Date().toISOString()};
+  if (!isValidLocation(location)) return;
+  const ping = {
+    latitude: location.latitude,
+    longitude: location.longitude,
+    accuracy: location.accuracy,
+    capturedAt: location.capturedAt,
+    source: location.source,
+  };
   try {
     await pingLiveLocation(token, backendId, ping);
   } catch (error) {

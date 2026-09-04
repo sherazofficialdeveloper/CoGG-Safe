@@ -1,28 +1,10 @@
 import React, {useCallback, useEffect, useState} from 'react';
-import {ActivityIndicator, Alert, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View} from 'react-native';
-import Clipboard from '@react-native-clipboard/clipboard';
+import {ActivityIndicator, Alert, Clipboard, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View} from 'react-native';
 import {SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
-import {createUser, deleteUser, listCollectionUsers, listCollections, updateCollection, updateUser} from '../../api/resources';
-import {getAuthErrorMessage} from '../../api/errorMessages';
+import {createUser, deleteUser, listCollectionUsers, listCollections, updateCollection} from '../../api/resources';
 
 const EMPTY_USER = {username: '', mobileNumber: '', email: '', password: ''};
 const TYPES = ['family', 'children', 'workers', 'other'];
-
-export function buildCredentialClipboardText(member, password) {
-  const memberName = member?.username || '';
-  const credentialValue = typeof password === 'string' ? password : '';
-  if (!memberName) return '';
-  return credentialValue ? `${memberName}\n${credentialValue}` : `${memberName}\nPassword unavailable`;
-}
-
-export function buildMemberEditForm(member = {}) {
-  return {
-    id: member?._id || member?.id || null,
-    username: member?.username || '',
-    mobileNumber: member?.mobileNumber || '',
-    email: member?.email || '',
-  };
-}
 
 export default function AdminCollectionsBackendScreen({token, onBack, onAddCollection, onUserDetail}) {
   const insets = useSafeAreaInsets();
@@ -36,13 +18,8 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
   const [showEditForm, setShowEditForm] = useState(false);
   const [userForm, setUserForm] = useState(EMPTY_USER);
   const [editForm, setEditForm] = useState(null);
-  const [memberEditForm, setMemberEditForm] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [credentialMap, setCredentialMap] = useState({});
-
-  const updateCredentialMap = useCallback(async (newMap) => {
-    setCredentialMap(newMap);
-  }, []);
 
   const loadCollections = useCallback(async () => {
     setLoading(true);
@@ -112,7 +89,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
       const createdId = createdUser?._id || createdUser?.id;
 
       if (createdId) {
-        await updateCredentialMap({...credentialMap, [createdId]: payload.password});
+        setCredentialMap(current => ({...current, [createdId]: payload.password}));
       }
 
       setUserForm(EMPTY_USER);
@@ -120,41 +97,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
       await openCollection(selected);
       Alert.alert('User created', 'The user can now sign in with these credentials.');
     } catch (requestError) {
-      setError(getAuthErrorMessage(requestError, 'Unable to create user.'));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const openMemberEditForm = member => {
-    const memberId = member?._id || member?.id;
-    if (!memberId) return;
-
-    setMemberEditForm(buildMemberEditForm(member));
-  };
-
-  const saveMemberEditForm = async () => {
-    if (!memberEditForm) return;
-
-    const payload = {
-      username: memberEditForm.username.trim(),
-      mobileNumber: memberEditForm.mobileNumber.trim(),
-      email: memberEditForm.email.trim(),
-    };
-
-    if (!payload.username || !payload.mobileNumber) {
-      setError('Username and mobile number are required.');
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      await updateUser(token, memberEditForm.id, payload);
-      setMemberEditForm(null);
-      await openCollection(selected);
-      Alert.alert('User updated', 'The user record was saved successfully.');
-    } catch (requestError) {
-      setError(requestError.message || 'Unable to update user.');
+      setError(requestError.message || 'Unable to create user.');
     } finally {
       setSubmitting(false);
     }
@@ -169,7 +112,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
       return;
     }
 
-    const raw = buildCredentialClipboardText(member, password);
+    const raw = [member?.username || '', password].join('\n');
 
     try {
       await Clipboard.setString(raw);
@@ -218,18 +161,6 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
         {error ? <Text style={styles.error}>{error}</Text> : null}
         {showEditForm ? <View style={styles.form}><Text style={styles.formTitle}>Edit collection</Text><TextInput style={styles.input} value={editForm?.name || ''} onChangeText={value => setEditForm(current => ({...current, name: value}))} placeholder="Collection name" /><TextInput style={styles.input} value={editForm?.emergencyCallNumber || ''} onChangeText={value => setEditForm(current => ({...current, emergencyCallNumber: value}))} placeholder="Emergency number" keyboardType="phone-pad" /><View style={styles.typeRow}>{TYPES.map(type => <TouchableOpacity key={type} onPress={() => setEditForm(current => ({...current, type}))} style={[styles.typeButton, editForm?.type === type && styles.typeButtonActive]}><Text style={editForm?.type === type ? styles.typeTextActive : styles.typeText}>{type}</Text></TouchableOpacity>)}</View><TouchableOpacity disabled={submitting} onPress={saveCollection} style={styles.submit}><Text style={styles.submitText}>{submitting ? 'Updating...' : 'Save changes'}</Text></TouchableOpacity></View> : <TouchableOpacity onPress={() => setShowEditForm(true)} style={styles.editButton}><Text style={styles.editButtonText}>Edit collection</Text></TouchableOpacity>}
         {showUserForm ? <InlineUserForm form={userForm} setForm={setUserForm} submitting={submitting} onCancel={() => {setUserForm(EMPTY_USER); setShowUserForm(false);}} onSubmit={submitUser} /> : null}
-        {memberEditForm ? (
-          <View style={styles.form}>
-            <Text style={styles.formTitle}>Edit user</Text>
-            <TextInput style={styles.input} value={memberEditForm.username} onChangeText={value => setMemberEditForm(current => ({...current, username: value}))} placeholder="Username *" autoCapitalize="none" />
-            <TextInput style={styles.input} value={memberEditForm.mobileNumber} onChangeText={value => setMemberEditForm(current => ({...current, mobileNumber: value}))} placeholder="Mobile number *" keyboardType="phone-pad" autoCapitalize="none" />
-            <TextInput style={styles.input} value={memberEditForm.email} onChangeText={value => setMemberEditForm(current => ({...current, email: value}))} placeholder="Email (optional)" keyboardType="email-address" autoCapitalize="none" />
-            <View style={styles.actions}>
-              <TouchableOpacity style={styles.cancel} onPress={() => setMemberEditForm(null)}><Text>Cancel</Text></TouchableOpacity>
-              <TouchableOpacity style={styles.submit} disabled={submitting} onPress={saveMemberEditForm}><Text style={styles.submitText}>{submitting ? 'Saving...' : 'Save changes'}</Text></TouchableOpacity>
-            </View>
-          </View>
-        ) : null}
         <Text style={styles.sectionTitle}>COLLECTION USERS</Text>
         {membersLoading ? <ActivityIndicator color="#E4002B" /> : members.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>No users in this collection</Text><Text style={styles.muted}>Add a user to this collection.</Text></View> : members.map(member => {
           const memberId = member._id || member.id;
@@ -254,7 +185,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
                 <TouchableOpacity style={styles.memberActionButton} onPress={() => handleCopyCredentials(member)}>
                   <Text style={styles.memberActionText}>Copy</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.memberActionButton} onPress={() => openMemberEditForm(member)}>
+                <TouchableOpacity style={styles.memberActionButton} onPress={() => onUserDetail?.({...member, name: member.username, phone: member.mobileNumber, email: member.email || 'No email configured', accountStatus: member.status, status: statusLabel, initials: (member.username || 'U').slice(0, 2).toUpperCase(), joined: member.createdAt ? new Date(member.createdAt).toLocaleDateString() : 'Date unavailable', color: '#E4002B'})}>
                   <Text style={styles.memberActionText}>Edit</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.memberActionButton, styles.memberActionDanger]} onPress={() => handleDeleteMember(member)}>

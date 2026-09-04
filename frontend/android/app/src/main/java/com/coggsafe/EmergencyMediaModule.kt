@@ -131,7 +131,7 @@ class EmergencyMediaModule(
         }
 
         val directory = File(
-            reactContext.cacheDir,
+            reactContext.filesDir,
             "sos-media/$sosId"
         ).apply {
             mkdirs()
@@ -256,7 +256,11 @@ class EmergencyMediaModule(
                     override fun onImageSaved(
                         outputFileResults: ImageCapture.OutputFileResults
                     ) {
-                        callback(output, null)
+                        if (isUsableMediaFile(output)) {
+                            callback(output, null)
+                        } else {
+                            callback(null, "Captured image file is missing, unreadable, or empty.")
+                        }
                     }
 
                     override fun onError(
@@ -562,7 +566,7 @@ class EmergencyMediaModule(
         promise: Promise
     ) {
         val file = File(
-            reactContext.cacheDir,
+            reactContext.filesDir,
             "sos-media/$sosId/audio-${System.currentTimeMillis()}.m4a"
         )
 
@@ -591,6 +595,9 @@ class EmergencyMediaModule(
                         activeRecorder.stop()
                         activeRecorder.release()
 
+                        if (!isUsableMediaFile(file)) {
+                            throw IllegalStateException("Recorded audio file is missing, unreadable, or empty.")
+                        }
                         promise.resolve(file.absolutePath)
                     } catch (error: Exception) {
                         try {
@@ -608,7 +615,7 @@ class EmergencyMediaModule(
                         )
                     }
                 },
-                durationMs.coerceIn(1000, 10000).toLong()
+                durationMs.toLong()
             )
         } catch (error: Exception) {
             try {
@@ -625,6 +632,15 @@ class EmergencyMediaModule(
                 error
             )
         }
+    }
+
+    private fun isUsableMediaFile(file: File): Boolean {
+        return file.exists() && file.isFile && file.canRead() && file.length() > 0L
+    }
+
+    @ReactMethod
+    fun validateMediaFile(path: String, promise: Promise) {
+        promise.resolve(isUsableMediaFile(File(path.removePrefix("file://"))))
     }
 
     /**

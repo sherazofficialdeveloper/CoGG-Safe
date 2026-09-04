@@ -83,6 +83,29 @@ test('orchestrator continues when a service fails', async () => {
   expect(result.event.services.backend.status).toBe('COMPLETED');
 });
 
+test('location failure does not block backend creation, SMS, call, camera or audio', async () => {
+  const result = await activateSosFlow({
+    userId: 'user-1',
+    collectionId: 'collection-1',
+    serviceRunners: {
+      backend: async () => ({status: 'COMPLETED', backendId: 'backend-guard'}),
+      sms: async () => ({status: 'COMPLETED', sentCount: 2}),
+      call: async () => ({status: 'INITIATED'}),
+      camera: async () => ({status: 'COMPLETED', frontImagePath: '/tmp/front.jpg', backImagePath: '/tmp/back.jpg'}),
+      audio: async () => ({status: 'COMPLETED', localPath: '/tmp/audio.m4a'}),
+      location: async () => ({status: 'FAILED', error: 'No location provider available'}),
+    },
+  });
+
+  expect(result.event.status).toBe('ACTIVE');
+  expect(result.event.services.backend.status).toBe('COMPLETED');
+  expect(result.event.services.sms.status).toBe('COMPLETED');
+  expect(result.event.services.call.status).toBe('INITIATED');
+  expect(result.event.services.camera.status).toBe('COMPLETED');
+  expect(result.event.services.audio.status).toBe('COMPLETED');
+  expect(result.event.services.location.status).toBe('FAILED');
+});
+
 test('connectivity service tracks internet, cellular and telephony separately', () => {
   connectivityService.updateState({
     isConnected: true,

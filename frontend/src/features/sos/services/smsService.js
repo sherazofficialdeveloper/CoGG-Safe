@@ -141,7 +141,7 @@ export async function sendEmergencySms({phoneNumber, message}) {
  *    SMS capability at all).
  *  - 'NOT_CONFIGURED' if there were no valid numbers to send to.
  */
-export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId}) {
+export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId, serviceKey = 'sms'}) {
   const uniqueNumbers = [];
   const seenNumbers = new Set();
   for (const value of phoneNumbers || []) {
@@ -166,7 +166,7 @@ export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId}) 
   if (__DEV__) console.log('SMS_RECIPIENTS_FOUND', uniqueNumbers.length);
 
   const event = sosId ? await sosLocalStore.getSosById(sosId) : null;
-  const previousRecipients = event?.services?.sms?.recipients || [];
+  const previousRecipients = event?.services?.[serviceKey]?.recipients || [];
   const previousByNumber = new Map(previousRecipients.map(item => [item.normalizedRecipient || item.phoneNumber, item]));
   const recipientResults = [];
 
@@ -199,9 +199,9 @@ export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId}) 
     if (sosId) {
       const latestEvent = await sosLocalStore.getSosById(sosId);
       if (latestEvent) {
-        await sosLocalStore.updateSosServiceState(sosId, 'sms', {
+        await sosLocalStore.updateSosServiceState(sosId, serviceKey, {
           recipients: [
-            ...(latestEvent.services?.sms?.recipients || []).filter(item => item.normalizedRecipient !== normalizedRecipient),
+            ...(latestEvent.services?.[serviceKey]?.recipients || []).filter(item => item.normalizedRecipient !== normalizedRecipient),
             ...recipientResults.filter(item => item.normalizedRecipient === normalizedRecipient),
           ],
         });

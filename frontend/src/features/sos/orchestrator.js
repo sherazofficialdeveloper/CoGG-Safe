@@ -1,9 +1,11 @@
 import {sosLocalStore} from './storage';
+import {SOS_STATES, transitionSosState} from './stateMachine';
 import {connectivityService} from './connectivity';
 import {enqueueSosJob} from './queue/queueWorker';
 import {emitSosToast} from './services/sosToastService';
 import {reportServiceResult} from './services/backendSyncService';
 import {reportSosServiceError} from './services/sosErrorReporter';
+import {isValidLocation} from './services/locationService';
 
 // email/notifications are intentionally NOT retryable client-side jobs:
 // their real dispatch is a server-side responsibility
@@ -16,7 +18,7 @@ import {reportSosServiceError} from './services/sosErrorReporter';
 // cameraService.js's 'PENDING' status for a partial front/back result) gets
 // picked up again by queueWorker's 'camera' processor (App.js), which
 // re-captures only the missing lens instead of the whole pair.
-const RETRYABLE_SERVICES = new Set(['sms', 'call', 'backend', 'liveLocation', 'camera']);
+const RETRYABLE_SERVICES = new Set(['sms', 'call', 'backend', 'liveLocation', 'camera', 'audio']);
 
 export function generateClientSosId() {
   const cryptoRef = (typeof window !== 'undefined' && window.crypto)
@@ -55,7 +57,7 @@ export async function createSosLocalEvent({userId, collectionId, meta = {}}) {
     collectionId,
     createdAt: new Date().toISOString(),
     activatedAt: null,
-    status: 'PENDING',
+    status: SOS_STATES.IDLE,
     location: {
       latitude: null,
       longitude: null,
@@ -66,8 +68,12 @@ export async function createSosLocalEvent({userId, collectionId, meta = {}}) {
     meta,
   };
 
-  await sosLocalStore.upsertSos(event);
-  return event;
+  const pending = transitionSosState(event, SOS_STATES.PENDING);
+  if (!pending.ok) {
+    throw new Error(pending.reason);
+  }
+  await sosLocalStore.upsertSos(pending.event);
+  return pending.event;
 }
 
 export function resolveSosServiceStatus(serviceName, networkState) {
@@ -112,9 +118,11 @@ export async function activateSosFlow({
   }
 
   if (cancelSignal?.cancelled) {
-    event.status = 'CANCELLED';
-    await sosLocalStore.upsertSos(event);
-    return {event, execution: [], cancelled: true};
+    const cancellation = transitionSosState(event, SOS_STATES.CANCELLED);
+    if (cancellation.ok) {
+      await sosLocalStore.upsertSos(cancellation.event);
+      return {event: cancellation.event, execution: [], cancelled: true};
+    }
   }
 
   // The canonical-link follow-up SMS is enqueued unconditionally and
@@ -226,7 +234,12 @@ export async function activateSosFlow({
       }
 
       event.services[serviceName] = next;
-      await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
+      if (serviceName === 'location' && isValidLocation(event.location)) {
+        await sosLocalStore.upsertSos({...event, location: {...event.location}, services: {...event.services}});
+        await enqueueSosJob({sosId: event.id, type: 'LOCATION', serviceName: 'location'});
+      } else {
+        await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
+      }
       
       // Emit toast for critical services. Each condition here is
       // independent (not an if/else-if chain) so, for example, the front
@@ -318,9 +331,10 @@ export async function activateSosFlow({
   }
 
   if (cancelSignal?.cancelled) {
-    event.status = 'CANCELLED';
-    await sosLocalStore.upsertSos(event);
-    return {event, execution, cancelled: true, result: {
+    const cancellation = transitionSosState(event, SOS_STATES.CANCELLED);
+    if (cancellation.ok) {
+      await sosLocalStore.upsertSos(cancellation.event);
+      return {event: cancellation.event, execution, cancelled: true, result: {
       call: false,
       sms: false,
       location: false,
@@ -328,10 +342,18 @@ export async function activateSosFlow({
       audio: false,
       upload: false,
       notification: false,
-    }};
+      }};
+    }
   }
 
-  event.status = backendReady ? 'ACTIVE' : 'PENDING';
+  const nextStatus = backendReady ? SOS_STATES.ACTIVE : SOS_STATES.PENDING;
+  if (event.status !== nextStatus) {
+    const transition = transitionSosState(event, nextStatus);
+    if (!transition.ok) {
+      throw new Error(transition.reason);
+    }
+    Object.assign(event, transition.event);
+  }
   const summary = {
     call: Boolean(event.services?.call?.status === 'COMPLETED' || event.services?.call?.status === 'INITIATED' || event.services?.call?.status === 'SENT'),
     sms: Boolean(event.services?.sms?.status === 'COMPLETED' || event.services?.sms?.status === 'SENT'),
@@ -355,19 +377,22 @@ export async function activateSosFlow({
 
   // Capture completes locally. Queue the existing upload worker only after
   // the backend record exists, so device paths never become backend URLs.
-  if (backendReady && (
+  if (
     event.services?.camera?.frontImagePath ||
     event.services?.camera?.backImagePath ||
     event.services?.audio?.localPath ||
     event.services?.camera?.status === 'FAILED' ||
     event.services?.audio?.status === 'FAILED'
-  )) {
-    await enqueueSosJob({
-      sosId: event.id,
-      backendSosId: event.backendId,
-      type: 'MEDIA_UPLOAD',
-      serviceName: 'mediaUpload',
-    });
+  ) {
+    for (const component of ['frontImage', 'backImage', 'audio']) {
+      await enqueueSosJob({
+        sosId: event.id,
+        backendSosId: event.backendId,
+        type: `MEDIA_UPLOAD:${component}`,
+        serviceName: 'mediaUpload',
+        payload: {component},
+      });
+    }
   }
 
   return {event, execution, result: summary};
@@ -379,4 +404,6 @@ export default {
   activateSosFlow,
   resolveSosServiceStatus,
   connectivityService,
+  SOS_STATES,
+  transitionSosState,
 };

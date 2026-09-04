@@ -11,4 +11,9 @@ function requireAndroidModule() {
 
 export const captureNativeSosPhotos = sosId => requireAndroidModule().capturePhotos(sosId);
 export const recordNativeSosAudio = (sosId, durationMs) => requireAndroidModule().recordAudio(sosId, durationMs);
+export const validateNativeSosMedia = localPath => {
+  const module = requireAndroidModule();
+  if (typeof module.validateMediaFile !== 'function') return true;
+  return module.validateMediaFile(localPath);
+};
 export const downloadAuthenticatedSosMedia = (url, token) => requireAndroidModule().downloadAuthenticatedMedia(url, token);

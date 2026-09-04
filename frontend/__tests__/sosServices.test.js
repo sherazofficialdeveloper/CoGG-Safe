@@ -21,6 +21,7 @@ jest.mock('../src/api/resources', () => ({
 jest.mock('../src/features/sos/services/nativeMedia', () => ({
   captureNativeSosPhotos: jest.fn(),
   recordNativeSosAudio: jest.fn(),
+  validateNativeSosMedia: jest.fn(async () => true),
 }));
 
 jest.mock('@react-native-community/geolocation', () => ({
@@ -68,6 +69,8 @@ describe('SOS media services', () => {
     await sosLocalStore.clear();
     connectivityService.resetForTests();
     jest.resetAllMocks();
+    const {validateNativeSosMedia} = require('../src/features/sos/services/nativeMedia');
+    validateNativeSosMedia.mockResolvedValue(true);
     const {PermissionsAndroid} = require('react-native');
     PermissionsAndroid.check.mockImplementation(async () => 'granted');
     PermissionsAndroid.request.mockImplementation(async () => 'granted');
@@ -432,6 +435,36 @@ describe('SOS media services', () => {
     expect(uploadSosMedia).toHaveBeenCalledWith('jwt-token', 'backend-1', 'backImage', expect.any(Object));
     expect(secondAttempt.uploaded.map(item => item.component).sort()).toEqual(['audio', 'backImage', 'frontImage']);
     expect(reportSosMedia).not.toHaveBeenCalled();
+  });
+
+  test('invalid local media is persisted as a permanent component failure', async () => {
+    const {uploadSosMedia} = require('../src/api/resources');
+    require('../src/features/sos/services/nativeMedia').validateNativeSosMedia.mockResolvedValue(false);
+    connectivityService.updateState({isConnected: true, isInternetReachable: true});
+
+    const result = await uploadCapturedSosMedia({
+      token: 'jwt-token',
+      sosEvent: {
+        id: 'sos-invalid-media',
+        backendId: 'backend-invalid-media',
+        services: {camera: {frontImagePath: '/missing/front.jpg'}},
+      },
+      component: 'frontImage',
+    });
+
+    expect(result.status).toBe('FAILED');
+    expect(uploadSosMedia).not.toHaveBeenCalled();
+    expect((await sosLocalStore.getSosById('sos-invalid-media')).mediaUploadState.frontImage.status).toBe('FAILED');
+  });
+
+  test('media queue identity remains stable before and after backend confirmation', async () => {
+    const event = await createSosLocalEvent({userId: 'user-1', collectionId: 'collection-1'});
+    await enqueueSosJob({sosId: event.id, backendSosId: null, type: 'MEDIA_UPLOAD:audio', serviceName: 'mediaUpload', payload: {component: 'audio'}});
+    await enqueueSosJob({sosId: event.id, backendSosId: 'backend-1', type: 'MEDIA_UPLOAD:audio', serviceName: 'mediaUpload', payload: {component: 'audio'}});
+
+    const queue = await sosLocalStore.getPendingQueue();
+    expect(queue).toHaveLength(1);
+    expect(queue[0].id).toBe(`${event.id}:MEDIA_UPLOAD:audio`);
   });
 
   test('live-location stop preserves backend failures', async () => {

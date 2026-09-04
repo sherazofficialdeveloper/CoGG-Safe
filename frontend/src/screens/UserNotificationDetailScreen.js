@@ -4,6 +4,7 @@ import Icon from '../components/Icon';
 import AudioPlayer from '../components/AudioPlayer';
 import {API_BASE_URL} from '../api/config';
 import {buildMediaRequestOptions, buildMediaUrl} from '../utils/media';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 const hasStoredMedia = component => (
   String(component?.status || '').toLowerCase() === 'success' &&
@@ -12,6 +13,7 @@ const hasStoredMedia = component => (
 );
 
 const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) => {
+  const insets = useSafeAreaInsets();
   const sosId = notification?.sosId && typeof notification.sosId === 'object'
     ? notification.sosId._id || notification.sosId.id
     : notification?.sosId;
@@ -40,7 +42,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
+      <View style={[styles.header, {paddingTop: insets.top + 10}]}>
         <TouchableOpacity onPress={onBack} accessibilityLabel="Back to notifications"><Icon name="back" size={22} color="#1A1A1A" /></TouchableOpacity>
         <Text style={styles.title}>Notification</Text>
       </View>
@@ -86,7 +88,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
 
 const styles = StyleSheet.create({
   safe: {flex: 1, backgroundColor: '#F7F7F8'},
-  header: {backgroundColor: '#FFF', padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14, borderBottomWidth: 1, borderBottomColor: '#E8E8EB'},
+  header: {backgroundColor: '#FFF', paddingHorizontal: 18, paddingBottom: 18, flexDirection: 'row', alignItems: 'center', gap: 14, borderBottomWidth: 1, borderBottomColor: '#E8E8EB'},
   title: {fontSize: 21, fontWeight: '900', color: '#1A1A1A'},
   content: {padding: 24, alignItems: 'center'},
   heading: {fontSize: 21, fontWeight: '900', color: '#1A1A1A', textAlign: 'center', marginTop: 14},

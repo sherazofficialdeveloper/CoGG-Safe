@@ -29,6 +29,7 @@ const UserHomeScreen = ({
   sosError = '',
   onSwitchToAdmin,
   sosStatusLogs = [],
+  refreshKey = 0,
 }) => {
   const [permissionState, setPermissionState] = useState(createInitialSosPermissionState);
   const [requestingPermissions, setRequestingPermissions] = useState(false);
@@ -107,7 +108,7 @@ const UserHomeScreen = ({
       })
       .catch(error => mounted && setSharingError(error.message));
     return () => { mounted = false; };
-  }, [token]);
+  }, [token, refreshKey]);
 
   const handleStopSharing = async () => {
     if (!activeSharingSos || stoppingSharing) return;

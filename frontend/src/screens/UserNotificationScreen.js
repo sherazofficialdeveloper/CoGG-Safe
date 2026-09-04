@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import Icon from '../components/Icon';
 import {listNotifications, markNotificationRead} from '../api/resources';
+import {getCachedApiData} from '../api/client';
 
 const UserNotificationScreen = ({
   token,
@@ -18,15 +19,21 @@ const UserNotificationScreen = ({
   onNotificationDetail,
   onBadgeCountChange,
 }) => {
-  const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const cachedData = getCachedApiData('/notifications', token);
+  const [notifications, setNotifications] = useState(() => cachedData?.notifications || []);
+  const [loading, setLoading] = useState(() => !cachedData);
   const [error, setError] = useState('');
 
   const [filter, setFilter] = useState('All');
 
   useEffect(() => {
     let mounted = true;
-    setLoading(true);
+    const cachedNotifications = getCachedApiData('/notifications', token)?.notifications;
+    const hasCachedNotifications = Array.isArray(cachedNotifications);
+    if (hasCachedNotifications) {
+      setNotifications(cachedNotifications);
+      setLoading(false);
+    }
     listNotifications(token)
       .then(result => mounted && setNotifications(result.notifications || []))
       .catch(requestError => mounted && setError(requestError.message))
