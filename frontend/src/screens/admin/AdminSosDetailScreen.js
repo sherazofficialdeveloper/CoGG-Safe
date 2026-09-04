@@ -34,25 +34,36 @@ const AdminSosDetailScreen = ({
   const [selectedImage, setSelectedImage] = useState(null);
   const [detailRecord, setDetailRecord] = useState(null);
   const detailRequestRef = useRef(0);
+  const actionInFlightRef = useRef(false);
 
   const record = detailRecord || sos || {};
   const recordId = record.id || record._id;
 
   const isActive = record.status === 'Active' || record.status === 'active';
   const handleMarkResolved = () => {
+    if (actionInFlightRef.current) return;
     Alert.alert('Mark as Resolved', 'Are you sure this emergency has been resolved?', [
       {text: 'Cancel', style: 'cancel'},
       {
         text: 'Resolve',
         onPress: async () => {
+          if (actionInFlightRef.current) return;
+          actionInFlightRef.current = true;
           setActionLoading(true);
           setActionError('');
+          const actionRequestId = ++detailRequestRef.current;
           try {
             const response = await deactivateSos(token, record.id || record._id);
+            if (actionRequestId === detailRequestRef.current && response?.sos) {
+              setDetailRecord(response.sos);
+              setLiveLocationStatus(response.sos.liveLocation?.status || null);
+              setLiveLocation(response.sos.liveLocation?.lastLocation || null);
+            }
             onUpdated?.(response.sos);
           } catch (error) {
             setActionError(error.message || 'Unable to resolve this SOS.');
           } finally {
+            actionInFlightRef.current = false;
             setActionLoading(false);
           }
         },
@@ -109,9 +120,12 @@ const AdminSosDetailScreen = ({
     ? buildMediaUrl(API_BASE_URL, record.id || record._id, 'audio')
     : null;
   useEffect(() => {
-    const id = recordId;
     setLiveLocationStatus(initialLiveLocationStatus);
     setLiveLocation(initialLiveLocation);
+  }, [initialLiveLocation, initialLiveLocationStatus]);
+
+  useEffect(() => {
+    const id = recordId;
     if (!token || !id) return undefined;
 
     const requestId = ++detailRequestRef.current;
@@ -122,7 +136,7 @@ const AdminSosDetailScreen = ({
       if (mounted && requestId === detailRequestRef.current) setActionError(error.message || 'Unable to load SOS details.');
     });
     return () => { mounted = false; };
-  }, [initialLiveLocation, initialLiveLocationStatus, recordId, token]);
+  }, [recordId, token]);
 
   useEffect(() => {
     const id = recordId;
