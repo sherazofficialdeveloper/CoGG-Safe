@@ -4,8 +4,11 @@ export function normalizePhoneNumber(value) {
   if (!trimmed) return null;
 
   const compact = trimmed.replace(/[\s()-]/g, '');
-  if (/^03\d{9}$/.test(compact)) return `+92${compact.slice(1)}`;
-  if (/^92\d{10}$/.test(compact)) return `+${compact}`;
+  // Pakistani mobile numbers are commonly stored in the local 03xxxxxxxxx
+  // form. Convert that form to the international representation used by the
+  // native dialer without requiring the administrator to reformat it.
+  if (/^03[0-9]{9}$/.test(compact)) return `+92${compact.slice(1)}`;
+  if (/^92[0-9]{10}$/.test(compact)) return `+${compact}`;
   // Preserve short emergency service codes (for example, 15) as well as
   // ordinary international phone numbers.
   if (/^\+[1-9]\d{1,14}$/.test(compact)) return compact;

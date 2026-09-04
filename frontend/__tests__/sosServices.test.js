@@ -81,6 +81,26 @@ describe('SOS media services', () => {
     expect(normalizePhoneNumber('15')).toBe('+15');
   });
 
+  test('normalizes a local Pakistani mobile number for the native dialer', () => {
+    expect(normalizePhoneNumber('03427948471')).toBe('+923427948471');
+  });
+
+  test('keeps an international Pakistani mobile number valid', () => {
+    expect(normalizePhoneNumber('+923427948471')).toBe('+923427948471');
+  });
+
+  test('passes the configured local Pakistani collection number to the native call', async () => {
+    const {NativeModules} = require('react-native');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
+    NativeModules.EmergencyMedia.placeCall.mockResolvedValue({status: 'initiated', reason: 'Android launched the emergency call.'});
+
+    const result = await initiateEmergencyCall({emergencyNumber: '03427948471'});
+
+    expect(result.status).toBe('INITIATED');
+    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+923427948471', -1);
+    expect(NativeModules.EmergencyMedia.placeCall).not.toHaveBeenCalledWith('+15', -1);
+  });
+
   test('passes the configured collection emergency number to the native call', async () => {
     const {NativeModules} = require('react-native');
     connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
