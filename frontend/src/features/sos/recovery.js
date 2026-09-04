@@ -43,6 +43,16 @@ const NON_RECOVERABLE_STATUSES = new Set(['CANCELLED', 'DEACTIVATED']);
 export async function recoverActiveSosWork(now = Date.now()) {
   const events = await sosLocalStore.getAllEvents();
   const recovered = [];
+  const queue = await sosLocalStore.getPendingQueue();
+  for (const item of queue) {
+    if (item.status === 'PROCESSING') {
+      await sosLocalStore.updateQueueItem(item.id, {
+        status: 'PENDING',
+        nextAttemptAt: new Date(now).toISOString(),
+        updatedAt: new Date(now).toISOString(),
+      });
+    }
+  }
 
   for (const event of events) {
     if (NON_RECOVERABLE_STATUSES.has(event.status)) continue;
@@ -67,7 +77,7 @@ export async function recoverActiveSosWork(now = Date.now()) {
     // overwrite each other with competing writes.
     for (const [serviceName, type] of Object.entries(RECOVERABLE_SERVICES)) {
       const status = event.services?.[serviceName]?.status;
-      if (status === 'PENDING' || status === 'FAILED' || status === 'RETRY_WAITING') {
+      if (status === 'PENDING' || status === 'FAILED' || status === 'RETRY_WAITING' || status === 'PROCESSING') {
         await enqueueSosJob({sosId: event.id, type, serviceName});
         recovered.push({sosId: event.id, serviceName});
       }

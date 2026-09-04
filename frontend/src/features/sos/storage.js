@@ -5,6 +5,7 @@ const SOS_QUEUE_KEY = 'cogg_safe.sos.queue';
 const COLLECTION_CACHE_KEY = 'cogg_safe.sos.collectionCache';
 const EMERGENCY_CALL_SIM_KEY = 'cogg_safe.sos.emergencyCallSubscriptionId';
 const memoryStore = {};
+let queueMutation = Promise.resolve();
 const storageApi = AsyncStorage && AsyncStorage.default ? AsyncStorage.default : AsyncStorage;
 const safeAsyncStorage = {
   async getItem(key) {
@@ -117,8 +118,9 @@ export const sosLocalStore = {
   },
 
   async enqueueQueueItem(item) {
-    const queue = await this.getPendingQueue();
-    const existing = queue.findIndex(entry => entry.id === item.id);
+    const mutation = queueMutation.then(async () => {
+      const queue = await this.getPendingQueue();
+      const existing = queue.findIndex(entry => entry.id === item.id);
 
     // A queue item's id is a stable {sosId}:{type}:{backendSosId} key, so
     // callers (orchestrator, recovery after an app restart, queueWorker's
@@ -130,27 +132,38 @@ export const sosLocalStore = {
     // time recovery re-derives pending work, which defeats MAX_ATTEMPTS
     // and loses the job's original creation time. Only a genuinely new id
     // gets added.
-    if (existing !== -1) {
-      return queue;
-    }
+      if (existing !== -1) {
+        return queue;
+      }
 
-    const next = [...queue, item];
-    await this.saveQueue(next);
-    return next;
+      const next = [...queue, item];
+      await this.saveQueue(next);
+      return next;
+    });
+    queueMutation = mutation.catch(() => undefined);
+    return mutation;
   },
 
   async updateQueueItem(id, patch) {
-    const queue = await this.getPendingQueue();
-    const next = queue.map(item => item.id === id ? {...item, ...patch} : item);
-    await this.saveQueue(next);
-    return next.find(item => item.id === id) || null;
+    const mutation = queueMutation.then(async () => {
+      const queue = await this.getPendingQueue();
+      const next = queue.map(item => item.id === id ? {...item, ...patch} : item);
+      await this.saveQueue(next);
+      return next.find(item => item.id === id) || null;
+    });
+    queueMutation = mutation.catch(() => undefined);
+    return mutation;
   },
 
   async removeQueueItem(id) {
-    const queue = await this.getPendingQueue();
-    const next = queue.filter(item => item.id !== id);
-    await this.saveQueue(next);
-    return next;
+    const mutation = queueMutation.then(async () => {
+      const queue = await this.getPendingQueue();
+      const next = queue.filter(item => item.id !== id);
+      await this.saveQueue(next);
+      return next;
+    });
+    queueMutation = mutation.catch(() => undefined);
+    return mutation;
   },
 
   // Emergency SMS must not require a live backend call to know who to text.

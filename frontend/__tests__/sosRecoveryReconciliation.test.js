@@ -26,6 +26,69 @@ beforeEach(async () => {
 });
 
 describe('Problem 1 — offline SOS restart recovery', () => {
+  test('concurrent enqueue calls keep one stable queue item', async () => {
+    const event = await createSosLocalEvent({userId: 'user-1', collectionId: 'collection-1'});
+    await Promise.all([
+      enqueueSosJob({sosId: event.id, type: 'BACKEND', serviceName: 'backend'}),
+      enqueueSosJob({sosId: event.id, type: 'BACKEND', serviceName: 'backend'}),
+    ]);
+    const jobs = (await sosLocalStore.getPendingQueue()).filter(item => item.id === `${event.id}:BACKEND`);
+    expect(jobs).toHaveLength(1);
+  });
+
+  test('PROCESSING jobs are reset for safe restart recovery', async () => {
+    const event = await createSosLocalEvent({userId: 'user-1', collectionId: 'collection-1'});
+    await enqueueSosJob({sosId: event.id, type: 'BACKEND', serviceName: 'backend'});
+    await sosLocalStore.updateQueueItem(`${event.id}:BACKEND`, {status: 'PROCESSING'});
+    await recoverActiveSosWork();
+    const job = (await sosLocalStore.getPendingQueue()).find(item => item.id === `${event.id}:BACKEND`);
+    expect(job.status).toBe('PENDING');
+  });
+
+  test('a recovered PROCESSING job is processed later with the same stable id', async () => {
+    const event = await createSosLocalEvent({userId: 'user-1', collectionId: 'collection-1'});
+    const jobId = `${event.id}:BACKEND`;
+    await enqueueSosJob({sosId: event.id, type: 'BACKEND', serviceName: 'backend'});
+    await sosLocalStore.updateQueueItem(jobId, {status: 'PROCESSING'});
+    await recoverActiveSosWork();
+
+    connectivityService.updateState({isConnected: true, isInternetReachable: true});
+    const processor = jest.fn(async () => ({status: 'COMPLETED'}));
+    await processSosQueue({processors: {backend: processor}});
+
+    expect(processor).toHaveBeenCalledTimes(1);
+    expect(processor.mock.calls[0][0].id).toBe(jobId);
+    expect((await sosLocalStore.getPendingQueue()).some(item => item.id === jobId)).toBe(false);
+  });
+
+  test('successful service state is not requeued during recovery', async () => {
+    const event = await createSosLocalEvent({userId: 'user-1', collectionId: 'collection-1'});
+    await sosLocalStore.updateSosServiceState(event.id, 'backend', {status: 'SUCCESS'});
+    const recovered = await recoverActiveSosWork();
+    expect(recovered.some(item => item.sosId === event.id && item.serviceName === 'backend')).toBe(false);
+    expect((await sosLocalStore.getPendingQueue()).some(item => item.localSosId === event.id && item.type === 'BACKEND')).toBe(false);
+  });
+
+  test('DEACTIVATED events are not recovered or activated', async () => {
+    const event = await createSosLocalEvent({userId: 'user-1', collectionId: 'collection-1'});
+    await sosLocalStore.upsertSos({...event, status: 'DEACTIVATED'});
+    await enqueueSosJob({sosId: event.id, type: 'BACKEND', serviceName: 'backend'});
+    const recovered = await recoverActiveSosWork();
+    expect(recovered.filter(item => item.sosId === event.id)).toHaveLength(0);
+    expect((await sosLocalStore.getSosById(event.id)).status).toBe('DEACTIVATED');
+  });
+
+  test('concurrent update and remove operations preserve the final queue state', async () => {
+    const event = await createSosLocalEvent({userId: 'user-1', collectionId: 'collection-1'});
+    const jobId = `${event.id}:BACKEND`;
+    await enqueueSosJob({sosId: event.id, type: 'BACKEND', serviceName: 'backend'});
+    await Promise.all([
+      sosLocalStore.updateQueueItem(jobId, {status: 'RETRY_WAITING', attempts: 1}),
+      sosLocalStore.removeQueueItem(jobId),
+    ]);
+    expect((await sosLocalStore.getPendingQueue()).some(item => item.id === jobId)).toBe(false);
+  });
+
   test('a PENDING (backend-unconfirmed) event is recovered, not skipped', async () => {
     const event = await createSosLocalEvent({userId: 'user-1', collectionId: 'collection-1'});
     expect(event.status).toBe('PENDING');
