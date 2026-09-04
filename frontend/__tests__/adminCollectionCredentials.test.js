@@ -1,13 +1,14 @@
+import {credentialClipboardText, rememberCredential} from '../src/utils/adminCredentials';
+
 describe('admin collection credential copy behavior', () => {
   it('builds copy text only when both username and password are present', () => {
-    const buildCredentialClipboardText = (member, password) => {
-      if (!member || !member.username) return '';
-      if (!password) return `${member.username}\nPassword unavailable`;
-      return `${member.username}\n${password}`;
-    };
+    expect(credentialClipboardText({username: 'alice'}, 'secret')).toBe('alice\nsecret');
+    expect(credentialClipboardText({username: 'alice'}, '')).toBe('alice\nPassword unavailable');
+    expect(credentialClipboardText({username: ''}, 'secret')).toBe('');
+  });
 
-    expect(buildCredentialClipboardText({ username: 'alice' }, 'secret')).toBe('alice\nsecret');
-    expect(buildCredentialClipboardText({ username: 'alice' }, '')).toBe('alice\nPassword unavailable');
-    expect(buildCredentialClipboardText({ username: '' }, 'secret')).toBe('');
+  it('retains a generated password only for the created user id', () => {
+    expect(rememberCredential({}, {_id: 'u1'}, 'secret')).toEqual({u1: 'secret'});
+    expect(rememberCredential({u1: 'old'}, {_id: 'u1'}, '')).toEqual({u1: 'old'});
   });
 });

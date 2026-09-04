@@ -266,6 +266,20 @@ describe('SOS media services', () => {
     expect(result.error).toBe('Camera initialization timeout');
   });
 
+  test('camera keeps front success independent from a failed back lens', async () => {
+    captureNativeSosPhotos.mockResolvedValue({
+      frontImagePath: '/data/front.jpg',
+      backError: 'Back lens unavailable',
+    });
+
+    const result = await captureEmergencyPhotos({sosId: 'sos_camera_partial'});
+
+    expect(result.status).toBe('PENDING');
+    expect(result.frontImagePath).toBe('/data/front.jpg');
+    expect(result.backImagePath).toBeNull();
+    expect(result.backError).toBe('Back lens unavailable');
+  });
+
   test('audio permission denied returns a structured failed result', async () => {
     const {PermissionsAndroid} = require('react-native');
     PermissionsAndroid.check.mockResolvedValueOnce('denied');
@@ -295,6 +309,17 @@ describe('SOS media services', () => {
 
     expect(result.status).toBe('FAILED');
     expect(result.error).toBe('Recording failed: file creation error');
+  });
+
+  test('audio retry reuses the durable local recording instead of recording again', async () => {
+    const result = await recordEmergencyAudio({
+      sosId: 'sos_audio_retry',
+      previousResult: {status: 'FAILED', localPath: '/data/user/0/app/files/sos-media/audio.m4a'},
+    });
+
+    expect(result.status).toBe('COMPLETED');
+    expect(result.localPath).toContain('audio.m4a');
+    expect(recordNativeSosAudio).not.toHaveBeenCalled();
   });
 
   test('orchestrator keeps camera and audio success data in local storage while offline backend sync remains queued', async () => {

@@ -15,6 +15,7 @@ const AdminUsersScreen = ({
   token,
   onBack,
   onUserDetail,
+  onEditUser,
   onProfile,
   currentAdmin,
 }) => {
@@ -394,6 +395,7 @@ const AdminUsersScreen = ({
                     </View>
 
                     <View style={styles.joinedContainer}>
+                      {onEditUser ? <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Edit ${user.name}`} onPress={() => onEditUser(user)} style={styles.editButton}><Text style={styles.editButtonText}>Edit</Text></TouchableOpacity> : null}
                       <Text style={styles.joinedText}>
                         {user.joined}
                       </Text>
@@ -797,6 +799,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  editButton: {backgroundColor: '#1A1A1A', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginRight: 6},
+  editButtonText: {color: '#FFFFFF', fontSize: 9, fontWeight: '900'},
 
   joinedText: {
     color: '#A1A1A6',

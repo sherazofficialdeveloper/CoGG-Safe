@@ -112,13 +112,29 @@ async function dispatchEmail(sos, recipients, subject, renderedMessage) {
     const results = await Promise.allSettled(
       emailable.map((recipient) => emailProvider.send({ to: recipient.email, subject, body: renderedMessage }))
     );
-    const anySucceeded = results.some((r) => r.status === 'fulfilled' && r.value?.status === 'sent');
-    const allUnsupported = results.length > 0 && results.every((r) => r.status === 'fulfilled' && r.value?.status === 'unsupported');
+    const providerStatuses = results
+      .filter((r) => r.status === 'fulfilled')
+      .map((r) => String(r.value?.status || '').toLowerCase());
+    const anySucceeded = providerStatuses.includes('sent');
+    const allUnsupported = results.length > 0
+      && providerStatuses.length === results.length
+      && providerStatuses.every((status) => status === 'unsupported');
+    const hasUnknownOutcome = results.some((r) =>
+      (r.status === 'rejected' && r.reason?.code === 'EMAIL_DELIVERY_UNKNOWN')
+      || (r.status === 'fulfilled' && ['pending', 'processing', 'unknown'].includes(String(r.value?.status || '').toLowerCase()))
+    );
     if (anySucceeded) {
       await setComponentStatus(sos._id, COMPONENT_NAMES.EMAIL, COMPONENT_STATUS.SUCCESS);
     } else if (allUnsupported) {
       await setComponentStatus(sos._id, COMPONENT_NAMES.EMAIL, COMPONENT_STATUS.UNSUPPORTED, {
         error: 'Email provider is not configured',
+      });
+    } else if (hasUnknownOutcome) {
+      // A timeout or provider-side pending response means the SMTP server may
+      // still deliver the message. Never present that as a permanent failure,
+      // but do not leave the component in pending forever either.
+      await setComponentStatus(sos._id, COMPONENT_NAMES.EMAIL, COMPONENT_STATUS.UNKNOWN, {
+        error: 'Email delivery could not be confirmed',
       });
     } else {
       const firstFailure = results.find((r) => r.status === 'rejected');

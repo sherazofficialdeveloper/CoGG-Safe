@@ -518,8 +518,8 @@ class EmergencyMediaModule(
         }
     }
 
-    /** Downloads a protected SOS audio stream with the current JWT into the
-     * app cache. react-native-sound cannot attach HTTP headers itself, so it
+    /** Downloads a protected SOS audio stream with the current JWT into
+     * app-private durable storage. react-native-sound cannot attach HTTP headers, so it
      * must never be handed the protected backend URL directly. */
     @ReactMethod
     fun downloadAuthenticatedMedia(
@@ -546,10 +546,15 @@ class EmergencyMediaModule(
                     throw IllegalStateException("Media request was rejected (HTTP $status).")
                 }
 
-                val file = File(reactContext.cacheDir, "protected-sos-media/audio-${System.currentTimeMillis()}.m4a")
+                val fileName = "audio-${mediaUrl.hashCode().toUInt().toString(16)}.m4a"
+                val file = File(reactContext.filesDir, "protected-sos-media/$fileName")
                 file.parentFile?.mkdirs()
                 connection.inputStream.use { input ->
                     FileOutputStream(file).use { output -> input.copyTo(output) }
+                }
+                if (!file.isFile || !file.canRead() || file.length() <= 0) {
+                    file.delete()
+                    throw IllegalStateException("Downloaded media file is invalid.")
                 }
                 promise.resolve(file.absolutePath)
             } catch (error: Exception) {

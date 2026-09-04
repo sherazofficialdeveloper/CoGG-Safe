@@ -126,6 +126,7 @@ export async function processSosQueue({processors = {}, now = Date.now()} = {}) 
             updatedAt: new Date(now).toISOString(),
           });
           processed.push({id: item.id, status: 'PENDING'});
+          processingQueueItems.delete(item.id);
           continue;
         }
         throw new Error(result.reason || 'Service remains pending.');

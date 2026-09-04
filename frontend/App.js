@@ -88,6 +88,7 @@ function AppContent() {
   const [screen, setScreen] = useState('loading');
   const [portal, setPortal] = useState('admin');
   const [selectedUser, setSelectedUser] = useState(null);
+  const [adminCredentialMap, setAdminCredentialMap] = useState({});
   const [userDetailBackScreen, setUserDetailBackScreen] = useState('adminUsers');
   const [selectedSos, setSelectedSos] = useState(null);
   const [selectedNotification, setSelectedNotification] = useState(null);
@@ -214,6 +215,19 @@ function AppContent() {
                 sosEvent: event,
                 component: item.payload?.component || null,
               }),
+
+            // Capture jobs are durable too.  A foreground capture can fail
+            // transiently (or one camera can fail while the other succeeds);
+            // retry the missing work using the persisted service result.
+            camera: async (item, event) =>
+              captureEmergencyPhotos({
+                sosId: event.id,
+                previousResult: event.services?.camera,
+                event,
+              }),
+
+            audio: async (item, event) =>
+              recordEmergencyAudio({sosId: event.id}),
 
             liveLocation: async (item, event) =>
               startLiveLocationSharing({
@@ -494,6 +508,7 @@ function AppContent() {
           camera: async event =>
             captureEmergencyPhotos({
               sosId: event.id,
+              event,
             }),
 
           // ------------------------------------------------------
@@ -502,6 +517,7 @@ function AppContent() {
           audio: async event =>
             recordEmergencyAudio({
               sosId: event.id,
+              previousResult: event.services?.audio,
             }),
 
           // ------------------------------------------------------
@@ -533,7 +549,7 @@ function AppContent() {
           // EMAIL
           // ------------------------------------------------------
           email: async () => ({
-            status: 'COMPLETED',
+            status: 'PENDING',
             reason: 'Email dispatch is handled by the backend after activation.',
           }),
 
@@ -880,6 +896,7 @@ function AppContent() {
               />
             }>
             <AdminDashboardScreen
+              token={token}
               user={user}
               onNavigate={handleAdminNavigation}
               onCollections={() =>
@@ -921,11 +938,17 @@ function AppContent() {
             }>
             <AdminCollectionsScreen
               token={token}
+              initialCredentials={adminCredentialMap}
               onAddCollection={() => setScreen('adminAddCollection')}
               onUserDetail={userData => {
                 setSelectedUser(userData);
                 setUserDetailBackScreen('adminCollections');
                 setScreen('adminUserDetail');
+              }}
+              onEditUser={userData => {
+                setSelectedUser(userData);
+                setUserDetailBackScreen('adminCollections');
+                setScreen('adminUserDetailEdit');
               }}
               onNavigate={handleAdminNavigation}
               onBack={() => setScreen('adminDashboard')}
@@ -949,7 +972,8 @@ function AppContent() {
             <AdminAddCollectionScreen
               token={token}
               onBack={() => setScreen('adminDashboard')}
-              onSave={collectionData => {
+              onSave={(collectionData, credentials) => {
+                setAdminCredentialMap(credentials || {});
                 showToast(
                   `Collection "${collectionData.name}" created!`,
                   'success',
@@ -982,6 +1006,11 @@ function AppContent() {
                 setSelectedUser(userData);
                 setScreen('adminUserDetail');
               }}
+              onEditUser={userData => {
+                setSelectedUser(userData);
+                setUserDetailBackScreen('adminUsers');
+                setScreen('adminUserDetailEdit');
+              }}
               onBack={() => setScreen('adminDashboard')}
               onProfile={() => setScreen('adminProfile')}
             />
@@ -1003,6 +1032,18 @@ function AppContent() {
                 setSelectedSos(sos);
                 setScreen('adminSosDetail');
               }}
+            />
+          </AdminLayoutNoHeader>
+        );
+
+      case 'adminUserDetailEdit':
+        return (
+          <AdminLayoutNoHeader>
+            <AdminUserDetailScreen
+              token={token}
+              user={selectedUser}
+              startEditing
+              onBack={() => setScreen(userDetailBackScreen)}
             />
           </AdminLayoutNoHeader>
         );
@@ -1129,6 +1170,7 @@ function AppContent() {
               />
             }>
             <AdminDashboardScreen
+              token={token}
               user={user}
               onNavigate={handleAdminNavigation}
               onCollections={() =>

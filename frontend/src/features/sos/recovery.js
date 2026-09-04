@@ -7,6 +7,8 @@ const RECOVERABLE_SERVICES = {
   call: 'CALL',
   backend: 'BACKEND',
   location: 'LOCATION',
+  camera: 'CAMERA',
+  audio: 'AUDIO',
   liveLocation: 'LIVELOCATION',
   // Durable canonical-link follow-up SMS (see orchestrator.js /
   // queueWorker.js). Included here as a safety net so recovery also

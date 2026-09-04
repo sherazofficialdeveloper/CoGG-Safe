@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {
   View,
   Text,
@@ -8,25 +8,60 @@ import {
   StatusBar,
   ScrollView,
   Alert,
+  TextInput,
 } from 'react-native';
-import {deleteUser, setUserStatus} from '../../api/resources';
+import {deleteUser, setUserStatus, updateUser} from '../../api/resources';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {userEditFormValues} from '../../utils/adminUserForm';
 
 const AdminUserDetailScreen = ({
   user,
   onBack,
   onSosDetail,
   token,
+  startEditing = false,
 }) => {
   const insets = useSafeAreaInsets();
   const [isBlocked, setIsBlocked] = useState(
     (user?.accountStatus || user?.status) !== 'active',
   );
   const [submitting, setSubmitting] = useState(false);
+  const [isEditing, setIsEditing] = useState(startEditing);
+  const [editForm, setEditForm] = useState({});
+
+  useEffect(() => {
+    setIsEditing(startEditing);
+    setEditForm(userEditFormValues(user));
+  }, [user, startEditing]);
 
   if (!user) return null;
   const selectedUser = user;
   const sosHistory = [];
+
+  const handleSaveEdit = async () => {
+    const id = selectedUser._id || selectedUser.id;
+    if (!id || !editForm.username.trim() || !editForm.mobileNumber.trim()) return;
+    setSubmitting(true);
+    try {
+      const response = await updateUser(token, id, {
+        username: editForm.username.trim(),
+        mobileNumber: editForm.mobileNumber.trim(),
+        ...(editForm.email.trim() ? {email: editForm.email.trim()} : {}),
+      });
+      const updated = response?.user || response;
+      Object.assign(selectedUser, updated, {
+        name: updated.username,
+        phone: updated.mobileNumber,
+        email: updated.email || 'No email configured',
+      });
+      setIsEditing(false);
+      Alert.alert('User updated', 'User details have been saved.');
+    } catch (error) {
+      Alert.alert('Unable to update user', error.message || 'Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleBlockUser = () => {
     Alert.alert(
@@ -136,6 +171,31 @@ const AdminUserDetailScreen = ({
               {selectedUser.initials}
             </Text>
           </View>
+
+          {isEditing ? (
+            <View style={styles.editCard}>
+              <Text style={styles.sectionTitle}>EDIT USER</Text>
+              {[
+                ['username', 'Username'],
+                ['mobileNumber', 'Mobile number'],
+                ['email', 'Email (optional)'],
+              ].map(([field, placeholder]) => (
+                <TextInput
+                  key={field}
+                  style={styles.editInput}
+                  value={editForm[field]}
+                  onChangeText={value => setEditForm(current => ({...current, [field]: value}))}
+                  placeholder={placeholder}
+                  keyboardType={field === 'mobileNumber' ? 'phone-pad' : field === 'email' ? 'email-address' : 'default'}
+                  autoCapitalize="none"
+                />
+              ))}
+              <View style={styles.editActions}>
+                <TouchableOpacity onPress={() => setIsEditing(false)} style={styles.editCancel}><Text>Cancel</Text></TouchableOpacity>
+                <TouchableOpacity disabled={submitting} onPress={handleSaveEdit} style={styles.editSave}><Text style={styles.editSaveText}>{submitting ? 'Saving...' : 'Save changes'}</Text></TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
 
           <Text style={styles.userName}>
             {selectedUser.name}
@@ -376,6 +436,10 @@ const AdminUserDetailScreen = ({
         <Text style={styles.sectionTitle}>
           ADMIN ACTIONS
         </Text>
+
+        {!isEditing ? <TouchableOpacity style={styles.editUserAction} onPress={() => setIsEditing(true)}>
+          <Text style={styles.editUserActionText}>Edit user details</Text>
+        </TouchableOpacity> : null}
 
         <View style={styles.actionCard}>
           <TouchableOpacity
@@ -988,6 +1052,30 @@ const styles = StyleSheet.create({
     lineHeight: 13,
     fontWeight: '600',
   },
+
+  editCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E7E7EA',
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 18,
+  },
+  editInput: {
+    height: 48,
+    borderWidth: 1,
+    borderColor: '#D9DEE5',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    color: '#1A1A1A',
+  },
+  editActions: {flexDirection: 'row', gap: 8},
+  editCancel: {flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F1F2F4', borderRadius: 10},
+  editSave: {flex: 1, minHeight: 44, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E4002B', borderRadius: 10},
+  editSaveText: {color: '#FFFFFF', fontWeight: '900'},
+  editUserAction: {backgroundColor: '#1A1A1A', borderRadius: 10, minHeight: 46, alignItems: 'center', justifyContent: 'center', marginBottom: 12},
+  editUserActionText: {color: '#FFFFFF', fontWeight: '900'},
 
   bottomSpace: {
     height: 20,

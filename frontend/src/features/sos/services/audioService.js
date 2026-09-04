@@ -4,9 +4,18 @@ import {recordNativeSosAudio} from './nativeMedia';
 
 const AUDIO_DURATION_MS = 5000;
 
-export async function recordEmergencyAudio({sosId}) {
+export async function recordEmergencyAudio({sosId, previousResult = null}) {
   if (!sosId) {
     throw new Error('Audio capture requires a local SOS identifier.');
+  }
+  // The native recorder writes into the app's private files directory. A
+  // retry must reuse that durable path rather than create a second recording.
+  if (typeof previousResult?.localPath === 'string' && previousResult.localPath.trim()) {
+    return {
+      ...previousResult,
+      status: 'COMPLETED',
+      component: 'AUDIO',
+    };
   }
   if (Platform.OS !== 'android') {
     return {status: 'FAILED', localPath: null, component: 'AUDIO', error: 'Audio capture is only supported on Android.'};

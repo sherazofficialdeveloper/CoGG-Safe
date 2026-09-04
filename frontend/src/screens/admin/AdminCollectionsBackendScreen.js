@@ -2,11 +2,12 @@ import React, {useCallback, useEffect, useState} from 'react';
 import {ActivityIndicator, Alert, Clipboard, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View} from 'react-native';
 import {SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 import {createUser, deleteUser, listCollectionUsers, listCollections, updateCollection} from '../../api/resources';
+import {rememberCredential} from '../../utils/adminCredentials';
 
 const EMPTY_USER = {username: '', mobileNumber: '', email: '', password: ''};
 const TYPES = ['family', 'children', 'workers', 'other'];
 
-export default function AdminCollectionsBackendScreen({token, onBack, onAddCollection, onUserDetail}) {
+export default function AdminCollectionsBackendScreen({token, onBack, onAddCollection, onUserDetail, onEditUser, initialCredentials = {}}) {
   const insets = useSafeAreaInsets();
   const [collections, setCollections] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -19,7 +20,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
   const [userForm, setUserForm] = useState(EMPTY_USER);
   const [editForm, setEditForm] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [credentialMap, setCredentialMap] = useState({});
+  const [credentialMap, setCredentialMap] = useState(initialCredentials);
 
   const loadCollections = useCallback(async () => {
     setLoading(true);
@@ -89,7 +90,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
       const createdId = createdUser?._id || createdUser?.id;
 
       if (createdId) {
-        setCredentialMap(current => ({...current, [createdId]: payload.password}));
+        setCredentialMap(current => rememberCredential(current, createdUser, payload.password));
       }
 
       setUserForm(EMPTY_USER);
@@ -103,22 +104,17 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
     }
   };
 
-  const handleCopyCredentials = async member => {
-    const memberId = member?._id || member?.id;
-    const password = credentialMap[memberId] || member?.password || '';
-
-    if (!password) {
-      Alert.alert('Copy unavailable', 'This password is not available to copy in the current session.');
+  const handleCopyField = async (member, field) => {
+    const value = field === 'username' ? member?.username : credentialMap[member?._id || member?.id] || '';
+    if (!value) {
+      Alert.alert('Copy unavailable', `This ${field} is not available in the current session.`);
       return;
     }
-
-    const raw = [member?.username || '', password].join('\n');
-
     try {
-      await Clipboard.setString(raw);
-      Alert.alert('Copied', 'Username and password copied to clipboard.');
+      await Clipboard.setString(value);
+      Alert.alert('Copied', `${field === 'username' ? 'Username' : 'Password'} copied to clipboard.`);
     } catch (requestError) {
-      Alert.alert('Copy failed', requestError.message || 'Unable to copy credentials.');
+      Alert.alert('Copy failed', requestError.message || 'Unable to copy.');
     }
   };
 
@@ -182,10 +178,13 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
                 </View>
               </TouchableOpacity>
               <View style={styles.memberActions}>
-                <TouchableOpacity style={styles.memberActionButton} onPress={() => handleCopyCredentials(member)}>
-                  <Text style={styles.memberActionText}>Copy</Text>
+                <TouchableOpacity style={styles.memberActionButton} onPress={() => handleCopyField(member, 'username')}>
+                  <Text style={styles.memberActionText}>Copy Username</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.memberActionButton} onPress={() => onUserDetail?.({...member, name: member.username, phone: member.mobileNumber, email: member.email || 'No email configured', accountStatus: member.status, status: statusLabel, initials: (member.username || 'U').slice(0, 2).toUpperCase(), joined: member.createdAt ? new Date(member.createdAt).toLocaleDateString() : 'Date unavailable', color: '#E4002B'})}>
+                <TouchableOpacity style={styles.memberActionButton} onPress={() => handleCopyField(member, 'password')}>
+                  <Text style={styles.memberActionText}>Copy Password</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.memberActionButton} onPress={() => (onEditUser || onUserDetail)?.({...member, name: member.username, phone: member.mobileNumber, email: member.email || 'No email configured', accountStatus: member.status, status: statusLabel, initials: (member.username || 'U').slice(0, 2).toUpperCase(), joined: member.createdAt ? new Date(member.createdAt).toLocaleDateString() : 'Date unavailable', color: '#E4002B'})}>
                   <Text style={styles.memberActionText}>Edit</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.memberActionButton, styles.memberActionDanger]} onPress={() => handleDeleteMember(member)}>

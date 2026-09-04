@@ -54,11 +54,21 @@ async function send({ to, subject, body }) {
       text: body,
     });
 
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Email send timeout after 10 seconds')), 10000)
+    let timeoutHandle;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        const error = new Error('Email send timeout after 10 seconds');
+        error.code = 'EMAIL_DELIVERY_UNKNOWN';
+        reject(error);
+      }, 10000);
+    });
+    sendPromise.then(
+      () => clearTimeout(timeoutHandle),
+      () => clearTimeout(timeoutHandle),
     );
 
     const info = await Promise.race([sendPromise, timeoutPromise]);
+    clearTimeout(timeoutHandle);
     return { status: 'sent', providerMessageId: info.messageId };
   } catch (err) {
     logger.warn('Email send failed', { to, subject, error: err.message });

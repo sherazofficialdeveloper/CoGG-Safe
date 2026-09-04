@@ -12,7 +12,7 @@ if (typeof jest === 'undefined') {
   }
 }
 
-const AudioPlayer = ({audioUrl, token, onError = null, style = {}}) => {
+const AudioPlayer = ({audioUrl, localPath = null, token, onError = null, style = {}}) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [sound, setSound] = useState(null);
@@ -33,20 +33,24 @@ const AudioPlayer = ({audioUrl, token, onError = null, style = {}}) => {
     };
 
     const initializeAudio = async () => {
-      if (!audioUrl) return fail('No stored audio is available.');
-      if (!token) return fail('Audio cannot be loaded because this session has no authentication token.');
+      if (!audioUrl && !localPath) return fail('No stored audio is available.');
       if (!Sound) return fail('Audio playback is unavailable in this environment.');
 
       try {
         setIsLoading(true);
         setError(null);
-        // The endpoint is authenticated. Download through the existing native
-        // SOS module with the JWT, then provide Sound a cache-file path rather
-        // than an unauthenticated backend URL.
-        const localPath = await downloadAuthenticatedSosMedia(audioUrl, token);
+        // Pending SOS media already lives in the app-private files directory.
+        // Prefer it so playback works offline and before backend upload.
+        // Protected remote media is downloaded with the JWT because
+        // react-native-sound cannot attach request headers itself.
+        let playablePath = localPath;
+        if (!playablePath) {
+          if (!token) return fail('Audio cannot be loaded because this session has no authentication token.');
+          playablePath = await downloadAuthenticatedSosMedia(audioUrl, token);
+        }
         if (!isMounted) return;
 
-        loadedSound = new Sound(localPath, '', loadError => {
+        loadedSound = new Sound(playablePath, '', loadError => {
           if (!isMounted) return;
           if (loadError) return fail('Stored audio could not be played.', loadError);
           setSound(loadedSound);
@@ -63,7 +67,7 @@ const AudioPlayer = ({audioUrl, token, onError = null, style = {}}) => {
       isMounted = false;
       if (loadedSound) loadedSound.release();
     };
-  }, [audioUrl, onError, reloadKey, token]);
+  }, [audioUrl, localPath, onError, reloadKey, token]);
 
   const handlePlayPause = () => {
     if (!sound) return setError('Stored audio is unavailable.');

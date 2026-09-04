@@ -23,6 +23,7 @@ const Collection = require('../src/modules/collections/collection.model');
 const notificationService = require('../src/modules/notifications/notification.service');
 const emailProvider = require('../src/services/email/email.provider');
 const { dispatchSos } = require('../src/modules/sos/dispatch.service');
+const { setComponentStatus } = require('../src/modules/sos/component.util');
 
 function buildSos(overrides = {}) {
   return {
@@ -93,5 +94,39 @@ describe('dispatch.service email content', () => {
 
     await expect(dispatchSos(buildSos())).resolves.not.toThrow();
     expect(emailProvider.send).not.toHaveBeenCalled();
+  });
+
+  test('provider pending/processing outcomes become unknown, not a permanent timeout failure', async () => {
+    emailProvider.send.mockResolvedValue({ status: 'pending' });
+
+    await dispatchSos(buildSos());
+
+    expect(setComponentStatus).toHaveBeenCalledWith(
+      'sos123',
+      'email',
+      'unknown',
+      { error: 'Email delivery could not be confirmed' },
+    );
+    expect(setComponentStatus).not.toHaveBeenCalledWith(
+      'sos123',
+      'email',
+      'failed',
+      expect.anything(),
+    );
+  });
+
+  test('email timeout is an unknown delivery outcome and does not leave processing/pending', async () => {
+    const timeout = new Error('Email send timeout after 10 seconds');
+    timeout.code = 'EMAIL_DELIVERY_UNKNOWN';
+    emailProvider.send.mockRejectedValue(timeout);
+
+    await dispatchSos(buildSos());
+
+    expect(setComponentStatus).toHaveBeenCalledWith(
+      'sos123',
+      'email',
+      'unknown',
+      { error: 'Email delivery could not be confirmed' },
+    );
   });
 });

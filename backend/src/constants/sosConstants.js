@@ -19,6 +19,7 @@ const COMPONENT_STATUS = Object.freeze({
   PROCESSING: 'processing',
   SUCCESS: 'success',
   FAILED: 'failed',
+  UNKNOWN: 'unknown', // provider accepted/attempted delivery but outcome was not confirmable
   UNSUPPORTED: 'unsupported',
   SKIPPED: 'skipped', // e.g. email skipped because none configured
 });

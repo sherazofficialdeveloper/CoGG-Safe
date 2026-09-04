@@ -17,6 +17,7 @@ import {deactivateSos, stopLiveLocation} from '../../api/resources';
 import {API_BASE_URL} from '../../api/config';
 import AudioPlayer from '../../components/AudioPlayer';
 import {buildMediaUrl} from '../../utils/media';
+import FullscreenImageViewer from '../../components/FullscreenImageViewer';
 
 const AdminSosDetailScreen = ({
   sos,
@@ -30,6 +31,7 @@ const AdminSosDetailScreen = ({
   const [locationUpdateTime, setLocationUpdateTime] = useState('Just now');
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [selectedImage, setSelectedImage] = useState(null);
 
   const record = sos || {};
 
@@ -268,7 +270,9 @@ const AdminSosDetailScreen = ({
                   <Text style={styles.photoBadgeText}>Front</Text>
                 </View>
                 {frontMediaUrl ? (
-                  <Image source={{uri: frontMediaUrl, headers: {Authorization: `Bearer ${token}`}}} style={styles.photoImage} />
+                  <TouchableOpacity onPress={() => setSelectedImage(frontMediaUrl)} activeOpacity={0.85}>
+                    <Image source={{uri: frontMediaUrl, headers: {Authorization: `Bearer ${token}`}}} style={styles.photoImage} />
+                  </TouchableOpacity>
                 ) : frontImage?.error || localCamera?.frontError ? (
                   <Text style={styles.photoStatus}>Failed: {frontImage?.error || localCamera.frontError}</Text>
                 ) : (
@@ -280,7 +284,9 @@ const AdminSosDetailScreen = ({
                   <Text style={styles.photoBadgeText}>Back</Text>
                 </View>
                 {backMediaUrl ? (
-                  <Image source={{uri: backMediaUrl, headers: {Authorization: `Bearer ${token}`}}} style={styles.photoImage} />
+                  <TouchableOpacity onPress={() => setSelectedImage(backMediaUrl)} activeOpacity={0.85}>
+                    <Image source={{uri: backMediaUrl, headers: {Authorization: `Bearer ${token}`}}} style={styles.photoImage} />
+                  </TouchableOpacity>
                 ) : backImage?.error || localCamera?.backError ? (
                   <Text style={styles.photoStatus}>Failed: {backImage?.error || localCamera.backError}</Text>
                 ) : (
@@ -300,8 +306,8 @@ const AdminSosDetailScreen = ({
         <View style={styles.audioSection}>
           <Text style={styles.audioLabel}>🎙️ VOICE RECORDING</Text>
           <View style={styles.audioCard}>
-            {audioMediaUrl ? (
-              <AudioPlayer audioUrl={audioMediaUrl} token={token} style={styles.audioPlayer} />
+            {audioMediaUrl || localAudio?.localPath ? (
+              <AudioPlayer audioUrl={audioMediaUrl} localPath={localAudio?.localPath} token={token} style={styles.audioPlayer} />
             ) : (
               <>
                 <TouchableOpacity
@@ -349,6 +355,12 @@ const AdminSosDetailScreen = ({
         </View>
 
       </ScrollView>
+      <FullscreenImageViewer
+        visible={Boolean(selectedImage)}
+        uri={selectedImage}
+        headers={{Authorization: `Bearer ${token}`}}
+        onClose={() => setSelectedImage(null)}
+      />
 
       {/* ================= ACTION BUTTONS ================= */}
       <View style={styles.actionContainer}>

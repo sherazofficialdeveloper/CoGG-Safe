@@ -5,6 +5,7 @@ import AudioPlayer from '../components/AudioPlayer';
 import {API_BASE_URL} from '../api/config';
 import {buildMediaRequestOptions, buildMediaUrl} from '../utils/media';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import FullscreenImageViewer from '../components/FullscreenImageViewer';
 
 const hasStoredMedia = component => (
   String(component?.status || '').toLowerCase() === 'success' &&
@@ -19,6 +20,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
     : notification?.sosId;
   const sos = notification?.sosId && typeof notification.sosId === 'object' ? notification.sosId : null;
   const [hiddenImages, setHiddenImages] = useState({front: false, back: false});
+  const [selectedImage, setSelectedImage] = useState(null);
 
   useEffect(() => {
     setHiddenImages({front: false, back: false});
@@ -66,8 +68,8 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
           {sos ? (
             <View style={styles.mediaBlock}>
               <Text style={styles.mediaTitle}>Photos</Text>
-              {frontMediaUrl && !hiddenImages.front ? <Image source={{uri: frontMediaUrl, ...imageOptions}} style={styles.image} onError={() => setHiddenImages(current => ({...current, front: true}))} accessibilityLabel="SOS front photo" /> : null}
-              {backMediaUrl && !hiddenImages.back ? <Image source={{uri: backMediaUrl, ...imageOptions}} style={styles.image} onError={() => setHiddenImages(current => ({...current, back: true}))} accessibilityLabel="SOS back photo" /> : null}
+              {frontMediaUrl && !hiddenImages.front ? <TouchableOpacity onPress={() => setSelectedImage(frontMediaUrl)}><Image source={{uri: frontMediaUrl, ...imageOptions}} style={styles.image} onError={() => setHiddenImages(current => ({...current, front: true}))} accessibilityLabel="SOS front photo" /></TouchableOpacity> : null}
+              {backMediaUrl && !hiddenImages.back ? <TouchableOpacity onPress={() => setSelectedImage(backMediaUrl)}><Image source={{uri: backMediaUrl, ...imageOptions}} style={styles.image} onError={() => setHiddenImages(current => ({...current, back: true}))} accessibilityLabel="SOS back photo" /></TouchableOpacity> : null}
               {visibleImageCount === 0 ? <Text style={styles.emptyMedia}>No successfully stored photos are available.</Text> : null}
             </View>
           ) : null}
@@ -82,6 +84,12 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
           {sosId ? <TouchableOpacity style={styles.button} onPress={() => onViewSos?.(sosId)}><Text style={styles.buttonText}>Open SOS details</Text></TouchableOpacity> : null}
         </ScrollView>
       ) : <View style={styles.content}><Text style={styles.heading}>Notification unavailable</Text><Text style={styles.body}>This notification record is no longer available.</Text></View>}
+      <FullscreenImageViewer
+        visible={Boolean(selectedImage)}
+        uri={selectedImage}
+        headers={imageOptions.headers}
+        onClose={() => setSelectedImage(null)}
+      />
     </SafeAreaView>
   );
 };

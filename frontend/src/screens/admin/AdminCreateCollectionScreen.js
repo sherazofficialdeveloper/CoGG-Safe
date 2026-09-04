@@ -84,11 +84,15 @@ export default function AdminCreateCollectionScreen({onBack, onSave, token}) {
       const collectionResponse = await createCollection(token, {name: name.trim(), type, emergencyCallNumber: emergencyCallNumber.trim()});
       const collection = collectionResponse.collection;
       let createdUsers = 0;
+      const credentials = {};
       try {
         for (const user of users) {
           const payload = {username: user.username.trim(), password: user.password, mobileNumber: user.mobileNumber.trim(), collectionId: collection._id};
           if (user.email.trim()) payload.email = user.email.trim();
-          await createUser(token, payload);
+          const userResponse = await createUser(token, payload);
+          const createdUser = userResponse?.user || userResponse?.data || userResponse;
+          const createdId = createdUser?._id || createdUser?.id;
+          if (createdId) credentials[createdId] = payload.password;
           createdUsers += 1;
         }
       } catch (userError) {
@@ -96,7 +100,7 @@ export default function AdminCreateCollectionScreen({onBack, onSave, token}) {
         return;
       }
       Alert.alert('Collection saved', `${createdUsers} user${createdUsers === 1 ? '' : 's'} added successfully.`);
-      onSave?.(collection);
+      onSave?.(collection, credentials);
     } catch (requestError) {
       Alert.alert('Unable to save collection', requestError.message || 'Please check your connection and try again.');
     } finally {
