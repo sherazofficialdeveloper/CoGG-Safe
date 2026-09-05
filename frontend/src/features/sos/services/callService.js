@@ -58,6 +58,15 @@ export async function saveEmergencyCallSim(subscriptionId, meta = {}) {
 export async function initiateEmergencyCall({emergencyNumber}) {
   ensureSosNativeDiagnosticListener();
   emitSosDiagnostic('CALL DEBUG — Service reached');
+  const emergencyNumberDebugValue =
+    emergencyNumber === undefined
+      ? 'undefined'
+      : emergencyNumber === null
+        ? 'null'
+        : emergencyNumber === ''
+          ? 'EMPTY'
+          : String(emergencyNumber);
+  emitSosDiagnostic(`Emergency Number Debug: ${emergencyNumberDebugValue}`);
   const normalizedNumber = normalizePhoneNumber(emergencyNumber);
   if (__DEV__) console.log('[SOS][CALL] RUNNER_STARTED', {hasNumber: Boolean(emergencyNumber)});
   if (__DEV__) console.log('[SOS][CALL] EMERGENCY_NUMBER_RESOLVED', {configured: Boolean(normalizedNumber)});
