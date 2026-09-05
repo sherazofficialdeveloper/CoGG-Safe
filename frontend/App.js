@@ -610,7 +610,24 @@ function AppContent() {
   // SOS HANDLER
   // ============================================================
 
+  const sosActivationInFlightRef = React.useRef(false);
+
   const handleTriggerSos = async () => {
+    if (sosActivationInFlightRef.current) return;
+
+    // The local SOS is the immediate lock. This prevents a second 3-second
+    // hold from creating a second local event while the first backend request
+    // is still travelling, even when the network is slow/offline.
+    const existingLocalEvents = await sosLocalStore.getAllEvents().catch(() => []);
+    const openLocal = existingLocalEvents.find(item => item?.userId === (user?._id || user?.id)
+      && ['ACTIVE', 'PENDING'].includes(String(item?.status || '').toUpperCase()));
+    if (openLocal) {
+      setSelectedSos(openLocal);
+      setScreen('userSosActive');
+      return;
+    }
+
+    sosActivationInFlightRef.current = true;
     emitSosDiagnostic('SOS DEBUG 01: Trigger received');
     setSosError('');
     setSosLoading(true);
@@ -868,6 +885,7 @@ function AppContent() {
       showToast('Failed to trigger SOS', 'error');
     } finally {
       setSosLoading(false);
+      sosActivationInFlightRef.current = false;
     }
   };
 

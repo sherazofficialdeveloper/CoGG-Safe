@@ -39,13 +39,25 @@ export async function sendEmergencySms({phoneNumber, message}) {
     const permissionGranted = permissionState === PERMISSION_STATUS.GRANTED;
     emitSosDiagnostic(permissionGranted ? 'SMS DEBUG — SEND_SMS permission granted' : 'SMS ERROR — SEND_SMS permission denied', permissionGranted ? 'info' : 'error');
     if (!permissionGranted) {
+      // Direct SEND_SMS can be unavailable on modern Android builds because
+      // the permission may be hard-restricted by the installer. Use the system
+      // SMS composer instead of failing the SOS or trapping the user in a dead
+      // permission prompt. The user can tap Send in the system UI.
+      if (typeof emergencyMedia.openSmsComposer === 'function') {
+        const composerResult = await emergencyMedia.openSmsComposer(
+          phoneNumber,
+          message || 'Emergency assistance requested.',
+        );
+        return {
+          status: String(composerResult?.status || '').toUpperCase() === 'UNSUPPORTED' ? 'UNSUPPORTED' : 'PENDING',
+          reason: composerResult?.reason || 'Android opened the SMS composer for confirmation.',
+        };
+      }
       return {
-        status: 'FAILED',
+        status: 'UNSUPPORTED',
         reason: permissionState === PERMISSION_STATUS.BLOCKED
-          ? 'SMS permission is blocked. Enable SMS permission in Android Settings.'
-          : permissionState === PERMISSION_STATUS.UNAVAILABLE
-            ? 'SMS permission is unavailable on this device.'
-            : 'SMS permission denied. Emergency SMS cannot be sent.',
+          ? 'Direct SMS permission is blocked; Android SMS composer is required.'
+          : 'Direct SMS permission is not available; Android SMS composer is required.',
       };
     }
     if (typeof emergencyMedia.sendEmergencySms === 'function') {

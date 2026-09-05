@@ -25,9 +25,15 @@ export const REQUIRED_PERMISSIONS = Object.freeze([
   {key: 'camera', permission: PermissionsAndroid.PERMISSIONS.CAMERA, title: 'Camera', description: 'Camera access is required to capture emergency evidence when SOS is activated.'},
   {key: 'audio', permission: PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, title: 'Microphone', description: 'Microphone access is required to record emergency audio during SOS.'},
   {key: 'call', permission: PermissionsAndroid.PERMISSIONS.CALL_PHONE, title: 'Phone', description: 'Phone access is required to place the emergency call from the user device.'},
-  {key: 'sms', permission: PermissionsAndroid.PERMISSIONS.SEND_SMS, title: 'SMS', description: 'SMS access is required to send emergency messages through the device cellular network.'},
   ...(Platform.Version >= 33 && PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS ? [{key: 'notifications', permission: PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS, title: 'Notifications', description: 'Notifications are required to keep you informed about emergency activity.'}] : []),
 ]);
+
+// SEND_SMS is intentionally not part of the blocking permission onboarding.
+// Modern Android treats SEND_SMS as a hard-restricted permission for many
+// installers; when direct sending is unavailable the SOS flow falls back to
+// the system SMS composer instead of leaving the user stuck on a disabled
+// permission dialog.
+export const OPTIONAL_SMS_PERMISSION = PermissionsAndroid.PERMISSIONS.SEND_SMS;
 
 export const SOS_TRIGGER_PERMISSIONS = REQUIRED_PERMISSIONS.filter(item => ['location', 'camera', 'audio', 'notifications'].includes(item.key));
 export const COMMUNICATION_PERMISSIONS = REQUIRED_PERMISSIONS.filter(item => item.key === 'call');
@@ -136,7 +142,6 @@ function buildPermissionState(permissions) {
     camera !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
     audio !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
     call !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
-    sms !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
     notifications !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN;
 
   return {

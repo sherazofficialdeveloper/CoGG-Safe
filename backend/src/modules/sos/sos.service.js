@@ -206,7 +206,10 @@ async function createSos({ userId, idempotencyKey, location }) {
   });
 
   if (openSos) {
-    throw ApiError.conflict('An SOS is already pending or active for this user');
+    // An already-open SOS is the same emergency session, not a validation
+    // error. Return it idempotently so delayed/offline retries reconcile to
+    // the existing backend record instead of creating noisy 409 failures.
+    return { sos: openSos, alreadyExisted: true };
   }
 
   let sos;

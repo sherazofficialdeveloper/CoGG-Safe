@@ -5,6 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
@@ -43,9 +45,19 @@ class MainApplication : Application(), ReactApplication {
     val channel = NotificationChannel(
       channelId,
       channelName,
-      NotificationManager.IMPORTANCE_DEFAULT,
+      NotificationManager.IMPORTANCE_HIGH,
     ).apply {
       description = channelDescription
+      enableVibration(true)
+      vibrationPattern = longArrayOf(0, 250, 150, 250)
+      setShowBadge(true)
+      setSound(
+        RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+        AudioAttributes.Builder()
+          .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+          .build()
+      )
     }
 
     manager.createNotificationChannel(channel)

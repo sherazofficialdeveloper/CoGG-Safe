@@ -52,17 +52,19 @@ async function getLastKnownLocation() {
 async function ensureLocationPermission() {
   if (Platform.OS !== 'android') return true;
 
-  const permission = 'android.permission.ACCESS_FINE_LOCATION';
-  let granted = await checkPermission(permission);
-  if (__DEV__) console.log('[SOS_DEBUG] LOCATION_PERMISSION', {state: granted});
-  if (__DEV__) console.log('[SOS][LOCATION] PERMISSION_STATE', {granted});
-  if (granted !== PERMISSION_STATUS.GRANTED) {
-    const result = await requestPermission(permission);
-    granted = result;
-    if (__DEV__) console.log('[SOS][LOCATION] PERMISSION_RESULT', {result});
+  const finePermission = 'android.permission.ACCESS_FINE_LOCATION';
+  const coarsePermission = 'android.permission.ACCESS_COARSE_LOCATION';
+  let fineGranted = await checkPermission(finePermission);
+  let coarseGranted = await checkPermission(coarsePermission);
+  if (__DEV__) console.log('[SOS_DEBUG] LOCATION_PERMISSION', {fine: fineGranted, coarse: coarseGranted});
+  if (fineGranted !== PERMISSION_STATUS.GRANTED && coarseGranted !== PERMISSION_STATUS.GRANTED) {
+    fineGranted = await requestPermission(finePermission);
+    if (fineGranted !== PERMISSION_STATUS.GRANTED) {
+      coarseGranted = await requestPermission(coarsePermission);
+    }
   }
-  if (granted !== PERMISSION_STATUS.GRANTED) {
-    throw buildLocationError('Location permission denied. Enable device location permission for SOS coordinates.', 'LOCATION_PERMISSION_DENIED');
+  if (fineGranted !== PERMISSION_STATUS.GRANTED && coarseGranted !== PERMISSION_STATUS.GRANTED) {
+    throw buildLocationError('Location permission denied. Enable location permission for SOS coordinates.', 'LOCATION_PERMISSION_DENIED');
   }
   return true;
 }
@@ -165,47 +167,50 @@ export async function getCurrentLocation() {
   if (__DEV__) console.log('[SOS_DEBUG] LOCATION_SERVICES', {providerAvailable: Boolean(Geolocation)});
 
   try {
-    if (__DEV__) console.log('[SOS_DEBUG] HIGH_ACCURACY_ATTEMPT');
-    const result = await attemptLocation({
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 60000,
-    }, 'high-accuracy');
-    if (__DEV__) console.log('[SOS_DEBUG] HIGH_ACCURACY_RESULT', {success: true});
-    return result;
-  } catch (highAccuracyError) {
+    // Prefer a quick network/fused-assisted fix first. It is usually faster on
+    // modern devices and still produces a valid lat/lng for the emergency.
+    const quickResult = await attemptLocation({
+      enableHighAccuracy: false,
+      timeout: 7000,
+      maximumAge: 120000,
+    }, 'best-available');
+    if (__DEV__) console.log('[SOS_DEBUG] BEST_AVAILABLE_RESULT', {success: true});
+    return quickResult;
+  } catch (bestAvailableError) {
     if (__DEV__) console.log('[SOS_DEBUG] HIGH_ACCURACY_RESULT', {success: false, message: highAccuracyError.message});
     if (__DEV__) console.log('[SOS][LOCATION] HIGH_ACCURACY_FAILED', {reason: highAccuracyError.message});
     // A network/location-settings assisted fix can still be valid when GPS
     // cannot produce a fix immediately, including while offline.
     try {
-      if (__DEV__) console.log('[SOS_DEBUG] FALLBACK_ATTEMPT');
+      if (__DEV__) console.log('[SOS_DEBUG] HIGH_ACCURACY_RETRY');
       const result = await attemptLocation({
-        enableHighAccuracy: false,
-        timeout: 5000,
-        maximumAge: 300000,
-      }, 'best-available');
-      if (__DEV__) console.log('[SOS_DEBUG] FALLBACK_RESULT', {success: true});
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000,
+      }, 'high-accuracy');
+      if (__DEV__) console.log('[SOS_DEBUG] HIGH_ACCURACY_RETRY_RESULT', {success: true});
       return result;
-    } catch (fallbackError) {
-      if (__DEV__) console.log('[SOS_DEBUG] FALLBACK_RESULT', {success: false, message: fallbackError.message});
-      if (__DEV__) console.log('[SOS][LOCATION] FAILED', {
-        highAccuracy: highAccuracyError.message,
-        bestAvailable: fallbackError.message,
-      });
-
+    } catch (highAccuracyError) {
+      const fallbackError = highAccuracyError || bestAvailableError;
       const lastKnown = await getLastKnownLocation();
       if (lastKnown) {
         if (__DEV__) console.log('[SOS][LOCATION] LAST_KNOWN_FALLBACK', {location: lastKnown});
         return lastKnown;
       }
 
-      const finalError = buildLocationError(`No usable location provider/fix available. High accuracy: ${highAccuracyError.message} Best available: ${fallbackError.message}`, 'LOCATION_PROVIDER_UNAVAILABLE', {
-        highAccuracy: highAccuracyError,
-        bestAvailable: fallbackError,
+      // No current fix is a retryable device condition, not an SOS validation
+      // failure. Keep the SOS alive and let the durable location queue retry.
+      if (__DEV__) console.log('[SOS][LOCATION] RETRY_QUEUED', {
+        bestAvailable: bestAvailableError?.message || null,
+        highAccuracy: fallbackError?.message || null,
       });
-      if (__DEV__) console.log('[SOS_DEBUG] LOCATION_FINAL_ERROR', {code: finalError.code, message: finalError.message});
-      throw finalError;
+      return {
+        status: 'PENDING',
+        error: null,
+        queued: true,
+        retryable: true,
+        reason: 'Location fix is temporarily unavailable; retry queued.',
+      };
     }
   }
 }

@@ -67,11 +67,13 @@ const env = {
 
   email: {
     provider: process.env.EMAIL_PROVIDER || 'smtp',
-    host: process.env.EMAIL_HOST,
+    host: process.env.EMAIL_HOST || (
+      /@gmail\.com$/i.test(process.env.EMAIL_USER || '') ? 'smtp.gmail.com' : undefined
+    ),
     port: parseInt(process.env.EMAIL_PORT, 10) || 587,
     user: process.env.EMAIL_USER,
     password: process.env.EMAIL_PASSWORD,
-    from: process.env.EMAIL_FROM || 'noreply@coggsos.com',
+    from: process.env.EMAIL_FROM || process.env.EMAIL_USER || 'noreply@coggsos.com',
   },
 
   storage: {

@@ -90,11 +90,15 @@ export async function syncSosToBackend({
       status: error?.status || null,
     });
     if (error?.status === 409) {
-      emitSosDiagnostic(`SOS DEBUG 409: HTTP=409 source=${diagnosticContext.source || 'unknown'} localSOSId=${sosEvent?.id || 'none'} queueJobId=${diagnosticContext.queueJobId || 'none'} attempt=${diagnosticContext.attempt ?? 0} message=${error?.message || 'An SOS is already pending or active for this user'}`, 'error');
+      // Older/deployed backends may still answer with the legacy 409. Treat it
+      // as a duplicate-session reconciliation condition, never as a user-facing
+      // validation failure. The local SOS stays active and recovery can bind it
+      // to the existing server record on the next refresh.
+      if (__DEV__) console.log('[SOS][BACKEND] DUPLICATE_OPEN_SOS_RECONCILE', {localSosId: sosEvent?.id || null});
       return {
-        status: 'FAILED',
-        permanent: true,
-        error: error?.message || 'An SOS is already pending or active for this user',
+        status: 'PENDING',
+        error: null,
+        reason: 'An SOS session is already active for this user; waiting for reconciliation.',
       };
     }
     throw error;

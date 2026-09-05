@@ -236,18 +236,24 @@ class EmergencyMediaModule(
                 val outputOptions = ImageCapture.OutputFileOptions.Builder(output).build()
                 imageCapture.takePicture(outputOptions, executor, object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                    if (isUsableMediaFile(output)) callback(output, null)
-                    else callback(null, "Captured image file is missing, unreadable, or empty.")
+                    if (isUsableMediaFile(output)) {
+                        try { provider.unbindAll() } catch (_: Exception) {}
+                        callback(output, null)
+                    } else {
+                        try { provider.unbindAll() } catch (_: Exception) {}
+                        callback(null, "Captured image file is missing, unreadable, or empty.")
+                    }
                 }
 
                 override fun onError(exception: ImageCaptureException) {
+                    try { provider.unbindAll() } catch (_: Exception) {}
                     callback(null, exception.message ?: "Camera capture failed.")
                 }
             })
               } catch (error: Exception) {
                 callback(null, error.message ?: "Camera capture failed.")
               }
-            }, 900L)
+            }, 650L)
         } catch (error: Exception) {
             callback(null, error.message ?: "Camera capture failed.")
         }

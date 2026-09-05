@@ -16,7 +16,6 @@ import {
 import {deactivateSos, getLiveLocation, getSos, stopLiveLocation} from '../../api/resources';
 import {API_BASE_URL} from '../../api/config';
 import AudioPlayer from '../../components/AudioPlayer';
-import {buildEmergencyMediaUrl} from '../../utils/media';
 import {downloadAuthenticatedSosMedia} from '../../features/sos/services/nativeMedia';
 import FullscreenImageViewer from '../../components/FullscreenImageViewer';
 
@@ -114,15 +113,17 @@ const AdminSosDetailScreen = ({
   const audio = record.components?.audio;
   const localCamera = record.services?.camera;
   const localAudio = record.services?.audio;
-  const frontMediaUrl = ['success', 'uploaded', 'ready', 'completed'].includes(String(frontImage?.status || '').toLowerCase()) && record.emergencyLink
-    ? buildEmergencyMediaUrl(record.emergencyLink, 'frontImage')
+  const hasStoredMediaStatus = component => ['success', 'uploaded', 'ready', 'completed'].includes(String(component?.status || '').toLowerCase()) && Boolean(component?.storageRef);
+  const frontMediaUrl = hasStoredMediaStatus(frontImage) && recordId
+    ? `${API_BASE_URL}/sos/${recordId}/media/frontImage/file`
     : null;
-  const backMediaUrl = ['success', 'uploaded', 'ready', 'completed'].includes(String(backImage?.status || '').toLowerCase()) && record.emergencyLink
-    ? buildEmergencyMediaUrl(record.emergencyLink, 'backImage')
+  const backMediaUrl = hasStoredMediaStatus(backImage) && recordId
+    ? `${API_BASE_URL}/sos/${recordId}/media/backImage/file`
     : null;
-  const audioMediaUrl = ['success', 'uploaded', 'ready', 'completed'].includes(String(audio?.status || '').toLowerCase()) && record.emergencyLink
-    ? buildEmergencyMediaUrl(record.emergencyLink, 'audio')
+  const audioMediaUrl = hasStoredMediaStatus(audio) && recordId
+    ? `${API_BASE_URL}/sos/${recordId}/media/audio/file`
     : null;
+  const authenticatedMediaOptions = {headers: {Authorization: `Bearer ${token}`}};
   useEffect(() => {
     setLiveLocationStatus(initialLiveLocationStatus);
     setLiveLocation(initialLiveLocation);
@@ -358,7 +359,7 @@ const AdminSosDetailScreen = ({
                 <View style={styles.photoBox}>
                   <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Front</Text></View>
                   <TouchableOpacity onPress={() => setSelectedImage(displayFrontImage)} activeOpacity={0.85}>
-                    <Image source={{uri: displayFrontImage}} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, front: true}))} />
+                    <Image source={{uri: displayFrontImage, ...authenticatedMediaOptions}} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, front: true}))} />
                   </TouchableOpacity>
                 </View>
               ) : null}
@@ -366,7 +367,7 @@ const AdminSosDetailScreen = ({
                 <View style={styles.photoBox}>
                   <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Back</Text></View>
                   <TouchableOpacity onPress={() => setSelectedImage(displayBackImage)} activeOpacity={0.85}>
-                    <Image source={{uri: displayBackImage}} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, back: true}))} />
+                    <Image source={{uri: displayBackImage, ...authenticatedMediaOptions}} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, back: true}))} />
                   </TouchableOpacity>
                 </View>
               ) : null}
@@ -379,7 +380,7 @@ const AdminSosDetailScreen = ({
           <Text style={styles.audioLabel}>🎙️ VOICE RECORDING</Text>
           <View style={styles.audioCard}>
             {audioMediaUrl ? (
-              <AudioPlayer audioUrl={audioMediaUrl} token={token} publicMedia style={styles.audioPlayer} />
+              <AudioPlayer audioUrl={audioMediaUrl} token={token} publicMedia={false} style={styles.audioPlayer} />
             ) : (
               <>
                 <View style={styles.waveformContainer}>

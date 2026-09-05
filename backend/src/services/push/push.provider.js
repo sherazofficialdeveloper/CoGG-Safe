@@ -96,9 +96,20 @@ async function sendToToken({ token, title, body, data }) {
 
   try {
     // Add a 10-second timeout to prevent push from blocking the entire SOS activation
+    const channelId = 'coggsafe_alerts_v2';
     const sendPromise = admin.messaging(getApp()).send({
       token,
       notification: { title, body },
+      android: {
+        priority: 'high',
+        notification: {
+          channelId,
+          sound: 'default',
+          defaultSound: true,
+          defaultVibrateTimings: true,
+          notificationCount: 1,
+        },
+      },
       data: stringifyDataPayload(data),
     });
 

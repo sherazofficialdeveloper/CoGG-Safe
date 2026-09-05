@@ -19,8 +19,12 @@ const env = require('../../config/env');
  * a live mail server (no network access in the build environment) —
  * test with real credentials before relying on it.
  */
+function isPlaceholder(value) {
+  return !value || /YOUR_|CHANGE_ME|example\.com|placeholder|your_/i.test(String(value));
+}
+
 function isConfigured() {
-  return !!(env.email.host && env.email.user && env.email.password);
+  return !isPlaceholder(env.email.host) && !isPlaceholder(env.email.user) && !isPlaceholder(env.email.password);
 }
 
 let cachedTransporter = null;
@@ -49,11 +53,12 @@ async function send({ to, subject, body }) {
   }
 
   try {
-    // Let Nodemailer complete the SMTP transaction. The previous hard 10s
-    // Promise.race could mark an email UNKNOWN even though the SMTP server
-    // accepted it moments later. Transport-level timeouts above still prevent
-    // a dead SMTP connection from hanging forever.
-    const info = await getTransporter().sendMail({
+    const transporter = getTransporter();
+    await transporter.verify();
+    // Let Nodemailer complete the SMTP transaction. Transport-level timeouts
+    // prevent a dead SMTP connection from hanging forever while verify() also
+    // catches bad host/auth configuration before the emergency message is sent.
+    const info = await transporter.sendMail({
       from: env.email.from,
       to,
       subject,

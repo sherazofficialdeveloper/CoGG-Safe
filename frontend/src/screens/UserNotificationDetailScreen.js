@@ -5,7 +5,7 @@ import AudioPlayer from '../components/AudioPlayer';
 import {API_BASE_URL} from '../api/config';
 import {getSos, getLiveLocation} from '../api/resources';
 import {stopLiveLocationSharing} from '../features/sos/services/liveLocationService';
-import {buildEmergencyMediaUrl, buildMediaRequestOptions, buildMediaUrl} from '../utils/media';
+import {buildMediaRequestOptions} from '../utils/media';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import FullscreenImageViewer from '../components/FullscreenImageViewer';
 
@@ -53,17 +53,18 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
   const currentSos = liveSos || sos;
   const media = currentSos?.components || {};
   const liveActive = String(liveLocation?.status || currentSos?.liveLocation?.status || '').toLowerCase() === 'active';
+  const currentSosId = currentSos?.id || currentSos?._id || sosId;
   const frontMediaUrl = useMemo(
-    () => hasStoredMedia(media.frontImage) && currentSos?.emergencyLink ? buildEmergencyMediaUrl(currentSos.emergencyLink, 'frontImage') : null,
-    [currentSos?.emergencyLink, media.frontImage],
+    () => hasStoredMedia(media.frontImage) && currentSosId ? `${API_BASE_URL}/sos/${currentSosId}/media/frontImage/file` : null,
+    [currentSosId, media.frontImage],
   );
   const backMediaUrl = useMemo(
-    () => hasStoredMedia(media.backImage) && currentSos?.emergencyLink ? buildEmergencyMediaUrl(currentSos.emergencyLink, 'backImage') : null,
-    [currentSos?.emergencyLink, media.backImage],
+    () => hasStoredMedia(media.backImage) && currentSosId ? `${API_BASE_URL}/sos/${currentSosId}/media/backImage/file` : null,
+    [currentSosId, media.backImage],
   );
   const audioMediaUrl = useMemo(
-    () => hasStoredMedia(media.audio) && currentSos?.emergencyLink ? buildEmergencyMediaUrl(currentSos.emergencyLink, 'audio') : null,
-    [currentSos?.emergencyLink, media.audio],
+    () => hasStoredMedia(media.audio) && currentSosId ? `${API_BASE_URL}/sos/${currentSosId}/media/audio/file` : null,
+    [currentSosId, media.audio],
   );
   const imageOptions = buildMediaRequestOptions(token);
   const visibleImageCount = Number(Boolean(frontMediaUrl && !hiddenImages.front)) + Number(Boolean(backMediaUrl && !hiddenImages.back));
@@ -142,7 +143,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
           {currentSos ? (
             <View style={styles.mediaBlock}>
               <Text style={styles.mediaTitle}>Audio</Text>
-              {audioMediaUrl ? <AudioPlayer audioUrl={audioMediaUrl} token={token} publicMedia /> : <Text style={styles.emptyMedia}>No successfully stored audio is available.</Text>}
+              {audioMediaUrl ? <AudioPlayer audioUrl={audioMediaUrl} token={token} publicMedia={false} /> : <Text style={styles.emptyMedia}>No successfully stored audio is available.</Text>}
             </View>
           ) : null}
 
