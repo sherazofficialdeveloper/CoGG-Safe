@@ -5,11 +5,9 @@ import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   View,
   StyleSheet,
-  Animated,
-  Easing,
+  ActivityIndicator,
   Text,
   BackHandler,
-  DeviceEventEmitter,
 } from 'react-native';
 
 import {SafeAreaProvider} from 'react-native-safe-area-context';
@@ -86,52 +84,6 @@ import {
 // MAIN APP CONTENT
 // ============================================================
 
-function SplashScreen() {
-  const animation = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'test') return undefined;
-
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(animation, {
-          toValue: 1,
-          duration: 1200,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(animation, {
-          toValue: 0,
-          duration: 1200,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    pulse.start();
-    return () => pulse.stop();
-  }, [animation]);
-
-  const logoStyle = {
-    opacity: animation.interpolate({inputRange: [0, 1], outputRange: [0.82, 1]}),
-    transform: [{
-      scale: animation.interpolate({inputRange: [0, 1], outputRange: [0.96, 1]}),
-    }],
-  };
-
-  return (
-    <View style={styles.loading} accessibilityLabel="CoGG Safe loading">
-      <Animated.Image
-        source={require('./src/public/logo.png')}
-        style={[styles.splashLogo, logoStyle]}
-        resizeMode="contain"
-      />
-      <Text style={styles.splashName}>CoGG Safe</Text>
-      <Text style={styles.splashTagline}>Because we do care...</Text>
-    </View>
-  );
-}
-
 function AppContent() {
   const {token, user, loading, signIn, signOut} = useAuth();
 
@@ -149,8 +101,6 @@ function AppContent() {
   const [userNotificationCount, setUserNotificationCount] = useState(0);
   const [adminNotificationCount, setAdminNotificationCount] = useState(0);
   const sosCancelSignalRef = useRef({cancelled: false});
-  const sosTriggerInFlightRef = useRef(false);
-  const handleTriggerSosRef = useRef(null);
 
   // Toast State
   const [toast, setToast] = useState({
@@ -510,9 +460,7 @@ function AppContent() {
   // SOS HANDLER
   // ============================================================
 
-  const handleTriggerSos = async ({fromPowerButton = false} = {}) => {
-    if (sosTriggerInFlightRef.current) return;
-    sosTriggerInFlightRef.current = true;
+  const handleTriggerSos = async () => {
     setSosError('');
     setSosLoading(true);
     sosCancelSignalRef.current = {cancelled: false};
@@ -527,7 +475,7 @@ function AppContent() {
         cancelSignal: sosCancelSignalRef.current,
         onPending: async event => {
           setSelectedSos(event);
-          if (!fromPowerButton) setScreen('userSosActive');
+          setScreen('userSosActive');
           await sosLocalStore.upsertSos({
             ...event,
             meta: {
@@ -628,7 +576,7 @@ function AppContent() {
         showToast('SOS cancelled before dispatch.', 'info');
       } else if (result?.event) {
         setSelectedSos(result.event);
-        if (!fromPowerButton) setScreen('userSosActive');
+        setScreen('userSosActive');
 
         showToast(
           'SOS alert triggered locally and queued for delivery.',
@@ -644,28 +592,23 @@ function AppContent() {
       showToast('Failed to trigger SOS', 'error');
     } finally {
       setSosLoading(false);
-      sosTriggerInFlightRef.current = false;
     }
   };
-
-  handleTriggerSosRef.current = handleTriggerSos;
-
-  useEffect(() => {
-    if (!token || !user?.collectionId) return undefined;
-
-    const subscription = DeviceEventEmitter.addListener('powerButtonSosTrigger', () => {
-      handleTriggerSosRef.current?.({fromPowerButton: true});
-    });
-
-    return () => subscription.remove();
-  }, [token, user?.collectionId]);
 
   // ============================================================
   // LOADING SCREEN
   // ============================================================
 
   if (screen === 'loading' || loading) {
-    return <SplashScreen />;
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator size="large" color="#E4002B" />
+
+        <Text style={styles.loadingText}>
+          Loading your secure session...
+        </Text>
+      </View>
+    );
   }
 
   // ============================================================
@@ -1310,22 +1253,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#F7F8FA',
   },
 
-  splashLogo: {
-    width: 148,
-    height: 148,
-  },
-
-  splashName: {
-    marginTop: 20,
-    color: '#1A1A1A',
-    fontSize: 25,
-    fontWeight: '800',
-  },
-
-  splashTagline: {
-    marginTop: 8,
+  loadingText: {
+    marginTop: 16,
     color: '#59636E',
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '500',
   },
 });

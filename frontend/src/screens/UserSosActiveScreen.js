@@ -7,6 +7,12 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
   const [detail, setDetail] = useState(sos || null);
   const [error, setError] = useState('');
   const recordId = sos?.id || sos?._id;
+  const normalizedStatus = String(detail?.status || 'active').toLowerCase();
+  const validationInfo = detail?.validation;
+  const validationText = typeof validationInfo === 'string'
+    ? validationInfo
+    : validationInfo?.summary || validationInfo?.message || validationInfo?.status;
+  const shouldRenderValidation = !['pending', 'active'].includes(normalizedStatus) && Boolean(validationText);
 
   useEffect(() => {
     setError('');
@@ -35,6 +41,12 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
       <View style={styles.content}>
         <Text style={styles.title}>SOS status</Text>
         <Text style={styles.status}>{String(detail.status || 'active').toUpperCase()}</Text>
+        {shouldRenderValidation ? (
+          <View style={styles.validationBox}>
+            <Text style={styles.validationLabel}>Validation</Text>
+            <Text style={styles.validationText}>{String(validationText)}</Text>
+          </View>
+        ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Text style={styles.text}>The app keeps the user on the normal Home dashboard while the SOS workflow runs in the background.</Text>
       </View>
@@ -48,6 +60,9 @@ const styles = StyleSheet.create({
   content: {alignItems: 'center'},
   title: {fontSize: 22, fontWeight: '900', color: '#1A1A1A', textAlign: 'center'},
   status: {fontSize: 28, fontWeight: '900', color: '#E4002B', marginTop: 12},
+  validationBox: {width: '100%', backgroundColor: '#FFF', borderRadius: 12, padding: 12, marginTop: 16},
+  validationLabel: {fontSize: 12, fontWeight: '800', color: '#7D8794', textAlign: 'center'},
+  validationText: {fontSize: 14, color: '#1A1A1A', textAlign: 'center', marginTop: 4},
   text: {fontSize: 15, color: '#59636E', textAlign: 'center', marginTop: 12, lineHeight: 22},
   error: {fontSize: 13, color: '#B42318', textAlign: 'center', marginTop: 10},
   backButton: {backgroundColor: '#E4002B', paddingVertical: 16, borderRadius: 12, marginTop: 28, alignItems: 'center'},
