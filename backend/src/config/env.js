@@ -37,7 +37,6 @@ const env = {
   bcryptSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS, 10) || 10,
 
   sos: {
-    cancellationWindowSeconds: parseInt(process.env.SOS_CANCELLATION_WINDOW_SECONDS, 10) || 10,
     liveLocationMaxDurationHours: parseInt(process.env.LIVE_LOCATION_MAX_DURATION_HOURS, 10) || 3,
   },
 

@@ -437,7 +437,7 @@ describe('SOS media services', () => {
       },
     });
 
-    expect(result.event.status).toBe('PENDING');
+    expect(result.event.status).toBe('ACTIVE');
     expect(result.event.services.camera.status).toBe('COMPLETED');
     expect(result.event.services.audio.status).toBe('COMPLETED');
 
@@ -483,7 +483,7 @@ describe('SOS media services', () => {
       },
     });
 
-    expect(result.event.status).toBe('PENDING');
+    expect(result.event.status).toBe('ACTIVE');
     expect(result.event.services.camera.status).toBe('FAILED');
     expect(result.event.services.camera.error).toBe('Camera permission denied');
     expect(result.event.services.audio.status).toBe('COMPLETED');

@@ -91,6 +91,8 @@ describe('Problem 1 — offline SOS restart recovery', () => {
 
   test('a PENDING (backend-unconfirmed) event is recovered, not skipped', async () => {
     const event = await createSosLocalEvent({userId: 'user-1', collectionId: 'collection-1'});
+    await sosLocalStore.upsertSos({...event, status: 'PENDING', activatedAt: null});
+    event.status = 'PENDING';
     expect(event.status).toBe('PENDING');
 
     await sosLocalStore.updateSosServiceState(event.id, 'backend', {status: 'PENDING'});
@@ -115,6 +117,8 @@ describe('Problem 1 — offline SOS restart recovery', () => {
 
   test('backend confirmation reconciles a PENDING local event to ACTIVE (never fabricated early)', async () => {
     const event = await createSosLocalEvent({userId: 'user-1', collectionId: 'collection-1'});
+    await sosLocalStore.upsertSos({...event, status: 'PENDING', activatedAt: null});
+    event.status = 'PENDING';
     expect(event.status).toBe('PENDING');
 
     await enqueueSosJob({sosId: event.id, type: 'BACKEND', serviceName: 'backend'});

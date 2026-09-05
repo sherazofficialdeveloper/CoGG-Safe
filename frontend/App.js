@@ -488,7 +488,6 @@ function AppContent() {
       const result = await activateSosFlow({
         userId: user?._id || user?.id,
         collectionId: user?.collectionId,
-        countdownMs: 10000,
         cancelSignal: sosCancelSignalRef.current,
         onPending: async event => {
           setSelectedSos(event);
@@ -580,7 +579,7 @@ function AppContent() {
           // ------------------------------------------------------
           email: async () => ({
             status: 'PENDING',
-            reason: 'Email dispatch is handled by the backend after activation.',
+              reason: 'Email dispatch is handled by the backend after SOS creation.',
           }),
 
           // ------------------------------------------------------
@@ -588,7 +587,7 @@ function AppContent() {
           // ------------------------------------------------------
           notifications: async () => ({
             status: 'COMPLETED',
-            reason: 'Notification dispatch is handled by the backend after activation.',
+              reason: 'Notification dispatch is handled by the backend after SOS creation.',
           }),
         },
       });

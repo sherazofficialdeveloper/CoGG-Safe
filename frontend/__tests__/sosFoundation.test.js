@@ -25,14 +25,14 @@ beforeEach(async () => {
   connectivityService.resetForTests();
 });
 
-test('creates a local SOS event with a unique client ID and keeps backend lifecycle pending until confirmed', async () => {
+test('creates a local SOS event with a unique client ID directly as active', async () => {
   const event = await createSosLocalEvent({
     userId: 'user-1',
     collectionId: 'collection-1',
   });
 
   expect(event.id).toMatch(/^sos_/);
-  expect(event.status).toBe('PENDING');
+  expect(event.status).toBe('ACTIVE');
   expect(event.services.sms.status).toBe('PENDING');
   expect(event.services.backend.status).toBe('PENDING');
   expect(event.services.location.status).toBe('PENDING');
@@ -104,9 +104,10 @@ test('location failure does not block backend creation, SMS, call, camera or aud
   expect(result.event.services.camera.status).toBe('COMPLETED');
   expect(result.event.services.audio.status).toBe('COMPLETED');
   expect(result.event.services.location.status).toBe('FAILED');
+  expect((await sosLocalStore.getPendingQueue()).some(item => item.localSosId === result.event.id && item.type === 'LOCATION')).toBe(true);
 });
 
-test('backend validation failure remains a pending SOS service error', async () => {
+test('backend validation failure remains an active SOS service error', async () => {
   const result = await activateSosFlow({
     userId: 'user-1',
     collectionId: 'collection-1',
@@ -116,7 +117,7 @@ test('backend validation failure remains a pending SOS service error', async () 
     },
   });
 
-  expect(result.event.status).toBe('PENDING');
+  expect(result.event.status).toBe('ACTIVE');
   expect(result.event.services.backend.status).toBe('FAILED');
   expect(result.event.services.backend.error).toBe('Validation failed');
 });

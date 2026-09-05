@@ -14,9 +14,8 @@ const dispatchService = require('./dispatch.service');
 const schedulerService = require('../scheduler/scheduler.service');
 
 // ---------------------------------------------------------------------
-// The two time-based transitions:
-//   1. PENDING -> ACTIVE (+dispatch), after the cancellation window.
-//   2. liveLocation ACTIVE -> STOPPED_MAX_DURATION, after 3 hours.
+// The remaining time-based transition:
+//   liveLocation ACTIVE -> STOPPED_MAX_DURATION, after 3 hours.
 // Driven by the durable scheduler (src/modules/scheduler) — jobs are
 // persisted in MongoDB, so they survive a server restart. This module
 // only ever talks to the scheduler through its generic interface
@@ -25,11 +24,9 @@ const schedulerService = require('../scheduler/scheduler.service');
 // independent from the scheduler implementation and lets it be swapped
 // for a different job system later without touching anything below.
 //
-// Both transitions are ALSO lazily re-checked on read/write
-// (enforceLiveLocationExpiry) and, for activation, are authoritative via
-// an atomic DB-state-conditional update — so correctness never depends
-// on the scheduler firing at exactly the right moment, only on it
-// firing eventually.
+// Live-location expiry is ALSO lazily re-checked on read/write
+// (enforceLiveLocationExpiry). Legacy pending SOS records retain an atomic
+// activation handler for safe compatibility after this lifecycle change.
 // ---------------------------------------------------------------------
 const JOB_TYPE_SOS_ACTIVATION = 'sos_activation';
 const JOB_TYPE_LIVE_LOCATION_EXPIRY = 'live_location_expiry';
@@ -42,14 +39,8 @@ function resolveEmergencyMessage(user) {
 }
 
 /**
- * The SOS_ACTIVATION job handler. Uses an atomic conditional update
- * (findOneAndUpdate with a status filter) so this can never race against
- * a concurrent cancel — whichever operation changes the status away from
- * PENDING first wins; the other is a no-op. Dispatch only ever runs for
- * the request that actually won this update, so it can never fire twice
- * or fire for a cancelled SOS, and it's safe for the scheduler to retry
- * this handler (e.g. after a transient error) without risk of duplicate
- * activation/dispatch.
+ * Legacy SOS_ACTIVATION handler for records created before the direct-ACTIVE
+ * lifecycle. New SOS creation never schedules this job.
  */
 async function activateSosIfPending({ sosId, dispatch = true }) {
   console.log('[SOS_DEBUG] ACTIVATION_STARTED', { sosId: String(sosId) });
@@ -118,13 +109,6 @@ async function enforceLiveLocationExpiry(sos) {
 
 async function activateSosIfDue(sos) {
   if (!sos || sos.status !== SOS_STATUS.PENDING) {
-    return sos;
-  }
-
-  const createdAt = sos.createdAt ? new Date(sos.createdAt).getTime() : 0;
-  const cancellationWindowMs = (env.sos.cancellationWindowSeconds || 0) * 1000;
-
-  if (!createdAt || cancellationWindowMs <= 0 || Date.now() < createdAt + cancellationWindowMs) {
     return sos;
   }
 
@@ -222,8 +206,8 @@ async function createSos({ userId, idempotencyKey, location }) {
       emergencyMessage: resolveEmergencyMessage(user),
       emergencyToken: generateEmergencyToken(),
       idempotencyKey: idempotencyKey || undefined,
-      status: SOS_STATUS.PENDING,
-      activatedAt: null,
+      status: SOS_STATUS.ACTIVE,
+      activatedAt: new Date(),
     });
     console.log('[SOS_DEBUG] MONGO_CREATED', { sosId: String(sos._id) });
   } catch (err) {
@@ -250,14 +234,7 @@ async function createSos({ userId, idempotencyKey, location }) {
     await sos.save();
   }
 
-  const cancellationWindowMs = Math.max(0, (env.sos.cancellationWindowSeconds || 0) * 1000);
-  const activationRunAt = new Date(Date.now() + cancellationWindowMs);
-  await schedulerService.scheduleJob(JOB_TYPE_SOS_ACTIVATION, { sosId: String(sos._id) }, activationRunAt);
-
-  console.log('[SOS_DEBUG] PENDING_WITH_SCHEDULED_ACTIVATION', {
-    sosId: String(sos._id),
-    activationRunAt: activationRunAt.toISOString(),
-  });
+  await dispatchService.dispatchSos(sos);
 
   return { sos, alreadyExisted: false };
 }

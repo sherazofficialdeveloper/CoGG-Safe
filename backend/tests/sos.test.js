@@ -14,6 +14,7 @@ const schedulerService = require('../src/modules/scheduler/scheduler.service');
 const User = require('../src/modules/users/user.model');
 const Collection = require('../src/modules/collections/collection.model');
 const Sos = require('../src/modules/sos/sos.model');
+const ScheduledJob = require('../src/modules/scheduler/scheduledJob.model');
 const Notification = require('../src/modules/notifications/notification.model');
 const { ROLES } = require('../src/constants/roles');
 const { SOS_STATUS, LIVE_LOCATION_STATUS, COMPONENT_STATUS } = require('../src/constants/sosConstants');
@@ -74,7 +75,7 @@ describe('POST /api/sos (creation + ownership)', () => {
     const res = await request(app).post('/api/sos').set('Authorization', `Bearer ${token}`).send({});
 
     expect(res.status).toBe(201);
-    expect(res.body.data.sos.status).toBe(SOS_STATUS.PENDING);
+    expect(res.body.data.sos.status).toBe(SOS_STATUS.ACTIVE);
     expect(res.body.data.sos.userId).toBe(user._id.toString());
     expect(res.body.data.sos.collectionId).toBe(collection._id.toString());
     expect(typeof res.body.data.sos.emergencyLink).toBe('string');
@@ -149,14 +150,45 @@ describe('POST /api/sos (creation + ownership)', () => {
     expect(count).toBe(1);
   });
 
-  test('two distinct SOS from the same user get distinct emergency tokens/links', async () => {
+  test('a second active SOS from the same user is rejected', async () => {
     const collection = await createCollection();
     const { token } = await createUserAndLogin({ collectionId: collection._id });
 
     const first = await request(app).post('/api/sos').set('Authorization', `Bearer ${token}`).send({});
     const second = await request(app).post('/api/sos').set('Authorization', `Bearer ${token}`).send({});
 
-    expect(first.body.data.sos.emergencyLink).not.toBe(second.body.data.sos.emergencyLink);
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(409);
+  });
+
+  test('direct-active creation does not create an SOS activation scheduler job', async () => {
+    const collection = await createCollection();
+    const { token } = await createUserAndLogin({ collectionId: collection._id });
+
+    const created = await request(app).post('/api/sos').auth(token, {type: 'bearer'});
+
+    expect(created.status).toBe(201);
+    expect(await ScheduledJob.countDocuments({type: 'sos_activation'})).toBe(0);
+  });
+
+  test('an existing pending SOS is activated immediately when read after deployment', async () => {
+    const collection = await createCollection();
+    const { token, user } = await createUserAndLogin({ collectionId: collection._id });
+    const legacy = await Sos.create({
+      userId: user._id,
+      collectionId: collection._id,
+      emergencyMessage: 'Legacy pending SOS',
+      emergencyToken: `legacy-${Date.now()}-${counter}`,
+      status: SOS_STATUS.PENDING,
+    });
+
+    const res = await request(app)
+      .get(`/api/sos/${legacy._id}`)
+      .auth(token, {type: 'bearer'});
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.sos.status).toBe(SOS_STATUS.ACTIVE);
+    expect(res.body.data.sos.activatedAt).not.toBeNull();
   });
 });
 
@@ -220,7 +252,7 @@ describe('GET /api/sos/:id and /api/sos (isolation between users)', () => {
 });
 
 describe('SOS cancellation', () => {
-  test('owner can cancel during the pending window; SOS remains in history', async () => {
+  test.skip('legacy pending cancellation is no longer part of the direct-active lifecycle', async () => {
     const collection = await createCollection();
     const { token } = await createUserAndLogin({ collectionId: collection._id });
 
@@ -236,7 +268,7 @@ describe('SOS cancellation', () => {
     expect(getRes.body.data.sos.status).toBe(SOS_STATUS.CANCELLED);
   });
 
-  test('a cancelled SOS never dispatches SMS/email/push/call, and stays cancelled after the window elapses', async () => {
+  test.skip('legacy pending cancellation does not apply to newly created SOS records', async () => {
     const collection = await createCollection();
     const { token } = await createUserAndLogin({ collectionId: collection._id });
 
@@ -266,14 +298,12 @@ describe('SOS cancellation', () => {
     expect(res.status).toBe(403);
   });
 
-  test('cannot cancel an SOS that has already become active', async () => {
+  test('cannot cancel a directly active SOS', async () => {
     const collection = await createCollection();
     const { token } = await createUserAndLogin({ collectionId: collection._id });
 
     const created = await request(app).post('/api/sos').set('Authorization', `Bearer ${token}`).send({});
     const sosId = created.body.data.sos.id;
-
-    await wait(ACTIVATION_WAIT_MS);
 
     const res = await request(app).patch(`/api/sos/${sosId}/cancel`).set('Authorization', `Bearer ${token}`);
     expect(res.status).toBe(409);
@@ -281,7 +311,7 @@ describe('SOS cancellation', () => {
 });
 
 describe('SOS activation + dispatch (component failure isolation)', () => {
-  test('a dispatch setup failure (e.g. user vanishes before activation) marks all dispatch components FAILED instead of leaving them stuck at pending forever', async () => {
+  test.skip('legacy activation dispatch setup failure is covered by the dispatch service tests', async () => {
     const collection = await createCollection();
     const { token, user } = await createUserAndLogin({ collectionId: collection._id });
 
@@ -294,8 +324,6 @@ describe('SOS activation + dispatch (component failure isolation)', () => {
     // that must not leave every dispatch component silently "pending".
     await User.deleteOne({ _id: user._id });
 
-    await wait(ACTIVATION_WAIT_MS);
-
     const sosDoc = await Sos.findById(sosId);
     expect(sosDoc.status).toBe(SOS_STATUS.ACTIVE); // activation itself still succeeds
     expect(sosDoc.components.sms.status).toBe(COMPONENT_STATUS.FAILED);
@@ -305,7 +333,7 @@ describe('SOS activation + dispatch (component failure isolation)', () => {
     expect(sosDoc.components.sms.error).toBeTruthy(); // a real, safe error message, not silence
   });
 
-  test('SOS becomes ACTIVE after the window and dispatch runs each component independently', async () => {
+  test('SOS is ACTIVE immediately and dispatch runs each component independently', async () => {
     const collection = await createCollection();
     const { token, user } = await createUserAndLogin({ collectionId: collection._id });
     // Another active collection member so recipients exist for sms/push/notifications.
@@ -313,8 +341,6 @@ describe('SOS activation + dispatch (component failure isolation)', () => {
 
     const created = await request(app).post('/api/sos').set('Authorization', `Bearer ${token}`).send({});
     const sosId = created.body.data.sos.id;
-
-    await wait(ACTIVATION_WAIT_MS);
 
     const sosDoc = await Sos.findById(sosId);
     expect(sosDoc.status).toBe(SOS_STATUS.ACTIVE);
@@ -342,7 +368,7 @@ describe('SOS activation + dispatch (component failure isolation)', () => {
     expect(failRes.status).toBe(200);
     expect(failRes.body.data.sos.components.frontImage.status).toBe(COMPONENT_STATUS.FAILED);
     expect(failRes.body.data.sos.components.frontImage.error).toBe('Front camera permission unavailable');
-    expect(failRes.body.data.sos.status).toBe(SOS_STATUS.PENDING); // SOS itself unaffected
+    expect(failRes.body.data.sos.status).toBe(SOS_STATUS.ACTIVE); // SOS itself unaffected
 
     const backOkRes = await request(app)
       .patch(`/api/sos/${sosId}/media/backImage`)
@@ -416,7 +442,7 @@ describe('SOS activation + dispatch (component failure isolation)', () => {
     expect(success.status).toBe(200);
     expect(success.body.data.sos.components.backend.status).toBe(COMPONENT_STATUS.SUCCESS);
     expect(success.body.data.sos.components.sms.status).toBe(COMPONENT_STATUS.UNSUPPORTED);
-    expect(success.body.data.sos.status).toBe(SOS_STATUS.PENDING);
+    expect(success.body.data.sos.status).toBe(SOS_STATUS.ACTIVE);
   });
 });
 
@@ -452,7 +478,7 @@ describe('Admin deactivation', () => {
     expect(res.status).toBe(403);
   });
 
-  test('cannot deactivate an SOS that is still pending or already cancelled', async () => {
+  test.skip('legacy pending SOS deactivation behavior is no longer part of direct-active creation', async () => {
     const collection = await createCollection();
     const { token } = await createUserAndLogin({ collectionId: collection._id });
     const { token: adminToken } = await createUserAndLogin({ role: ROLES.ADMIN });
@@ -587,7 +613,7 @@ describe('Live location', () => {
     expect(sosDoc.liveLocation.status).toBe(LIVE_LOCATION_STATUS.STOPPED_SOS_DEACTIVATED);
   });
 
-  test('live location cannot be started before the SOS is active', async () => {
+  test.skip('legacy pre-activation live-location behavior is no longer applicable', async () => {
     const collection = await createCollection();
     const { token } = await createUserAndLogin({ collectionId: collection._id });
     const created = await request(app).post('/api/sos').set('Authorization', `Bearer ${token}`).send({});
@@ -606,7 +632,7 @@ describe('Emergency link (public, unauthenticated)', () => {
     expect(res.status).toBe(404);
   });
 
-  test('a pending SOS is not publicly viewable yet', async () => {
+  test.skip('legacy pending emergency-link visibility is no longer applicable', async () => {
     const collection = await createCollection();
     const { token } = await createUserAndLogin({ collectionId: collection._id });
     const created = await request(app).post('/api/sos').set('Authorization', `Bearer ${token}`).send({});

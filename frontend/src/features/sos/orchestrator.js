@@ -18,7 +18,7 @@ import {isValidLocation} from './services/locationService';
 // cameraService.js's 'PENDING' status for a partial front/back result) gets
 // picked up again by queueWorker's 'camera' processor (App.js), which
 // re-captures only the missing lens instead of the whole pair.
-const RETRYABLE_SERVICES = new Set(['sms', 'call', 'backend', 'liveLocation', 'camera', 'audio']);
+const RETRYABLE_SERVICES = new Set(['sms', 'call', 'backend', 'location', 'liveLocation', 'camera', 'audio']);
 
 export function generateClientSosId() {
   const cryptoRef = (typeof window !== 'undefined' && window.crypto)
@@ -68,13 +68,17 @@ export async function createSosLocalEvent({userId, collectionId, meta = {}}) {
     meta,
   };
 
-  const pending = transitionSosState(event, SOS_STATES.PENDING);
-  if (!pending.ok) {
-    throw new Error(pending.reason);
+  const active = transitionSosState(event, SOS_STATES.ACTIVE);
+  if (!active.ok) {
+    throw new Error(active.reason);
   }
-  await sosLocalStore.upsertSos(pending.event);
-  if (__DEV__) console.log('[SOS_DEBUG] LOCAL_SOS_CREATED', {localSosId: pending.event.id});
-  return pending.event;
+  const activeEvent = {
+    ...active.event,
+    activatedAt: event.createdAt,
+  };
+  await sosLocalStore.upsertSos(activeEvent);
+  if (__DEV__) console.log('[SOS_DEBUG] LOCAL_SOS_CREATED', {localSosId: activeEvent.id, status: activeEvent.status});
+  return activeEvent;
 }
 
 export function resolveSosServiceStatus(serviceName, networkState) {
@@ -104,7 +108,6 @@ export async function activateSosFlow({
   serviceRunners = {},
   cancelSignal = null,
   onPending = null,
-  countdownMs = null,
 } = {}) {
   if (__DEV__) console.log('[SOS_DEBUG] ACTIVATE_FLOW_START', {
     timestamp: new Date().toISOString(),
@@ -267,7 +270,7 @@ export async function activateSosFlow({
         emitSosToast('Emergency call initiated', 'success', 2000);
       }
       
-      if (resultStatus === 'PENDING' && RETRYABLE_SERVICES.has(serviceName)) {
+      if (['PENDING', 'FAILED'].includes(resultStatus) && RETRYABLE_SERVICES.has(serviceName)) {
         await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
       }
 
@@ -352,7 +355,7 @@ export async function activateSosFlow({
     }
   }
 
-  const nextStatus = backendReady ? SOS_STATES.ACTIVE : SOS_STATES.PENDING;
+  const nextStatus = SOS_STATES.ACTIVE;
   if (event.status !== nextStatus) {
     const transition = transitionSosState(event, nextStatus);
     if (!transition.ok) {
