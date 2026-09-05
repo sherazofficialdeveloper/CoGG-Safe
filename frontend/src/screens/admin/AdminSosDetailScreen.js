@@ -17,6 +17,7 @@ import {deactivateSos, getLiveLocation, getSos, stopLiveLocation} from '../../ap
 import {API_BASE_URL} from '../../api/config';
 import AudioPlayer from '../../components/AudioPlayer';
 import {buildMediaUrl} from '../../utils/media';
+import {downloadAuthenticatedSosMedia} from '../../features/sos/services/nativeMedia';
 import FullscreenImageViewer from '../../components/FullscreenImageViewer';
 
 const AdminSosDetailScreen = ({
@@ -33,6 +34,8 @@ const AdminSosDetailScreen = ({
   const [actionError, setActionError] = useState('');
   const [selectedImage, setSelectedImage] = useState(null);
   const [detailRecord, setDetailRecord] = useState(null);
+  const [frontLocalMedia, setFrontLocalMedia] = useState(null);
+  const [backLocalMedia, setBackLocalMedia] = useState(null);
   const detailRequestRef = useRef(0);
   const actionInFlightRef = useRef(false);
 
@@ -130,7 +133,7 @@ const AdminSosDetailScreen = ({
 
     const requestId = ++detailRequestRef.current;
     let mounted = true;
-    getSos(token, id).then(result => {
+    getSos(token, id, {forceRefresh: true}).then(result => {
       if (mounted && requestId === detailRequestRef.current && result?.sos) setDetailRecord(result.sos);
     }).catch(error => {
       if (mounted && requestId === detailRequestRef.current) setActionError(error.message || 'Unable to load SOS details.');
@@ -144,7 +147,7 @@ const AdminSosDetailScreen = ({
     let mounted = true;
     const refreshLiveLocation = async () => {
       try {
-        const result = await getLiveLocation(token, id, {limit: 1});
+        const result = await getLiveLocation(token, id, {limit: 1}, {forceRefresh: true});
         if (!mounted) return;
         setLiveLocationStatus(result?.liveLocation?.status || null);
         const latest = result?.liveLocation?.lastLocation || result?.pings?.[0] || null;
@@ -160,7 +163,7 @@ const AdminSosDetailScreen = ({
     refreshLiveLocation();
     const interval = setInterval(async () => {
       try {
-        const fresh = await getSos(token, id);
+        const fresh = await getSos(token, id, {forceRefresh: true});
         if (mounted && fresh?.sos) {
           setDetailRecord(fresh.sos);
           setLiveLocationStatus(fresh.sos.liveLocation?.status || null);
@@ -175,16 +178,25 @@ const AdminSosDetailScreen = ({
     };
   }, [liveLocationActive, recordId, token]);
 
+  useEffect(() => {
+    let mounted = true;
+    setFrontLocalMedia(null);
+    setBackLocalMedia(null);
+    const downloads = [];
+    if (frontMediaUrl && token) downloads.push(downloadAuthenticatedSosMedia(frontMediaUrl, token).then(path => mounted && setFrontLocalMedia(path)).catch(() => undefined));
+    if (backMediaUrl && token) downloads.push(downloadAuthenticatedSosMedia(backMediaUrl, token).then(path => mounted && setBackLocalMedia(path)).catch(() => undefined));
+    return () => { mounted = false; };
+  }, [frontMediaUrl, backMediaUrl, token]);
+
   const hasLiveLocationData = [liveLocation, record.liveLocation?.lastLocation, record.liveLocation, record.location].some((entry) => {
     if (!entry || typeof entry !== 'object') return false;
     const latitude = Number(entry.lat ?? entry.latitude ?? 'NaN');
     const longitude = Number(entry.lng ?? entry.longitude ?? 'NaN');
     return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
   });
-  const hasImageData = [frontMediaUrl, backMediaUrl, frontImage?.storageRef, backImage?.storageRef, localCamera?.frontImagePath, localCamera?.backImagePath].some(Boolean) || [frontImage, backImage].some((entry) => {
-    const status = String(entry?.status || '').toLowerCase();
-    return ['success', 'uploaded', 'ready', 'completed'].includes(status);
-  });
+  const hasImageData = Boolean(frontMediaUrl || backMediaUrl);
+  const displayFrontImage = frontLocalMedia || frontMediaUrl;
+  const displayBackImage = backLocalMedia || backMediaUrl;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -256,8 +268,8 @@ const AdminSosDetailScreen = ({
           ) : serviceResults.map(([name, result]) => (
             <View key={name} style={styles.serviceResultRow}>
               <Text style={styles.serviceResultName}>{name}</Text>
-              <Text style={styles.serviceResultStatus}>{String(result?.status || 'unknown').toUpperCase()}</Text>
-              {result?.error ? <Text style={styles.serviceResultError}>{result.error}</Text> : null}
+              <Text style={styles.serviceResultStatus}>{String(result?.status || 'unknown').toLowerCase() === 'unknown' && name === 'email' ? 'SENT / PROCESSING' : String(result?.status || 'unknown').toUpperCase()}</Text>
+              {String(result?.status || '').toLowerCase() === 'failed' && result?.error ? <Text style={styles.serviceResultError}>{result.error}</Text> : null}
             </View>
           ))}
         </View>
@@ -322,53 +334,45 @@ const AdminSosDetailScreen = ({
           </View>
         ) : null}
 
+        {record.emergencyLink ? (
+          <View style={styles.locationSection}>
+            <Text style={styles.locationLabel}>🔗 EMERGENCY TRACKING LINK</Text>
+            <TouchableOpacity style={styles.trackingLinkCard} onPress={() => Linking.openURL(record.emergencyLink)} activeOpacity={0.8}>
+              <Text style={styles.trackingLinkText}>{record.emergencyLink}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {hasImageData ? (
           <View style={styles.photosSection}>
             <Text style={styles.photosLabel}>📷 CAMERA SNAPS</Text>
             <View style={styles.photosGrid}>
-              <View style={styles.photoBox}>
-                <View style={styles.photoBadge}>
-                  <Text style={styles.photoBadgeText}>Front</Text>
-                </View>
-                {frontMediaUrl ? (
-                  <TouchableOpacity onPress={() => setSelectedImage(frontMediaUrl)} activeOpacity={0.85}>
-                    <Image source={{uri: frontMediaUrl, headers: {Authorization: `Bearer ${token}`}}} style={styles.photoImage} />
+              {frontMediaUrl ? (
+                <View style={styles.photoBox}>
+                  <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Front</Text></View>
+                  <TouchableOpacity onPress={() => setSelectedImage(displayFrontImage)} activeOpacity={0.85}>
+                    <Image source={{uri: displayFrontImage, ...(frontLocalMedia ? {} : {headers: {Authorization: `Bearer ${token}`}})}} style={styles.photoImage} />
                   </TouchableOpacity>
-                ) : frontImage?.error || localCamera?.frontError ? (
-                  <Text style={styles.photoStatus}>Failed: {frontImage?.error || localCamera.frontError}</Text>
-                ) : (
-                  <Text style={styles.photoStatus}>Status: {frontImage?.status || localCamera?.status || 'pending'}{frontImage?.error ? `\nReason: ${frontImage.error}` : ''}</Text>
-                )}
-              </View>
-              <View style={styles.photoBox}>
-                <View style={styles.photoBadge}>
-                  <Text style={styles.photoBadgeText}>Back</Text>
                 </View>
-                {backMediaUrl ? (
-                  <TouchableOpacity onPress={() => setSelectedImage(backMediaUrl)} activeOpacity={0.85}>
-                    <Image source={{uri: backMediaUrl, headers: {Authorization: `Bearer ${token}`}}} style={styles.photoImage} />
+              ) : null}
+              {backMediaUrl ? (
+                <View style={styles.photoBox}>
+                  <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Back</Text></View>
+                  <TouchableOpacity onPress={() => setSelectedImage(displayBackImage)} activeOpacity={0.85}>
+                    <Image source={{uri: displayBackImage, ...(backLocalMedia ? {} : {headers: {Authorization: `Bearer ${token}`}})}} style={styles.photoImage} />
                   </TouchableOpacity>
-                ) : backImage?.error || localCamera?.backError ? (
-                  <Text style={styles.photoStatus}>Failed: {backImage?.error || localCamera.backError}</Text>
-                ) : (
-                  <Text style={styles.photoStatus}>Status: {backImage?.status || localCamera?.status || 'pending'}{backImage?.error ? `\nReason: ${backImage.error}` : ''}</Text>
-                )}
-              </View>
+                </View>
+              ) : null}
             </View>
           </View>
-        ) : (
-          <View style={styles.photosSection}>
-            <Text style={styles.photosLabel}>📷 CAMERA SNAPS</Text>
-            <Text style={styles.photoStatus}>No camera images were captured for this SOS.</Text>
-          </View>
-        )}
+        ) : null}
 
         {/* ================= VOICE RECORDING ================= */}
         <View style={styles.audioSection}>
           <Text style={styles.audioLabel}>🎙️ VOICE RECORDING</Text>
           <View style={styles.audioCard}>
-            {audioMediaUrl || localAudio?.localPath ? (
-              <AudioPlayer audioUrl={audioMediaUrl} localPath={localAudio?.localPath} token={token} style={styles.audioPlayer} />
+            {audioMediaUrl ? (
+              <AudioPlayer audioUrl={audioMediaUrl} token={token} style={styles.audioPlayer} />
             ) : (
               <>
                 <View style={styles.waveformContainer}>
@@ -835,6 +839,9 @@ const styles = StyleSheet.create({
   },
 
   /* ================= PHOTOS ================= */
+  trackingLinkCard: {backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E8E8EB', borderRadius: 12, padding: 12, marginTop: 10},
+  trackingLinkText: {color: '#E4002B', fontSize: 13, fontWeight: '700'},
+
   photosSection: {
     marginBottom: 12,
   },
@@ -995,16 +1002,16 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     borderRadius: 28,
-    backgroundColor: '#F5F6F8',
+    backgroundColor: '#FFF5F6',
     borderWidth: 1,
-    borderColor: '#E4E4E6',
+    borderColor: '#F3B5BF',
     alignItems: 'center',
   },
 
   callButtonText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#1A1A1A',
+    color: '#D9263A',
   },
 
   resolveButton: {

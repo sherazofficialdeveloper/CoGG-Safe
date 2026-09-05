@@ -5,14 +5,14 @@ const queryString = params => {
   return entries.length ? `?${new URLSearchParams(entries).toString()}` : '';
 };
 
-export const listNotifications = (token, params) =>
-  request(`/notifications${queryString(params)}`, {token});
+export const listNotifications = (token, params, options = {}) =>
+  request(`/notifications${queryString(params)}`, {token, ...options});
 
 export const markNotificationRead = (token, id) =>
   request(`/notifications/${id}/read`, {method: 'PATCH', token});
 
-export const listSos = (token, params) => request(`/sos${queryString(params)}`, {token});
-export const getSos = (token, id) => request(`/sos/${id}`, {token});
+export const listSos = (token, params, options = {}) => request(`/sos${queryString(params)}`, {token, ...options});
+export const getSos = (token, id, options = {}) => request(`/sos/${id}`, {token, ...options});
 export const createSos = (token, body) => request('/sos', {method: 'POST', token, body});
 export const cancelSos = (token, id) => request(`/sos/${id}/cancel`, {method: 'PATCH', token});
 export const deactivateSos = (token, id) => request(`/sos/${id}/deactivate`, {method: 'PATCH', token});
@@ -30,9 +30,9 @@ export const uploadSosMedia = (token, id, component, file) => {
 export const startLiveLocation = (token, id) => request(`/sos/${id}/live-location/start`, {method: 'POST', token});
 export const pingLiveLocation = (token, id, body) => request(`/sos/${id}/live-location/ping`, {method: 'POST', token, body});
 export const stopLiveLocation = (token, id) => request(`/sos/${id}/live-location/stop`, {method: 'POST', token});
-export const getLiveLocation = (token, id, params) => request(`/sos/${id}/live-location${queryString(params)}`, {token});
+export const getLiveLocation = (token, id, params, options = {}) => request(`/sos/${id}/live-location${queryString(params)}`, {token, ...options});
 
-export const listUsers = (token, params) => request(`/users${queryString(params)}`, {token});
+export const listUsers = (token, params, options = {}) => request(`/users${queryString(params)}`, {token, ...options});
 export const listContacts = token => request('/contacts', {token});
 export const updateMyProfile = (token, body) => request('/users/me', {method: 'PATCH', token, body});
 export const getUser = (token, id) => request(`/users/${id}`, {token});
@@ -42,8 +42,8 @@ export const setUserPassword = (token, id, password) => request(`/users/${id}/pa
 export const setUserStatus = (token, id, active) => request(`/users/${id}/${active ? 'activate' : 'deactivate'}`, {method: 'PATCH', token});
 export const deleteUser = (token, id) => request(`/users/${id}`, {method: 'DELETE', token});
 
-export const listCollections = (token, params) => request(`/collections${queryString(params)}`, {token});
+export const listCollections = (token, params, options = {}) => request(`/collections${queryString(params)}`, {token, ...options});
 export const getCollection = (token, id) => request(`/collections/${id}`, {token});
 export const createCollection = (token, body) => request('/collections', {method: 'POST', token, body});
 export const updateCollection = (token, id, body) => request(`/collections/${id}`, {method: 'PATCH', token, body});
-export const listCollectionUsers = (token, id, params) => request(`/collections/${id}/users${queryString(params)}`, {token});
+export const listCollectionUsers = (token, id, params, options = {}) => request(`/collections/${id}/users${queryString(params)}`, {token, ...options});

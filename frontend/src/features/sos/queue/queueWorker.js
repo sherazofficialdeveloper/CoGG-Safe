@@ -144,6 +144,31 @@ async function processSosQueueRun({processors = {}, now = Date.now()} = {}) {
         ...(result && typeof result === 'object' ? {lastResult: result} : {}),
       };
       await sosLocalStore.updateSosServiceState(event.id, item.serviceName, servicePatch);
+
+      // A camera retry can finish after an earlier media-upload attempt saw
+      // no file. Re-enqueue the individual media uploads immediately so a
+      // newly captured back/front image (or audio recording) is not stranded.
+      if (item.serviceName === 'camera' && event.backendId) {
+        for (const component of ['frontImage', 'backImage']) {
+          await enqueueSosJob({
+            sosId: event.id,
+            backendSosId: event.backendId,
+            type: `MEDIA_UPLOAD:${component}`,
+            serviceName: 'mediaUpload',
+            payload: {component},
+          });
+        }
+      }
+      if (item.serviceName === 'audio' && event.backendId && result?.localPath) {
+        await enqueueSosJob({
+          sosId: event.id,
+          backendSosId: event.backendId,
+          type: 'MEDIA_UPLOAD:audio',
+          serviceName: 'mediaUpload',
+          payload: {component: 'audio'},
+        });
+      }
+
       if (item.serviceName === 'liveLocation' && result?.status === 'COMPLETED') {
         const latestEvent = await sosLocalStore.getSosById(event.id);
         if (latestEvent) {

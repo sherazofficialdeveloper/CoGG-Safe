@@ -69,7 +69,7 @@ import {captureEmergencyPhotos} from './src/features/sos/services/cameraService'
 import {recordEmergencyAudio} from './src/features/sos/services/audioService';
 import {emitSosDiagnostic} from './src/features/sos/services/sosDiagnosticService';
 import {reportServiceResult} from './src/features/sos/services/backendSyncService';
-import {listContacts, stopLiveLocation, getSos} from './src/api/resources';
+import {listContacts, listNotifications, stopLiveLocation, getSos} from './src/api/resources';
 import {rememberCredential} from './src/utils/adminCredentials';
 
 import {connectivityService} from './src/features/sos/connectivity';
@@ -211,6 +211,29 @@ function AppContent() {
       .catch(() => undefined);
     return () => { cancelled = true; };
   }, [token, user?.collectionId, user?.role]);
+
+  // Global notification cache: fetch in the background as soon as an
+  // authenticated portal is available. Screens can then render the cached
+  // list instantly while this same source keeps the header badge current.
+  useEffect(() => {
+    if (!token || !user) return undefined;
+    let mounted = true;
+    const refreshNotificationBadge = async () => {
+      try {
+        const result = await listNotifications(token, undefined, {forceRefresh: true});
+        if (!mounted) return;
+        const items = Array.isArray(result?.notifications) ? result.notifications : [];
+        const unread = items.filter(item => !item.isRead).length;
+        if (user.role === 'admin') setAdminNotificationCount(unread);
+        else setUserNotificationCount(unread);
+      } catch (_) {
+        // Badge keeps its last known value when the network is temporarily unavailable.
+      }
+    };
+    refreshNotificationBadge();
+    const timer = setInterval(refreshNotificationBadge, 10000);
+    return () => { mounted = false; clearInterval(timer); };
+  }, [token, user?.id, user?.role]);
 
   // ============================================================
   // SOS QUEUE / RECOVERY / CONNECTIVITY
@@ -681,8 +704,8 @@ function AppContent() {
                 token,
                 sosId: event.backendId,
                 component: 'sms',
-                status: smsResult.status === 'COMPLETED' ? 'success' : smsResult.status === 'UNSUPPORTED' ? 'unsupported' : 'pending',
-                error: smsResult.status === 'COMPLETED' ? null : smsResult.reason || null,
+                status: (smsResult.status === 'COMPLETED' || Number(smsResult.sentCount) > 0) ? 'success' : smsResult.status === 'UNSUPPORTED' ? 'unsupported' : 'pending',
+                error: (smsResult.status === 'COMPLETED' || Number(smsResult.sentCount) > 0) ? null : smsResult.reason || null,
               }).catch(() => undefined);
             }
             return smsResult;

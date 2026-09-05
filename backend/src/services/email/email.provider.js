@@ -31,6 +31,9 @@ function getTransporter() {
       port: env.email.port,
       secure: env.email.port === 465, // implicit TLS on 465; STARTTLS otherwise
       auth: { user: env.email.user, pass: env.email.password },
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 60000,
     });
   }
   return cachedTransporter;
@@ -46,30 +49,17 @@ async function send({ to, subject, body }) {
   }
 
   try {
-    // Add a 10-second timeout to prevent email from blocking the entire SOS activation
-    const sendPromise = getTransporter().sendMail({
+    // Let Nodemailer complete the SMTP transaction. The previous hard 10s
+    // Promise.race could mark an email UNKNOWN even though the SMTP server
+    // accepted it moments later. Transport-level timeouts above still prevent
+    // a dead SMTP connection from hanging forever.
+    const info = await getTransporter().sendMail({
       from: env.email.from,
       to,
       subject,
       text: body,
     });
-
-    let timeoutHandle;
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutHandle = setTimeout(() => {
-        const error = new Error('Email send timeout after 10 seconds');
-        error.code = 'EMAIL_DELIVERY_UNKNOWN';
-        reject(error);
-      }, 10000);
-    });
-    sendPromise.then(
-      () => clearTimeout(timeoutHandle),
-      () => clearTimeout(timeoutHandle),
-    );
-
-    const info = await Promise.race([sendPromise, timeoutPromise]);
-    clearTimeout(timeoutHandle);
-    return { status: 'sent', providerMessageId: info.messageId };
+    return { status: 'sent', providerMessageId: info.messageId, response: info.response || null };
   } catch (err) {
     logger.warn('Email send failed', { to, subject, error: err.message });
     throw err;

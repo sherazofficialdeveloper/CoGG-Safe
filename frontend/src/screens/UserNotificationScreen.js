@@ -13,6 +13,8 @@ import Icon from '../components/Icon';
 import {listNotifications, markNotificationRead} from '../api/resources';
 import {getCachedApiData} from '../api/client';
 
+const notificationSnapshots = new Map();
+
 const UserNotificationScreen = ({
   token,
   onBack,
@@ -20,8 +22,9 @@ const UserNotificationScreen = ({
   onBadgeCountChange,
 }) => {
   const cachedData = getCachedApiData('/notifications', token);
-  const [notifications, setNotifications] = useState(() => cachedData?.notifications || []);
-  const [loading, setLoading] = useState(() => !cachedData);
+  const snapshot = notificationSnapshots.get(token);
+  const [notifications, setNotifications] = useState(() => snapshot || cachedData?.notifications || []);
+  const [loading, setLoading] = useState(() => !snapshot && !cachedData);
   const [error, setError] = useState('');
 
   const [filter, setFilter] = useState('All');
@@ -34,13 +37,22 @@ const UserNotificationScreen = ({
       setNotifications(cachedNotifications);
       setLoading(false);
     }
-    listNotifications(token)
-      .then(result => mounted && setNotifications(result.notifications || []))
+    const refresh = () => listNotifications(token, undefined, {forceRefresh: true})
+      .then(result => {
+        if (!mounted) return;
+        const next = result.notifications || [];
+        notificationSnapshots.set(token, next);
+        setNotifications(next);
+      })
       .catch(requestError => mounted && setError(requestError.message))
       .finally(() => mounted && setLoading(false));
-    return () => {
-      mounted = false;
-    };
+    if (!snapshot && !hasCachedNotifications) refresh();
+    else {
+      setLoading(false);
+      refresh();
+    }
+    const timer = setInterval(refresh, 10000);
+    return () => { mounted = false; clearInterval(timer); };
   }, [token]);
 
   const unreadCount = useMemo(() => {
@@ -67,6 +79,7 @@ const UserNotificationScreen = ({
       setNotifications(prev => prev.map(item =>
         (item._id || item.id) === notificationId ? {...item, isRead: true} : item,
       ));
+      notificationSnapshots.set(token, notifications.map(item => (item._id || item.id) === notificationId ? {...item, isRead: true} : item));
     }).catch(requestError => setError(requestError.message));
 
     if (onNotificationDetail) {

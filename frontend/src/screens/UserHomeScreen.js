@@ -98,7 +98,7 @@ const UserHomeScreen = ({
     }
 
     let mounted = true;
-    listSos(token, {status: 'active', limit: 10})
+    const refresh = () => listSos(token, {status: 'active', limit: 10}, {forceRefresh: true})
       .then(result => {
         if (!mounted) return;
         const activeSos = (result.sos || []).find(item => item.status === 'active');
@@ -107,7 +107,9 @@ const UserHomeScreen = ({
         setActiveSharingSos(activeLocation || null);
       })
       .catch(error => mounted && setSharingError(error.message));
-    return () => { mounted = false; };
+    refresh();
+    const timer = setInterval(refresh, 5000);
+    return () => { mounted = false; clearInterval(timer); };
   }, [token, refreshKey]);
 
   const handleStopSharing = async () => {
@@ -746,7 +748,9 @@ const styles = StyleSheet.create({
 
   stopSharingButton: {
     alignSelf: 'stretch',
-    backgroundColor: '#1A1A1A',
+    backgroundColor: '#FFF5F6',
+    borderWidth: 1,
+    borderColor: '#F3B5BF',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',
@@ -754,7 +758,7 @@ const styles = StyleSheet.create({
   },
 
   stopSharingText: {
-    color: '#FFFFFF',
+    color: '#D9263A',
     fontSize: 14,
     fontWeight: '800',
   },

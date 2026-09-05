@@ -139,6 +139,13 @@ async function getSosById(id, reqUser) {
   const sos = await getSosOrThrow(id);
   assertOwnerOrAdmin(sos.userId, reqUser, 'You do not have permission to access this SOS');
   await enforceLiveLocationExpiry(sos);
+  // Legacy records created before backend-component tracking was added are
+  // still real backend records. Repair their display state on first read.
+  if (sos.components?.backend?.status === COMPONENT_STATUS.PENDING) {
+    await setComponentStatus(sos._id, 'backend', COMPONENT_STATUS.SUCCESS);
+    sos.components.backend.status = COMPONENT_STATUS.SUCCESS;
+    sos.components.backend.error = null;
+  }
   await sos.populate([
     { path: 'userId', select: 'username mobileNumber email' },
     { path: 'collectionId', select: 'name type' },
@@ -212,6 +219,9 @@ async function createSos({ userId, idempotencyKey, location }) {
       idempotencyKey: idempotencyKey || undefined,
       status: SOS_STATUS.ACTIVE,
       activatedAt: new Date(),
+      components: {
+        backend: {status: COMPONENT_STATUS.SUCCESS, error: null},
+      },
     });
     console.log('[SOS_DEBUG] MONGO_CREATED', { sosId: String(sos._id) });
   } catch (err) {

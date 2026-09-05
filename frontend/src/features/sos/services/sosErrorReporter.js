@@ -19,7 +19,7 @@ function normalizeReason(errorOrResult) {
 }
 
 function isTransient(reason) {
-  return /timeout|timed out|network|connection|temporarily|unavailable|retry|queued|request failed|check your connection/i.test(String(reason || ''));
+  return /timeout|timed out|network|connection|temporarily|unavailable|retry|queued|request failed|check your connection|validation failed/i.test(String(reason || ''));
 }
 
 export function reportSosServiceError(serviceName, errorOrResult, {status = 'FAILED', eventId} = {}) {

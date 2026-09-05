@@ -87,10 +87,20 @@ const AdminNotificationScreen = ({
     };
 
     if (!notificationSnapshots.has(token)) loadNotifications();
+    const timer = setInterval(() => {
+      listNotifications(token, undefined, {forceRefresh: true}).then(result => {
+        if (!mounted) return;
+        const next = result.notifications || [];
+        notificationSnapshots.set(token, next);
+        setNotifications(next);
+        onNotificationsChangeRef.current?.(next);
+      }).catch(() => undefined);
+    }, 10000);
 
     return () => {
       mounted = false;
       requestIdRef.current += 1;
+      clearInterval(timer);
     };
   }, [token]);
 

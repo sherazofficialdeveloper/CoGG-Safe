@@ -33,17 +33,17 @@ const AdminDashboardScreen = ({
   const [loading, setLoading] = useState(() => !snapshot);
   const [error, setError] = useState('');
 
-  const loadDashboard = useCallback(async (isMounted = () => true) => {
-    setLoading(true);
+  const loadDashboard = useCallback(async (isMounted = () => true, background = false) => {
+    if (!background) setLoading(true);
     setError('');
 
     try {
       const [collectionResult, userResult, activeUserResult, inactiveUserResult, sosResult] = await Promise.all([
-        listCollections(token),
-        listUsers(token, {limit: 1}),
-        listUsers(token, {limit: 1, status: 'active'}),
-        listUsers(token, {limit: 1, status: 'inactive'}),
-        listSos(token, {limit: 1}),
+        listCollections(token, undefined, {forceRefresh: true}),
+        listUsers(token, {limit: 1}, {forceRefresh: true}),
+        listUsers(token, {limit: 1, status: 'active'}, {forceRefresh: true}),
+        listUsers(token, {limit: 1, status: 'inactive'}, {forceRefresh: true}),
+        listSos(token, {limit: 1}, {forceRefresh: true}),
       ]);
       if (!isMounted()) return;
       setCollections(collectionResult.collections || []);
@@ -74,8 +74,8 @@ const AdminDashboardScreen = ({
     // Mutations clear the snapshot immediately; while the screen stays open,
     // a low-frequency refresh picks up SOS/users/collections changed elsewhere.
     const refreshTimer = setInterval(() => {
-      if (mounted) loadDashboard(() => mounted);
-    }, 60000);
+      if (mounted) loadDashboard(() => mounted, true);
+    }, 10000);
     return () => { mounted = false; clearInterval(refreshTimer); };
   }, [loadDashboard, snapshot]);
 

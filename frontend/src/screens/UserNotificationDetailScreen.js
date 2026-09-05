@@ -36,7 +36,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
     if (!token || !sosId) return undefined;
     const refresh = async () => {
       try {
-        const [sosResult, liveResult] = await Promise.all([getSos(token, sosId), getLiveLocation(token, sosId, {limit: 1})]);
+        const [sosResult, liveResult] = await Promise.all([getSos(token, sosId, {forceRefresh: true}), getLiveLocation(token, sosId, {limit: 1}, {forceRefresh: true})]);
         if (!mounted) return;
         if (sosResult?.sos) setLiveSos(sosResult.sos);
         setLiveLocation({
@@ -116,6 +116,15 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
             </View>
           ) : null}
 
+          {currentSos?.emergencyLink ? (
+            <View style={styles.mediaBlock}>
+              <Text style={styles.mediaTitle}>Emergency Tracking Link</Text>
+              <TouchableOpacity style={styles.linkCard} onPress={() => require('react-native').Linking.openURL(currentSos.emergencyLink)}>
+                <Text style={styles.linkText}>{currentSos.emergencyLink}</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
           {currentSos ? (
             <View style={styles.mediaBlock}>
               <Text style={styles.mediaTitle}>Photos</Text>
@@ -162,7 +171,9 @@ const styles = StyleSheet.create({
   emptyMedia: {backgroundColor: '#FFF', borderRadius: 12, color: '#59636E', padding: 14, textAlign: 'center'},
   button: {backgroundColor: '#E4002B', padding: 15, borderRadius: 12, marginTop: 22, width: '100%'},
   buttonText: {color: '#FFF', fontWeight: '800', textAlign: 'center'},
-  stopButton: {backgroundColor: '#E4002B', padding: 14, borderRadius: 12, marginTop: 14, width: '100%'},
+  stopButton: {backgroundColor: '#FFF5F6', borderWidth: 1, borderColor: '#F3B5BF', padding: 14, borderRadius: 12, marginTop: 14, width: '100%'},
+  linkCard: {backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E8E8EB', borderRadius: 12, padding: 12},
+  linkText: {color: '#E4002B', fontSize: 13, fontWeight: '700'},
 });
 
 export default UserNotificationDetailScreen;

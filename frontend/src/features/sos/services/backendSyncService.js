@@ -173,7 +173,6 @@ export async function uploadCapturedSosMedia({token, sosEvent, component = null}
       uploaded.push({component: item.component, storageRef: uploadState[item.component].storageRef});
       continue;
     }
-    if (['FAILED', 'REPORTED_FAILED'].includes(uploadState[item.component]?.status)) continue;
 
     const capture = sosEvent.services?.[item.service] || {};
     const localPath = capture[item.path];
@@ -244,12 +243,17 @@ export async function uploadCapturedSosMedia({token, sosEvent, component = null}
             : 'AUDIO_UPLOAD_SUCCESS';
           console.log(tag, {backendId, component: item.component});
         }
-      } else if (componentFailed && uploadState[item.component]?.status !== 'REPORTED_FAILED') {
-        await reportSosMedia(token, backendId, item.component, {
-          status: 'failed',
-          error: componentError || `${item.component} capture failed on the device.`,
-        });
-        uploadState[item.component] = {status: 'REPORTED_FAILED'};
+      } else if (componentFailed) {
+        // A missing device file is not a durable upload failure yet. Camera
+        // capture is independently retryable (especially the back lens), so
+        // marking this component REPORTED_FAILED here would permanently block
+        // the later successful capture from ever being uploaded. Keep it
+        // pending and let the camera/media queue retry.
+        uploadState[item.component] = {
+          status: 'PENDING',
+          error: componentError || `${item.component} capture is still pending.`,
+        };
+        failures.push({component: item.component, error: uploadState[item.component].error});
       }
     } catch (error) {
       emitSosDiagnostic(`SOS DEBUG UPLOAD: ${item.component} failed: ${error?.message || 'Upload failed'}`, 'error');

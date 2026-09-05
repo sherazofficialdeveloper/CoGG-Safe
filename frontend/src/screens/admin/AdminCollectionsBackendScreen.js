@@ -15,7 +15,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
   const [collections, setCollections] = useState(() => collectionSnapshots.get(token) || []);
   const [selected, setSelected] = useState(null);
   const [members, setMembers] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !collectionSnapshots.has(token));
   const [membersLoading, setMembersLoading] = useState(false);
   const [error, setError] = useState('');
   const [showUserForm, setShowUserForm] = useState(false);
@@ -26,11 +26,11 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
   const [submitting, setSubmitting] = useState(false);
   const [credentialMap, setCredentialMap] = useState(initialCredentials);
 
-  const loadCollections = useCallback(async () => {
-    setLoading(true);
+  const loadCollections = useCallback(async ({initial = false} = {}) => {
+    if (initial || collections.length === 0) setLoading(true);
     setError('');
     try {
-      const response = await listCollections(token);
+      const response = await listCollections(token, undefined, {forceRefresh: true});
       setCollections(response.collections || []);
       collectionSnapshots.set(token, response.collections || []);
     } catch (requestError) {
@@ -41,8 +41,8 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
   }, [token]);
 
   useEffect(() => {
-  if (!collectionSnapshots.has(token)) loadCollections();
-  const timer = setInterval(() => loadCollections(), 60000);
+  if (!collectionSnapshots.has(token)) loadCollections({initial: true});
+  const timer = setInterval(() => loadCollections(), 10000);
   return () => clearInterval(timer);
 }, [loadCollections, token]);
 
@@ -72,6 +72,22 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
       setMembersLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!selected || !token) return undefined;
+    const refreshMembers = async () => {
+      try {
+        const response = await listCollectionUsers(token, selected._id, undefined, {forceRefresh: true});
+        const nextMembers = response.users || [];
+        memberSnapshots.set(`${token}:${selected._id}`, {items: nextMembers, fetchedAt: Date.now()});
+        setMembers(nextMembers);
+      } catch (_) {
+        // Keep the cached members visible if the background refresh fails.
+      }
+    };
+    const timer = setInterval(refreshMembers, 10000);
+    return () => clearInterval(timer);
+  }, [selected?._id, token]);
 
   const saveCollection = async () => {
     if (!editForm?.name?.trim() || !editForm?.emergencyCallNumber?.trim()) {
@@ -193,6 +209,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
         onPress: async () => {
           try {
             await deleteUser(token, memberId);
+            memberSnapshots.delete(`${token}:${selected._id}`);
             setMembers(current => current.filter(item => (item._id || item.id) !== memberId));
             Alert.alert('User deleted', 'The user has been removed.');
           } catch (requestError) {

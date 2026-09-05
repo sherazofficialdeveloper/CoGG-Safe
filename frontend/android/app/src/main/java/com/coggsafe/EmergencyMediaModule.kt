@@ -118,8 +118,14 @@ class EmergencyMediaModule(
     @ReactMethod
     fun capturePhotos(
         sosId: String,
+        captureFront: Boolean,
+        captureBack: Boolean,
         promise: Promise
     ) {
+        if (ContextCompat.checkSelfPermission(reactContext, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            promise.reject("E_CAMERA_PERMISSION", "Camera permission is not granted.")
+            return
+        }
         val owner = reactContext.currentActivity as? LifecycleOwner
         if (owner == null) {
             promise.reject(
@@ -137,21 +143,34 @@ class EmergencyMediaModule(
             future.addListener({
                 try {
                     val provider = future.get()
-                    captureLensWithRetry(provider, owner, CameraSelector.LENS_FACING_FRONT, File(directory, "front-${System.currentTimeMillis()}.jpg"), 2) { front, frontError ->
+                    val finish = { front: File?, frontError: String?, back: File?, backError: String? ->
                         if (front != null) result.putString("frontImagePath", front.absolutePath)
-                        else result.putString("frontError", frontError ?: "Front camera failed.")
-
-                        captureLensWithRetry(provider, owner, CameraSelector.LENS_FACING_BACK, File(directory, "back-${System.currentTimeMillis()}.jpg"), 2) { back, backError ->
-                            if (back != null) result.putString("backImagePath", back.absolutePath)
-                            else result.putString("backError", backError ?: "Back camera failed.")
-
-                            // One camera failing must not discard the other successful capture.
-                            if (front == null && back == null) {
-                                promise.reject("E_CAMERA_CAPTURE", "Both SOS camera captures failed.")
-                            } else {
-                                promise.resolve(result)
-                            }
+                        else if (captureFront) result.putString("frontError", frontError ?: "Front camera failed.")
+                        if (back != null) result.putString("backImagePath", back.absolutePath)
+                        else if (captureBack) result.putString("backError", backError ?: "Back camera failed.")
+                        if ((captureFront && front == null) || (captureBack && back == null)) {
+                            promise.reject("E_CAMERA_CAPTURE", "SOS camera capture failed.")
+                        } else {
+                            promise.resolve(result)
                         }
+                    }
+
+                    fun captureBackIfNeeded(front: File?, frontError: String?) {
+                        if (!captureBack) {
+                            finish(front, frontError, null, null)
+                            return
+                        }
+                        captureLensWithRetry(provider, owner, CameraSelector.LENS_FACING_BACK, File(directory, "back-${System.currentTimeMillis()}.jpg"), 4) { back, backError ->
+                            finish(front, frontError, back, backError)
+                        }
+                    }
+
+                    if (captureFront) {
+                        captureLensWithRetry(provider, owner, CameraSelector.LENS_FACING_FRONT, File(directory, "front-${System.currentTimeMillis()}.jpg"), 4) { front, frontError ->
+                            captureBackIfNeeded(front, frontError)
+                        }
+                    } else {
+                        captureBackIfNeeded(null, null)
                     }
                 } catch (error: Exception) {
                     promise.reject("E_CAMERA_CAPTURE", "Unable to initialize the SOS camera.", error)
@@ -176,7 +195,7 @@ class EmergencyMediaModule(
             } else if (attemptsLeft > 1) {
                 Handler(Looper.getMainLooper()).postDelayed({
                     captureLensWithRetry(provider, owner, lens, output, attemptsLeft - 1, callback)
-                }, 350L)
+                }, 650L)
             } else {
                 callback(null, error)
             }
@@ -192,26 +211,30 @@ class EmergencyMediaModule(
     ) {
         try {
             // Each lens gets a fresh ImageCapture use case. CameraX is explicitly
-            // unbound before switching lenses, then bound to the current lifecycle.
+            // unbound before switching lenses. A short main-thread settle delay
+            // prevents the previous lens from still holding the camera device on
+            // phones that are slower at closing/reopening Camera2.
             provider.unbindAll()
+            Handler(Looper.getMainLooper()).postDelayed({
+              try {
+                val selector = CameraSelector.Builder()
+                    .requireLensFacing(lens)
+                    .build()
 
-            val selector = CameraSelector.Builder()
-                .requireLensFacing(lens)
-                .build()
+                if (!provider.hasCamera(selector)) {
+                    callback(null, if (lens == CameraSelector.LENS_FACING_FRONT) "Front camera is not available." else "Back camera is not available.")
+                    return@postDelayed
+                }
 
-            if (!provider.hasCamera(selector)) {
-                callback(null, if (lens == CameraSelector.LENS_FACING_FRONT) "Front camera is not available." else "Back camera is not available.")
-                return
-            }
+                val imageCapture = ImageCapture.Builder()
+                    .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                    .setJpegQuality(90)
+                    .build()
 
-            val imageCapture = ImageCapture.Builder()
-                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                .build()
+                provider.bindToLifecycle(owner, selector, imageCapture)
 
-            provider.bindToLifecycle(owner, selector, imageCapture)
-
-            val outputOptions = ImageCapture.OutputFileOptions.Builder(output).build()
-            imageCapture.takePicture(outputOptions, executor, object : ImageCapture.OnImageSavedCallback {
+                val outputOptions = ImageCapture.OutputFileOptions.Builder(output).build()
+                imageCapture.takePicture(outputOptions, executor, object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                     if (isUsableMediaFile(output)) callback(output, null)
                     else callback(null, "Captured image file is missing, unreadable, or empty.")
@@ -221,6 +244,10 @@ class EmergencyMediaModule(
                     callback(null, exception.message ?: "Camera capture failed.")
                 }
             })
+              } catch (error: Exception) {
+                callback(null, error.message ?: "Camera capture failed.")
+              }
+            }, 250L)
         } catch (error: Exception) {
             callback(null, error.message ?: "Camera capture failed.")
         }
@@ -550,7 +577,11 @@ class EmergencyMediaModule(
                     throw IllegalStateException("Media request was rejected (HTTP $status).")
                 }
 
-                val fileName = "audio-${mediaUrl.hashCode().toUInt().toString(16)}.m4a"
+                val extension = when {
+                    mediaUrl.contains("/frontImage/") || mediaUrl.contains("/backImage/") -> "jpg"
+                    else -> "m4a"
+                }
+                val fileName = "sos-media-${mediaUrl.hashCode().toUInt().toString(16)}.$extension"
                 val file = File(reactContext.filesDir, "protected-sos-media/$fileName")
                 file.parentFile?.mkdirs()
                 connection.inputStream.use { input ->

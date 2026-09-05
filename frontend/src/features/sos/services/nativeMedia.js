@@ -10,7 +10,8 @@ function requireAndroidModule() {
   return nativeMedia;
 }
 
-export const captureNativeSosPhotos = sosId => requireAndroidModule().capturePhotos(sosId);
+export const captureNativeSosPhotos = (sosId, captureFront = true, captureBack = true) =>
+  requireAndroidModule().capturePhotos(sosId, captureFront, captureBack);
 export const recordNativeSosAudio = (sosId, durationMs) => requireAndroidModule().recordAudio(sosId, durationMs);
 export const validateNativeSosMedia = localPath => {
   const module = requireAndroidModule();

@@ -1,4 +1,4 @@
-﻿import {API_BASE_URL} from './config';
+import {API_BASE_URL} from './config';
 import {emitSosDiagnostic} from '../features/sos/services/sosDiagnosticService';
 
 export class ApiError extends Error {
@@ -25,12 +25,12 @@ export function getCachedApiData(path, token) {
   return responseCache.get(requestKey(path, token))?.data || null;
 }
 
-export async function request(path, {method = 'GET', body, token, timeoutMs} = {}) {
+export async function request(path, {method = 'GET', body, token, timeoutMs, forceRefresh = false, cacheTtlMs = GET_CACHE_TTL_MS} = {}) {
   const normalizedMethod = method.toUpperCase();
   const key = requestKey(path, token);
   if (normalizedMethod === 'GET') {
     const cached = responseCache.get(key);
-    if (cached && Date.now() - cached.cachedAt < GET_CACHE_TTL_MS) {
+    if (!forceRefresh && cached && Date.now() - cached.cachedAt < cacheTtlMs) {
       if (__DEV__) console.log('[API] CACHE_HIT', {method: normalizedMethod, path});
       return cached.data;
     }

@@ -102,7 +102,9 @@ export async function captureEmergencyPhotos({sosId, previousResult = null, even
     emitSosDiagnostic('SOS DEBUG FRONT 01: Capture started');
     emitSosDiagnostic('SOS DEBUG BACK 01: Capture started');
     if (__DEV__) console.log('FRONT_CAMERA_STARTED', {sosId});
-    const result = await captureNativeSosPhotos(sosId);
+    const needFront = !isUsableMediaPath(previousResult?.frontImagePath);
+    const needBack = !isUsableMediaPath(previousResult?.backImagePath);
+    const result = await captureNativeSosPhotos(sosId, needFront, needBack);
     emitSosDiagnostic('SOS DEBUG FRONT 02: Native capture returned');
     emitSosDiagnostic('SOS DEBUG BACK 02: Native capture returned');
 
