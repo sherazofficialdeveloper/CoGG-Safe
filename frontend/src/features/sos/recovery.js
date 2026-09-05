@@ -1,6 +1,7 @@
 import {sosLocalStore} from './storage';
 import {enqueueSosJob} from './queue/queueWorker';
 import {hasLiveLocationExpired} from './services/liveLocationService';
+import {emitSosDiagnostic} from './services/sosDiagnosticService';
 
 const RECOVERABLE_SERVICES = {
   sms: 'SMS',
@@ -44,7 +45,11 @@ export async function recoverActiveSosWork(now = Date.now()) {
   const events = await sosLocalStore.getAllEvents();
   const recovered = [];
   const queue = await sosLocalStore.getPendingQueue();
+  emitSosDiagnostic(`SOS DEBUG STARTUP 03: Pending jobs found = ${queue.length}`);
+  const backendJobs = queue.filter(item => item.type === 'BACKEND' || item.type === 'BACKEND_SYNC');
+  emitSosDiagnostic(`SOS DEBUG STARTUP SUMMARY: events=${events.length} backendJobs=${backendJobs.length} backendLocalSOSIds=${backendJobs.map(item => item.localSosId || item.sosId || 'unknown').join(',') || 'none'}`);
   for (const item of queue) {
+    emitSosDiagnostic(`SOS DEBUG STARTUP 04: Job type=${item.type || 'unknown'} Job ID=${item.id || 'unknown'} Retry count=${item.attempts || 0} Local SOS ID=${item.localSosId || item.sosId || 'unknown'}`);
     if (item.status === 'PROCESSING') {
       await sosLocalStore.updateQueueItem(item.id, {
         status: 'PENDING',
@@ -78,6 +83,7 @@ export async function recoverActiveSosWork(now = Date.now()) {
     for (const [serviceName, type] of Object.entries(RECOVERABLE_SERVICES)) {
       const status = event.services?.[serviceName]?.status;
       if (status === 'PENDING' || status === 'FAILED' || status === 'RETRY_WAITING' || status === 'PROCESSING') {
+        emitSosDiagnostic(`SOS DEBUG STARTUP 05: Recovered job type=${type} Job ID=${event.id}:${type} Retry count=${event.services?.[serviceName]?.attempts || 0} Local SOS ID=${event.id}`);
         await enqueueSosJob({sosId: event.id, type, serviceName});
         recovered.push({sosId: event.id, serviceName});
       }

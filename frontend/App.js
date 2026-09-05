@@ -203,6 +203,9 @@ function AppContent() {
 
     const processQueue = async () => {
       try {
+        emitSosDiagnostic('SOS DEBUG STARTUP 01: Queue processor invoked');
+        const startupQueue = await sosLocalStore.getPendingQueue();
+        emitSosDiagnostic(`SOS DEBUG STARTUP 06: Queue processor jobs=${startupQueue.length}`);
         await processSosQueue({
           processors: {
             backend: async (item, event) =>
@@ -210,6 +213,12 @@ function AppContent() {
                 token,
                 sosEvent: event,
                 idempotencyKey: event.id,
+                diagnosticContext: {
+                  source: 'AppContent.startup.processQueue.backend',
+                  queueJobId: item.id,
+                  attempt: (item.attempts || 0) + 1,
+                  taskType: item.type,
+                },
               }),
 
             mediaUpload: async (item, event) =>
@@ -287,6 +296,7 @@ function AppContent() {
       }
     };
 
+    emitSosDiagnostic('SOS DEBUG STARTUP 00: App startup');
     recoverActiveSosWork()
       .then(processQueue)
       .catch(() => processQueue());

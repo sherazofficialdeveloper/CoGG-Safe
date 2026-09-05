@@ -1,6 +1,6 @@
 import {NativeModules, Platform, ToastAndroid} from 'react-native';
 import {PERMISSION_STATUS, checkPermission, requestPermission} from '../../../permissions/sosPermissions';
-import {getConnectivityState} from '../connectivity';
+import {connectivityService, getConnectivityState} from '../connectivity';
 import {sosLocalStore} from '../storage';
 import {emitSosDiagnostic, ensureSosNativeDiagnosticListener} from './sosDiagnosticService';
 import {normalizePhoneNumber} from './phoneNumber';
@@ -90,6 +90,7 @@ export async function initiateEmergencyCall({emergencyNumber}) {
     return {status: 'UNSUPPORTED', reason: 'Emergency call is only supported on Android devices.'};
   }
 
+  await connectivityService.refreshTelephonyState().catch(() => undefined);
   const connectivity = getConnectivityState();
   const cellularAvailable = Boolean(connectivity.isCellularAvailable || connectivity.details?.type === 'cellular');
   if (__DEV__) console.log('[SOS_DEBUG] CELLULAR_STATE', {

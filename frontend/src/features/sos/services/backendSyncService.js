@@ -32,7 +32,12 @@ export async function syncSosLocation({token, sosId, location}) {
   return {status: 'COMPLETED', response};
 }
 
-export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
+export async function syncSosToBackend({
+  token,
+  sosEvent,
+  idempotencyKey,
+  diagnosticContext = {},
+}) {
   const connectivity = getConnectivityState();
   const internetAvailable = Boolean(connectivity.isInternetReachable || connectivity.isConnected);
 
@@ -57,6 +62,11 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
     console.log('[SOS_DEBUG] BACKEND_CREATE_REQUEST', {
       localSosId: sosEvent?.id || null,
       idempotencyKey: payload.idempotencyKey,
+      source: diagnosticContext.source || 'unknown',
+      queueJobId: diagnosticContext.queueJobId || null,
+      attempt: diagnosticContext.attempt ?? null,
+      taskType: diagnosticContext.taskType || null,
+      createdAt: sosEvent?.createdAt || null,
     });
     console.log('[SOS_DEBUG] IDEMPOTENCY_KEY', {key: payload.idempotencyKey});
   }
@@ -67,6 +77,7 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
 
   let response;
   try {
+    emitSosDiagnostic(`SOS DEBUG CREATE SOURCE: source=${diagnosticContext.source || 'unknown'} localSOSId=${sosEvent?.id || 'none'} queueJobId=${diagnosticContext.queueJobId || 'none'} attempt=${diagnosticContext.attempt ?? 0} taskType=${diagnosticContext.taskType || 'direct'} createdAt=${sosEvent?.createdAt || 'unknown'}`);
     emitSosDiagnostic('SOS DEBUG BACKEND 01: Create SOS request started');
     response = await createSos(token, payload);
   } catch (error) {
@@ -76,6 +87,9 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
       message: error?.message || 'Backend SOS creation failed',
       status: error?.status || null,
     });
+    if (error?.status === 409) {
+      emitSosDiagnostic(`SOS DEBUG 409: HTTP=409 source=${diagnosticContext.source || 'unknown'} localSOSId=${sosEvent?.id || 'none'} queueJobId=${diagnosticContext.queueJobId || 'none'} attempt=${diagnosticContext.attempt ?? 0} message=${error?.message || 'An SOS is already pending or active for this user'}`, 'error');
+    }
     throw error;
   }
   if (__DEV__) console.log('[SOS_DEBUG] BACKEND_CREATE_RESPONSE', {

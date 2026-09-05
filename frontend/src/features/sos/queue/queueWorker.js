@@ -1,7 +1,8 @@
 import {sosLocalStore} from '../storage';
-import {getConnectivityState} from '../connectivity';
+import {connectivityService, getConnectivityState} from '../connectivity';
 import {SOS_STATES, transitionSosState} from '../stateMachine';
 import {isValidLocation} from '../services/locationService';
+import {emitSosDiagnostic} from '../services/sosDiagnosticService';
 
 const MAX_ATTEMPTS = 5;
 const BASE_BACKOFF_MS = 5000;
@@ -62,6 +63,7 @@ export async function enqueueSosJob({sosId, backendSosId = null, type, serviceNa
 }
 
 async function processSosQueueRun({processors = {}, now = Date.now()} = {}) {
+  await connectivityService.refreshTelephonyState().catch(() => undefined);
   const state = getConnectivityState();
   const priority = {BACKEND: 0, BACKEND_SYNC: 0};
   const queue = (await sosLocalStore.getPendingQueue()).sort(
@@ -98,6 +100,7 @@ async function processSosQueueRun({processors = {}, now = Date.now()} = {}) {
       lastAttemptAt: new Date(now).toISOString(),
       updatedAt: new Date(now).toISOString(),
     });
+    emitSosDiagnostic(`SOS DEBUG STARTUP 07: Executing job type=${item.type || 'unknown'} status=${item.status || 'unknown'} Job ID=${item.id} Retry count=${item.attempts || 0} Local SOS ID=${localSosId}`);
 
     try {
       const result = await processors[item.serviceName](item, event);
@@ -201,6 +204,9 @@ async function processSosQueueRun({processors = {}, now = Date.now()} = {}) {
       // A real send attempt was made (or the processor threw for some other
       // transient reason) — this is what actually consumes MAX_ATTEMPTS.
       const attempts = (item.attempts || 0) + 1;
+      if (item.type === 'BACKEND' || item.type === 'BACKEND_SYNC') {
+        emitSosDiagnostic(`SOS DEBUG QUEUE FAILURE: type=${item.type} Job ID=${item.id} Local SOS ID=${localSosId} attempt=${attempts} status=${error?.status || 0} message=${error?.message || 'Queue job failed'}`, 'error');
+      }
       if (attempts >= MAX_ATTEMPTS) {
         await sosLocalStore.updateQueueItem(item.id, {
           status: 'FAILED',
