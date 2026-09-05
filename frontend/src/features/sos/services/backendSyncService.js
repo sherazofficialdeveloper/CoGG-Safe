@@ -2,6 +2,7 @@ import {createSos, reportLocation, reportSosMedia, uploadSosMedia, reportSosServ
 import {getConnectivityState} from '../connectivity';
 import {sosLocalStore} from '../storage';
 import {validateNativeSosMedia} from './nativeMedia';
+import {emitSosDiagnostic} from './sosDiagnosticService';
 const MEDIA_COMPONENTS = [
   {component: 'frontImage', service: 'camera', path: 'frontImagePath', mimeType: 'image/jpeg'},
   {component: 'backImage', service: 'camera', path: 'backImagePath', mimeType: 'image/jpeg'},
@@ -66,6 +67,7 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
 
   let response;
   try {
+    emitSosDiagnostic('SOS DEBUG BACKEND 01: Create SOS request started');
     response = await createSos(token, payload);
   } catch (error) {
     if (__DEV__) console.log('[SOS_DEBUG] BACKEND_CREATE_ERROR', {
@@ -82,6 +84,9 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
   });
   const sosRecord = response?.sos || response;
   const backendId = sosRecord?._id || sosRecord?.id || null;
+  emitSosDiagnostic(`SOS DEBUG BACKEND 02: Response received ${response ? 'yes' : 'no'}`);
+  emitSosDiagnostic(`SOS DEBUG BACKEND 04: backendId ${backendId ? 'received' : 'missing'}`);
+  emitSosDiagnostic(`SOS DEBUG BACKEND 05: status ${sosRecord?.status || 'missing'}`);
   if (__DEV__) {
     console.log('[SOS_DEBUG] CREATE_RESPONSE', {status: 'received', backendId});
     if (backendId) console.log('BACKEND_SOS_CREATED', {eventId: sosEvent?.id, backendId});
@@ -167,6 +172,7 @@ export async function uploadCapturedSosMedia({token, sosEvent, component = null}
 
     try {
       if (localPath) {
+        emitSosDiagnostic(`SOS DEBUG UPLOAD: ${item.component} started`);
         if (__DEV__) console.log('[SOS_DEBUG] MEDIA_UPLOAD_START', {
           component: item.component,
           localPath,
@@ -180,6 +186,7 @@ export async function uploadCapturedSosMedia({token, sosEvent, component = null}
           backendId,
         });
         if (!validFile) {
+          emitSosDiagnostic(`SOS DEBUG UPLOAD: ${item.component} local validation failed`, 'error');
           uploadState[item.component] = {
             status: 'FAILED',
             component: item.component === 'frontImage' ? 'FRONT_CAMERA' : item.component === 'backImage' ? 'BACK_CAMERA' : 'AUDIO',
@@ -193,6 +200,7 @@ export async function uploadCapturedSosMedia({token, sosEvent, component = null}
           type: item.mimeType,
           name: `${item.component}-${Date.now()}${item.component === 'audio' ? '.m4a' : '.jpg'}`,
         });
+        emitSosDiagnostic(`SOS DEBUG UPLOAD: ${item.component} completed`);
         if (__DEV__) console.log('[SOS_DEBUG] MEDIA_UPLOAD_RESULT', {
           component: item.component,
           backendId,
@@ -223,6 +231,7 @@ export async function uploadCapturedSosMedia({token, sosEvent, component = null}
         uploadState[item.component] = {status: 'REPORTED_FAILED'};
       }
     } catch (error) {
+      emitSosDiagnostic(`SOS DEBUG UPLOAD: ${item.component} failed: ${error?.message || 'Upload failed'}`, 'error');
       if (__DEV__) console.log('[SOS_DEBUG] MEDIA_UPLOAD_ERROR', {
         component: item.component,
         backendId,

@@ -6,6 +6,7 @@ import {emitSosToast} from './services/sosToastService';
 import {reportServiceResult} from './services/backendSyncService';
 import {reportSosServiceError} from './services/sosErrorReporter';
 import {isValidLocation} from './services/locationService';
+import {emitSosDiagnostic} from './services/sosDiagnosticService';
 
 // email/notifications are intentionally NOT retryable client-side jobs:
 // their real dispatch is a server-side responsibility
@@ -119,6 +120,7 @@ export async function activateSosFlow({
   }
 
   const event = await createSosLocalEvent({userId, collectionId});
+  emitSosDiagnostic('SOS DEBUG 04: Local SOS created');
   if (__DEV__) console.log('SOS_ACTIVATED', {eventId: event.id, userId, collectionId});
   emitSosToast('SOS started', 'info', 2000);
   
@@ -193,6 +195,8 @@ export async function activateSosFlow({
     try {
       const result = await runners[serviceName](event);
       const resultStatus = result?.status || 'COMPLETED';
+      if (serviceName === 'backend') emitSosDiagnostic(`SOS DEBUG BACKEND 03: Backend result ${resultStatus}`);
+      if (serviceName === 'mediaUpload') emitSosDiagnostic(`SOS DEBUG UPLOAD: Overall ${resultStatus}`);
 
       if (__DEV__) {
         console.log(`${tagPrefix}_FINISHED`, {eventId: event.id, serviceName, resultStatus, result});

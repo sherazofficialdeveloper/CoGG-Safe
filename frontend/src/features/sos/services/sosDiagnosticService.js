@@ -9,6 +9,7 @@ let nativeListenerStarted = false;
 
 export function emitSosDiagnostic(message, type = 'info') {
   if (!SOS_DEBUG_MODE || !message) return;
+  console.log(`[SOS DEBUG] ${message}`);
   emitSosToast(message, type, 4500);
 }
 

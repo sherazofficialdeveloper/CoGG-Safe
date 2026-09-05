@@ -66,6 +66,7 @@ import {
 
 import {captureEmergencyPhotos} from './src/features/sos/services/cameraService';
 import {recordEmergencyAudio} from './src/features/sos/services/audioService';
+import {emitSosDiagnostic} from './src/features/sos/services/sosDiagnosticService';
 import {rememberCredential} from './src/utils/adminCredentials';
 
 import {connectivityService} from './src/features/sos/connectivity';
@@ -477,6 +478,7 @@ function AppContent() {
   // ============================================================
 
   const handleTriggerSos = async () => {
+    emitSosDiagnostic('SOS DEBUG 01: Trigger received');
     setSosError('');
     setSosLoading(true);
     sosCancelSignalRef.current = {cancelled: false};

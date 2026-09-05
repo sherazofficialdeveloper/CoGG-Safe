@@ -218,6 +218,20 @@ describe('GET /api/sos/:id and /api/sos (isolation between users)', () => {
     expect(res.status).toBe(200);
   });
 
+  test('SOS detail includes the same user and collection references as the list response', async () => {
+    const collection = await createCollection();
+    const { token: ownerToken } = await createUserAndLogin({ collectionId: collection._id });
+
+    const created = await request(app).post('/api/sos').set('Authorization', `Bearer ${ownerToken}`);
+    const sosId = created.body.data.sos.id;
+
+    const res = await request(app).get(`/api/sos/${sosId}`).set('Authorization', `Bearer ${ownerToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.sos.userId.username).toBeDefined();
+    expect(res.body.data.sos.collectionId.name).toBe(collection.name);
+  });
+
   test('multiple simultaneous SOS records remain isolated in listings', async () => {
     const collection = await createCollection();
     const { token: tokenA } = await createUserAndLogin({ collectionId: collection._id });

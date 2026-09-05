@@ -2,6 +2,7 @@ import Geolocation from '@react-native-community/geolocation';
 import {Platform} from 'react-native';
 import {PERMISSION_STATUS, checkPermission, requestPermission} from '../../../permissions/sosPermissions';
 import {sosLocalStore} from '../storage';
+import {emitSosDiagnostic} from './sosDiagnosticService';
 
 const LOCATION_SOURCE_SET = new Set(['gps', 'network', 'fused', 'passive', 'cell', 'wifi', 'unknown']);
 
@@ -89,6 +90,9 @@ function attemptLocation(options, attemptName) {
            source: (position?.provider || (options.enableHighAccuracy ? 'gps' : 'network')).toString().trim().toLowerCase() || null,
            providerTimestamp: position?.timestamp ?? null,
          };
+         emitSosDiagnostic('SOS DEBUG LOCATION 05: Position received');
+         emitSosDiagnostic(`SOS DEBUG LOCATION 06: Coordinates ${isValidLocation(result) ? 'valid' : 'invalid'}`);
+         emitSosDiagnostic(`SOS DEBUG LOCATION 07: Accuracy ${result.accuracy ?? 'unknown'}`);
          if (!isValidLocation(result)) {
            reject(buildLocationError(`Location ${attemptName} returned invalid coordinates.`, 'INVALID_LOCATION_RESULT', {attempt: attemptName, result}));
            return;
@@ -149,12 +153,14 @@ export function isValidLocation(location) {
 }
 
 export async function getCurrentLocation() {
+  emitSosDiagnostic('SOS DEBUG LOCATION 01: Started');
   if (__DEV__) console.log('[SOS][LOCATION] START');
   if (!Geolocation || typeof Geolocation.getCurrentPosition !== 'function') {
     throw buildLocationError('Location provider module is unavailable in the installed app.', 'LOCATION_PROVIDER_MODULE_UNAVAILABLE');
   }
 
   await ensureLocationPermission();
+  emitSosDiagnostic('SOS DEBUG LOCATION 02: Permission granted');
   if (__DEV__) console.log('[SOS_DEBUG] LOCATION_SERVICES', {providerAvailable: Boolean(Geolocation)});
 
   try {

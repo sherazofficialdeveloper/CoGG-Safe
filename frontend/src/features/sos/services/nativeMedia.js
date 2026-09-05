@@ -1,4 +1,5 @@
 import {NativeModules, Platform} from 'react-native';
+import {emitSosDiagnostic} from './sosDiagnosticService';
 
 const nativeMedia = NativeModules?.EmergencyMedia;
 
@@ -16,4 +17,14 @@ export const validateNativeSosMedia = localPath => {
   if (typeof module.validateMediaFile !== 'function') return true;
   return module.validateMediaFile(localPath);
 };
-export const downloadAuthenticatedSosMedia = (url, token) => requireAndroidModule().downloadAuthenticatedMedia(url, token);
+export const downloadAuthenticatedSosMedia = async (url, token) => {
+  emitSosDiagnostic('SOS DEBUG MEDIA GET START');
+  try {
+    const path = await requireAndroidModule().downloadAuthenticatedMedia(url, token);
+    emitSosDiagnostic('SOS DEBUG MEDIA GET SUCCESS');
+    return path;
+  } catch (error) {
+    emitSosDiagnostic(`SOS DEBUG MEDIA GET FAILED: ${error?.message || 'download failed'}`, 'error');
+    throw error;
+  }
+};

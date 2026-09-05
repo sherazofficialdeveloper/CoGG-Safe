@@ -2,6 +2,7 @@ import React, {useEffect, useState} from 'react';
 import {ActivityIndicator, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {downloadAuthenticatedSosMedia} from '../features/sos/services/nativeMedia';
+import {emitSosDiagnostic} from '../features/sos/services/sosDiagnosticService';
 
 let Sound = null;
 if (typeof jest === 'undefined') {
@@ -47,6 +48,7 @@ const AudioPlayer = ({audioUrl, localPath = null, token, onError = null, style =
         if (!playablePath) {
           if (!token) return fail('Audio cannot be loaded because this session has no authentication token.');
           playablePath = await downloadAuthenticatedSosMedia(audioUrl, token);
+          emitSosDiagnostic('SOS DEBUG AUDIO 08: Download completed');
         }
         if (!isMounted) return;
 
@@ -55,9 +57,11 @@ const AudioPlayer = ({audioUrl, localPath = null, token, onError = null, style =
           if (loadError) return fail('Stored audio could not be played.', loadError);
           setSound(loadedSound);
           setDuration(loadedSound.getDuration() || 0);
+          emitSosDiagnostic('SOS DEBUG AUDIO 09: Playback initialized');
           setIsLoading(false);
         });
       } catch (loadError) {
+        emitSosDiagnostic(`SOS DEBUG AUDIO 10: Playback/download failed: ${loadError?.message || 'unavailable'}`, 'error');
         fail('Stored audio is unavailable.', loadError);
       }
     };

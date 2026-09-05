@@ -2,6 +2,7 @@ import {Platform} from 'react-native';
 import {PERMISSION_STATUS, checkPermission} from '../../../permissions/sosPermissions';
 import {sosLocalStore} from '../storage';
 import {captureNativeSosPhotos} from './nativeMedia';
+import {emitSosDiagnostic} from './sosDiagnosticService';
 
 function isUsableMediaPath(value) {
   if (typeof value !== 'string') return false;
@@ -98,13 +99,21 @@ export async function captureEmergencyPhotos({sosId, previousResult = null, even
   }
 
   try {
+    emitSosDiagnostic('SOS DEBUG FRONT 01: Capture started');
+    emitSosDiagnostic('SOS DEBUG BACK 01: Capture started');
     if (__DEV__) console.log('FRONT_CAMERA_STARTED', {sosId});
     const result = await captureNativeSosPhotos(sosId);
+    emitSosDiagnostic('SOS DEBUG FRONT 02: Native capture returned');
+    emitSosDiagnostic('SOS DEBUG BACK 02: Native capture returned');
 
     const frontImagePath = result?.frontImagePath || previousResult?.frontImagePath || null;
     const backImagePath = result?.backImagePath || previousResult?.backImagePath || null;
     const frontIsUsable = isUsableMediaPath(frontImagePath);
     const backIsUsable = isUsableMediaPath(backImagePath);
+    emitSosDiagnostic(`SOS DEBUG FRONT 03: File path ${frontImagePath ? 'present' : 'missing'}`);
+    emitSosDiagnostic(`SOS DEBUG BACK 03: File path ${backImagePath ? 'present' : 'missing'}`);
+    emitSosDiagnostic(`SOS DEBUG FRONT 04: File validation ${frontIsUsable ? 'usable' : 'invalid'}`);
+    emitSosDiagnostic(`SOS DEBUG BACK 04: File validation ${backIsUsable ? 'usable' : 'invalid'}`);
     if (__DEV__) {
       console.log('[SOS_DEBUG] FRONT_CAPTURE_RESULT', {sosId, localPath: frontImagePath, valid: frontIsUsable});
       console.log('[SOS_DEBUG] BACK_CAPTURE_RESULT', {sosId, localPath: backImagePath, valid: backIsUsable});
@@ -130,6 +139,8 @@ export async function captureEmergencyPhotos({sosId, previousResult = null, even
       ...(bothFailed ? {error: frontError || backError} : {}),
       ...(bothSucceeded ? {completedAt: new Date().toISOString()} : {}),
     };
+    if (!frontIsUsable) emitSosDiagnostic(`SOS DEBUG FRONT FAILED: ${frontError}`, 'error');
+    if (!backIsUsable) emitSosDiagnostic(`SOS DEBUG BACK FAILED: ${backError}`, 'error');
 
     if (event && event.id && (frontIsUsable || backIsUsable)) {
       await persistPendingCameraMedia(event, {
@@ -143,6 +154,8 @@ export async function captureEmergencyPhotos({sosId, previousResult = null, even
     const frontImagePath = previousResult?.frontImagePath || null;
     const backImagePath = previousResult?.backImagePath || null;
     const message = error?.message || 'Camera capture failed';
+    emitSosDiagnostic(`SOS DEBUG FRONT FAILED: ${message}`, 'error');
+    emitSosDiagnostic(`SOS DEBUG BACK FAILED: ${message}`, 'error');
     const output = {
       status: (frontImagePath || backImagePath) ? 'PENDING' : 'FAILED',
       frontImagePath,

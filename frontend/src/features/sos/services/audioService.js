@@ -1,6 +1,7 @@
 import {Platform} from 'react-native';
 import {PERMISSION_STATUS, checkPermission} from '../../../permissions/sosPermissions';
 import {recordNativeSosAudio} from './nativeMedia';
+import {emitSosDiagnostic} from './sosDiagnosticService';
 
 const AUDIO_DURATION_MS = 5000;
 
@@ -30,11 +31,17 @@ export async function recordEmergencyAudio({sosId, previousResult = null}) {
     };
   }
   try {
+    emitSosDiagnostic('SOS DEBUG AUDIO 01: Recording started');
     if (__DEV__) console.log('AUDIO_STARTED', {sosId, durationMs: AUDIO_DURATION_MS});
     const localPath = await recordNativeSosAudio(sosId, AUDIO_DURATION_MS);
+    emitSosDiagnostic('SOS DEBUG AUDIO 02: Recording finished');
     if (typeof localPath !== 'string' || !localPath.trim()) {
       throw new Error('Audio recording returned an invalid file.');
     }
+    emitSosDiagnostic('SOS DEBUG AUDIO 03: File path present');
+    emitSosDiagnostic('SOS DEBUG AUDIO 04: File validation usable');
+    emitSosDiagnostic('SOS DEBUG AUDIO 06: Duration 5000ms');
+    emitSosDiagnostic('SOS DEBUG AUDIO 07: MIME audio/mp4');
     return {
       status: 'COMPLETED',
       localPath,
@@ -43,6 +50,7 @@ export async function recordEmergencyAudio({sosId, previousResult = null}) {
       completedAt: new Date().toISOString(),
     };
   } catch (error) {
+    emitSosDiagnostic(`SOS DEBUG AUDIO FAILED: ${error?.message || 'Audio recording failed'}`, 'error');
     return {status: 'FAILED', localPath: null, component: 'AUDIO', error: error?.message || 'Audio recording failed'};
   }
 }

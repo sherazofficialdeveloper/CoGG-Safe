@@ -1,4 +1,5 @@
 ﻿import {API_BASE_URL} from './config';
+import {emitSosDiagnostic} from '../features/sos/services/sosDiagnosticService';
 
 export class ApiError extends Error {
   constructor(message, status) {
@@ -71,6 +72,9 @@ export async function request(path, {method = 'GET', body, token} = {}) {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || payload.success === false) {
+    if (path === '/sos' || path.includes('/media/') || path.includes('/location')) {
+      emitSosDiagnostic(`SOS DEBUG API FAILED: ${normalizedMethod} ${path} HTTP ${response.status}: ${payload.message || 'request failed'}`, 'error');
+    }
     if (__DEV__ && response.status === 429) console.warn('[API] RATE_LIMITED', {method: normalizedMethod, path});
     throw new ApiError(payload.message || 'The server could not complete that request.', response.status);
   }

@@ -139,6 +139,10 @@ async function getSosById(id, reqUser) {
   const sos = await getSosOrThrow(id);
   assertOwnerOrAdmin(sos.userId, reqUser, 'You do not have permission to access this SOS');
   await enforceLiveLocationExpiry(sos);
+  await sos.populate([
+    { path: 'userId', select: 'username mobileNumber email' },
+    { path: 'collectionId', select: 'name type' },
+  ]);
   return sos;
 }
 
