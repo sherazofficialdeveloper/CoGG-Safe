@@ -1,9 +1,15 @@
-import {NativeModules, Platform} from 'react-native';
+import {NativeModules, Platform, ToastAndroid} from 'react-native';
 import {PERMISSION_STATUS, checkPermission, requestPermission} from '../../../permissions/sosPermissions';
 import {getConnectivityState} from '../connectivity';
 import {sosLocalStore} from '../storage';
 import {emitSosDiagnostic, ensureSosNativeDiagnosticListener} from './sosDiagnosticService';
 import {normalizePhoneNumber} from './phoneNumber';
+
+function showCallDebug(message) {
+  if (typeof ToastAndroid?.show === 'function') {
+    ToastAndroid.show(message, ToastAndroid.SHORT);
+  }
+}
 
 function normalizeCallResult(result) {
   const status = String(result?.status || '').toUpperCase();
@@ -57,6 +63,7 @@ export async function saveEmergencyCallSim(subscriptionId, meta = {}) {
 
 export async function initiateEmergencyCall({emergencyNumber}) {
   ensureSosNativeDiagnosticListener();
+  showCallDebug(`CALL DEBUG 1: emergencyNumber = ${String(emergencyNumber)}`);
   emitSosDiagnostic('CALL DEBUG — Service reached');
   const emergencyNumberDebugValue =
     emergencyNumber === undefined
@@ -68,6 +75,7 @@ export async function initiateEmergencyCall({emergencyNumber}) {
           : String(emergencyNumber);
   emitSosDiagnostic(`Emergency Number Debug: ${emergencyNumberDebugValue}`);
   const normalizedNumber = normalizePhoneNumber(emergencyNumber);
+  showCallDebug(`CALL DEBUG 2: normalized = ${String(normalizedNumber)}`);
   if (__DEV__) console.log('[SOS][CALL] RUNNER_STARTED', {hasNumber: Boolean(emergencyNumber)});
   if (__DEV__) console.log('[SOS][CALL] EMERGENCY_NUMBER_RESOLVED', {configured: Boolean(normalizedNumber)});
   if (!normalizedNumber) {
@@ -90,10 +98,13 @@ export async function initiateEmergencyCall({emergencyNumber}) {
 
   const callPermission = 'android.permission.CALL_PHONE';
   let hasPermission = await checkPermission(callPermission);
+  showCallDebug(`CALL DEBUG 3: CALL_PHONE permission = ${hasPermission}`);
   if (__DEV__) console.log('[SOS][CALL] CALL_PHONE_PERMISSION', {state: hasPermission});
   if (hasPermission !== PERMISSION_STATUS.GRANTED) {
+    showCallDebug('CALL DEBUG 3: CALL_PHONE permission requested');
     const permissionResult = await requestPermission(callPermission);
     hasPermission = permissionResult;
+    showCallDebug(`CALL DEBUG 3: CALL_PHONE permission = ${hasPermission}`);
     if (__DEV__) console.log('[SOS][CALL] CALL_PHONE_PERMISSION_RESULT', {state: permissionResult});
   }
 
@@ -130,8 +141,10 @@ export async function initiateEmergencyCall({emergencyNumber}) {
       nativeMethod: 'EmergencyMedia.placeCall',
     });
     if (__DEV__) console.log('[SOS][CALL] ATTEMPT_NATIVE', {hasPreferredSubscription: preferredSubscriptionId >= 0});
+    showCallDebug(`CALL DEBUG 4: immediately before NativeModules.EmergencyMedia.placeCall()`);
     emitSosDiagnostic('CALL DEBUG — Native placeCall() invoked');
     const result = await emergencyMedia.placeCall(normalizedNumber, preferredSubscriptionId);
+    showCallDebug(`CALL DEBUG 5: native placeCall success result = ${JSON.stringify(result)}`);
     if (__DEV__) console.log('[SOS][CALL] NATIVE_RESULT', result);
     const normalized = normalizeCallResult(result);
     if (normalized.status === 'INITIATED') emitSosDiagnostic('CALL SUCCESS — Call request accepted', 'success');
@@ -139,6 +152,7 @@ export async function initiateEmergencyCall({emergencyNumber}) {
     return normalized;
   } catch (error) {
     const reason = error?.message || 'Emergency call failed.';
+    showCallDebug(`CALL DEBUG 6: native placeCall error/failure = ${reason}`);
     emitSosDiagnostic('CALL ERROR — ' + reason, 'error');
     if (/no service|cellular service|radio off|temporary|signal|unavailable/i.test(reason)) {
       return {status: 'PENDING', reason};
