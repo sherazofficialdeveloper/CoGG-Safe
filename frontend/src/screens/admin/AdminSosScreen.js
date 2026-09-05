@@ -16,6 +16,7 @@ import {
 import {deleteSos, deactivateSos, listSos} from '../../api/resources';
 import {getCachedApiData} from '../../api/client';
 import Icon from '../../components/Icon';
+import {clearDashboardSnapshots} from './AdminDashboardScreen';
 
 const sosSnapshots = new Map();
 
@@ -76,6 +77,7 @@ const AdminSosScreen = ({
   const runAdminAction = async (action, id) => {
     try {
       await action(token, id);
+      clearDashboardSnapshots();
       await refresh();
     } catch (actionError) {
       setError(actionError.message || 'Unable to update this SOS.');

@@ -3,6 +3,8 @@ import {Image, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, Vie
 import Icon from '../components/Icon';
 import AudioPlayer from '../components/AudioPlayer';
 import {API_BASE_URL} from '../api/config';
+import {getSos, getLiveLocation} from '../api/resources';
+import {stopLiveLocationSharing} from '../features/sos/services/liveLocationService';
 import {buildMediaRequestOptions, buildMediaUrl} from '../utils/media';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import FullscreenImageViewer from '../components/FullscreenImageViewer';
@@ -21,12 +23,36 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
   const sos = notification?.sosId && typeof notification.sosId === 'object' ? notification.sosId : null;
   const [hiddenImages, setHiddenImages] = useState({front: false, back: false});
   const [selectedImage, setSelectedImage] = useState(null);
+  const [liveSos, setLiveSos] = useState(sos);
+  const [liveLocation, setLiveLocation] = useState(null);
+  const [stopping, setStopping] = useState(false);
 
   useEffect(() => {
     setHiddenImages({front: false, back: false});
   }, [notification]);
 
-  const media = sos?.components || {};
+  useEffect(() => {
+    let mounted = true;
+    if (!token || !sosId) return undefined;
+    const refresh = async () => {
+      try {
+        const [sosResult, liveResult] = await Promise.all([getSos(token, sosId), getLiveLocation(token, sosId, {limit: 1})]);
+        if (!mounted) return;
+        if (sosResult?.sos) setLiveSos(sosResult.sos);
+        setLiveLocation({
+          ...(liveResult?.liveLocation || {}),
+          lastLocation: liveResult?.liveLocation?.lastLocation || liveResult?.pings?.[0] || null,
+        });
+      } catch (_) { /* notification remains readable from cached payload */ }
+    };
+    refresh();
+    const timer = setInterval(refresh, 10000);
+    return () => { mounted = false; clearInterval(timer); };
+  }, [sosId, token]);
+
+  const currentSos = liveSos || sos;
+  const media = currentSos?.components || {};
+  const liveActive = String(liveLocation?.status || currentSos?.liveLocation?.status || '').toLowerCase() === 'active';
   const frontMediaUrl = useMemo(
     () => hasStoredMedia(media.frontImage) && sosId ? buildMediaUrl(API_BASE_URL, sosId, 'frontImage') : null,
     [media.frontImage, sosId],
@@ -41,6 +67,18 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
   );
   const imageOptions = buildMediaRequestOptions(token);
   const visibleImageCount = Number(Boolean(frontMediaUrl && !hiddenImages.front)) + Number(Boolean(backMediaUrl && !hiddenImages.back));
+  const latestLocation = liveLocation?.lastLocation || currentSos?.liveLocation?.lastLocation || currentSos?.location;
+  const stopSharing = async () => {
+    if (!sosId || stopping || !liveActive) return;
+    setStopping(true);
+    try {
+      const response = await stopLiveLocationSharing({token, sosId, backendId: sosId});
+      if (response?.sos) setLiveSos(response.sos);
+      setLiveLocation(response?.sos?.liveLocation || {status: 'stopped_by_user'});
+    } finally {
+      setStopping(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -56,16 +94,29 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
           <Text style={styles.body}>{notification.body || 'No notification message was provided.'}</Text>
           <Text style={styles.time}>{notification.createdAt ? new Date(notification.createdAt).toLocaleString() : 'Time unavailable'}</Text>
 
-          {sos ? (
+          {currentSos ? (
             <View style={styles.metaBox}>
               <Text style={styles.metaLabel}>SOS status</Text>
-              <Text style={styles.metaValue}>{String(sos.status || 'unknown').toUpperCase()}</Text>
+              <Text style={styles.metaValue}>{String(currentSos.status || 'unknown').toUpperCase()}</Text>
               <Text style={styles.metaLabel}>Emergency message</Text>
-              <Text style={styles.metaValue}>{sos.emergencyMessage || 'No emergency message was recorded.'}</Text>
+              <Text style={styles.metaValue}>{currentSos.emergencyMessage || 'No emergency message was recorded.'}</Text>
             </View>
           ) : null}
 
-          {sos ? (
+          {currentSos && latestLocation ? (
+            <View style={styles.mediaBlock}>
+              <Text style={styles.mediaTitle}>Live Location</Text>
+              <Text style={styles.metaValue}>{liveActive ? 'LIVE' : String(liveLocation?.status || currentSos?.liveLocation?.status || 'LOCATION').toUpperCase()}</Text>
+              <Text style={styles.body}>
+                {latestLocation?.latitude != null && latestLocation?.longitude != null
+                  ? `${Number(latestLocation.latitude).toFixed(5)}, ${Number(latestLocation.longitude).toFixed(5)}`
+                  : 'Location unavailable'}
+              </Text>
+              {liveActive ? <TouchableOpacity style={styles.stopButton} onPress={stopSharing} disabled={stopping}><Text style={styles.buttonText}>{stopping ? 'Stopping...' : 'Stop Sharing'}</Text></TouchableOpacity> : null}
+            </View>
+          ) : null}
+
+          {currentSos ? (
             <View style={styles.mediaBlock}>
               <Text style={styles.mediaTitle}>Photos</Text>
               {frontMediaUrl && !hiddenImages.front ? <TouchableOpacity onPress={() => setSelectedImage(frontMediaUrl)}><Image source={{uri: frontMediaUrl, ...imageOptions}} style={styles.image} onError={() => setHiddenImages(current => ({...current, front: true}))} accessibilityLabel="SOS front photo" /></TouchableOpacity> : null}
@@ -74,7 +125,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
             </View>
           ) : null}
 
-          {sos ? (
+          {currentSos ? (
             <View style={styles.mediaBlock}>
               <Text style={styles.mediaTitle}>Audio</Text>
               {audioMediaUrl ? <AudioPlayer audioUrl={audioMediaUrl} token={token} /> : <Text style={styles.emptyMedia}>No successfully stored audio is available.</Text>}
@@ -111,6 +162,7 @@ const styles = StyleSheet.create({
   emptyMedia: {backgroundColor: '#FFF', borderRadius: 12, color: '#59636E', padding: 14, textAlign: 'center'},
   button: {backgroundColor: '#E4002B', padding: 15, borderRadius: 12, marginTop: 22, width: '100%'},
   buttonText: {color: '#FFF', fontWeight: '800', textAlign: 'center'},
+  stopButton: {backgroundColor: '#E4002B', padding: 14, borderRadius: 12, marginTop: 14, width: '100%'},
 });
 
 export default UserNotificationDetailScreen;

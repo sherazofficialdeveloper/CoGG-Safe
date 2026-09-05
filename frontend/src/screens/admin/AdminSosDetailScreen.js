@@ -158,10 +158,20 @@ const AdminSosDetailScreen = ({
     };
 
     refreshLiveLocation();
-    const interval = liveLocationActive ? setInterval(refreshLiveLocation, 30000) : null;
+    const interval = setInterval(async () => {
+      try {
+        const fresh = await getSos(token, id);
+        if (mounted && fresh?.sos) {
+          setDetailRecord(fresh.sos);
+          setLiveLocationStatus(fresh.sos.liveLocation?.status || null);
+          if (fresh.sos.liveLocation?.lastLocation) setLiveLocation(fresh.sos.liveLocation.lastLocation);
+        }
+        await refreshLiveLocation();
+      } catch (_) { /* keep last known detail */ }
+    }, 5000);
     return () => {
       mounted = false;
-      if (interval) clearInterval(interval);
+      clearInterval(interval);
     };
   }, [liveLocationActive, recordId, token]);
 

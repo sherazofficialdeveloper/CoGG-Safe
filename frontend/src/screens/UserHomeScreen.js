@@ -20,6 +20,7 @@ import {
 } from '../permissions/sosPermissions';
 import {listSos, stopLiveLocation} from '../api/resources';
 import {getHoldSnapshot, SOS_HOLD_DURATION_MS} from '../features/sos/holdState';
+import {stopLiveLocationSharing} from '../features/sos/services/liveLocationService';
 
 const UserHomeScreen = ({
   user,
@@ -114,7 +115,8 @@ const UserHomeScreen = ({
     setStoppingSharing(true);
     setSharingError('');
     try {
-      await stopLiveLocation(token, activeSharingSos.id || activeSharingSos._id);
+      const backendId = activeSharingSos.id || activeSharingSos._id;
+      await stopLiveLocationSharing({token, sosId: backendId, backendId});
       setActiveSharingSos(null);
     } catch (error) {
       setSharingError(error.message || 'Unable to stop sharing.');

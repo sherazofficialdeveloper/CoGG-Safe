@@ -24,22 +24,6 @@ export async function sendEmergencySms({phoneNumber, message}) {
   // it can change between periodic background checks. Refresh right before
   // this trigger-critical decision; this is a local device check, never a
   // network call, so it cannot delay the SMS.
-  await connectivityService.refreshTelephonyState().catch(() => undefined);
-
-  const connectivity = getConnectivityState();
-  const cellularAvailable = Boolean(connectivity.isCellularAvailable);
-  if (__DEV__) console.log('[SOS_DEBUG] SMS_CELLULAR_STATE', {
-    isCellularAvailable: connectivity.isCellularAvailable,
-    type: connectivity.details?.type || null,
-    isConnected: connectivity.isConnected,
-    isInternetReachable: connectivity.isInternetReachable,
-    telephonyStatus: connectivity.telephonyStatus,
-  });
-  if (__DEV__) console.log('[SOS][SMS] CELLULAR_STATE', {available: cellularAvailable});
-  if (!cellularAvailable) {
-    return {status: 'PENDING', reason: 'Cellular service is unavailable; emergency SMS is queued for retry.'};
-  }
-
   const emergencyMedia = NativeModules?.EmergencyMedia;
   if (!emergencyMedia) {
     return {
@@ -68,9 +52,18 @@ export async function sendEmergencySms({phoneNumber, message}) {
       if (__DEV__) console.log('[SOS][SMS] SERVICE_INVOKED', {nativeMethod: 'EmergencyMedia.sendEmergencySms'});
       emitSosDiagnostic('SMS DEBUG — Native SMS method invoked');
       if (__DEV__) console.log('[SOS][SMS] ATTEMPT_NATIVE', {recipient: `${phoneNumber.slice(0, 3)}***`});
+      let preferredSubscriptionId = -1;
+      try {
+        const saved = await sosLocalStore.getEmergencyCallSimPreference();
+        if (saved?.subscriptionId != null) preferredSubscriptionId = saved.subscriptionId;
+      } catch (_) {
+        // Let Android choose the default SMS subscription.
+      }
+
       const result = await emergencyMedia.sendEmergencySms(
         phoneNumber,
         message || 'Emergency assistance requested.',
+        preferredSubscriptionId,
       );
       if (__DEV__) console.log('[SOS_DEBUG] SMS_SEND_ATTEMPT', {recipient: `${phoneNumber.slice(0, 3)}***`});
       if (__DEV__) console.log('[SOS_DEBUG] SMS_SEND_RESULT', {
@@ -247,7 +240,7 @@ export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId, s
 
   return {
     status,
-    reason: `${sentCount}/${uniqueNumbers.length} emergency SMS delivered.`,
+    reason: `${sentCount}/${uniqueNumbers.length} emergency SMS queued by Android.`,
     recipients: results,
     recipientStates: results,
     sentCount,

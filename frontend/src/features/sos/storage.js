@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const SOS_EVENT_KEY = 'cogg_safe.sos.events';
 const SOS_QUEUE_KEY = 'cogg_safe.sos.queue';
 const COLLECTION_CACHE_KEY = 'cogg_safe.sos.collectionCache';
+const COLLECTION_MEMBERS_CACHE_KEY = 'cogg_safe.sos.collectionMembersCache';
 const EMERGENCY_CALL_SIM_KEY = 'cogg_safe.sos.emergencyCallSubscriptionId';
 const memoryStore = {};
 let queueMutation = Promise.resolve();
@@ -114,10 +115,12 @@ export const sosLocalStore = {
     delete memoryStore[SOS_EVENT_KEY];
     delete memoryStore[SOS_QUEUE_KEY];
     delete memoryStore[EMERGENCY_CALL_SIM_KEY];
+    delete memoryStore[COLLECTION_MEMBERS_CACHE_KEY];
     await Promise.all([
       safeAsyncStorage.removeItem(SOS_EVENT_KEY),
       safeAsyncStorage.removeItem(SOS_QUEUE_KEY),
       safeAsyncStorage.removeItem(EMERGENCY_CALL_SIM_KEY),
+      safeAsyncStorage.removeItem(COLLECTION_MEMBERS_CACHE_KEY),
     ]);
   },
 
@@ -190,6 +193,28 @@ export const sosLocalStore = {
     return (cache && cache[collectionId]) || null;
   },
 
+  async getCachedCollectionMembers(collectionId) {
+    if (!collectionId) return [];
+    const cache = await readJson(COLLECTION_MEMBERS_CACHE_KEY, {});
+    const members = cache && cache[collectionId];
+    return Array.isArray(members) ? members : [];
+  },
+
+  async setCachedCollectionMembers(collectionId, members) {
+    if (!collectionId || !Array.isArray(members)) return [];
+    const cache = await readJson(COLLECTION_MEMBERS_CACHE_KEY, {});
+    const nextMembers = members
+      .map(item => ({
+        mobileNumber: item?.mobileNumber || item?.phone || item?.phoneNumber || null,
+        id: item?._id || item?.id || null,
+        username: item?.username || item?.name || null,
+      }))
+      .filter(item => item.mobileNumber);
+    const next = {...cache, [collectionId]: nextMembers};
+    await writeJson(COLLECTION_MEMBERS_CACHE_KEY, next);
+    return nextMembers;
+  },
+
   async setCachedCollectionInfo(collectionId, info) {
     if (!collectionId) return null;
     const cache = await readJson(COLLECTION_CACHE_KEY, {});
@@ -211,6 +236,7 @@ export const sosLocalStore = {
   async setEmergencyCallSimPreference(subscriptionId, meta = {}) {
     if (subscriptionId == null) {
       delete memoryStore[EMERGENCY_CALL_SIM_KEY];
+    delete memoryStore[COLLECTION_MEMBERS_CACHE_KEY];
       await safeAsyncStorage.removeItem(EMERGENCY_CALL_SIM_KEY);
       return null;
     }

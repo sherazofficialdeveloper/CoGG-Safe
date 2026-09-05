@@ -3,7 +3,7 @@ import {emitSosToast} from './sosToastService';
 
 // Temporary, centralized device diagnostic switch. Set false (or remove this
 // module) after call/SMS root-cause investigation is complete.
-export const SOS_DEBUG_MODE = true;
+export const SOS_DEBUG_MODE = false;
 
 let nativeListenerStarted = false;
 

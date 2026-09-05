@@ -1,15 +1,12 @@
-import {NativeModules, Platform, ToastAndroid} from 'react-native';
+import {NativeModules, Platform} from 'react-native';
 import {PERMISSION_STATUS, checkPermission, requestPermission} from '../../../permissions/sosPermissions';
 import {connectivityService, getConnectivityState} from '../connectivity';
 import {sosLocalStore} from '../storage';
 import {emitSosDiagnostic, ensureSosNativeDiagnosticListener} from './sosDiagnosticService';
 import {normalizePhoneNumber} from './phoneNumber';
 
-function showCallDebug(message) {
-  if (typeof ToastAndroid?.show === 'function') {
-    ToastAndroid.show(message, ToastAndroid.SHORT);
-  }
-}
+function showCallDebug() {}
+
 
 function normalizeCallResult(result) {
   const status = String(result?.status || '').toUpperCase();
@@ -88,21 +85,6 @@ export async function initiateEmergencyCall({emergencyNumber}) {
 
   if (Platform.OS !== 'android') {
     return {status: 'UNSUPPORTED', reason: 'Emergency call is only supported on Android devices.'};
-  }
-
-  await connectivityService.refreshTelephonyState().catch(() => undefined);
-  const connectivity = getConnectivityState();
-  const cellularAvailable = Boolean(connectivity.isCellularAvailable || connectivity.details?.type === 'cellular');
-  if (__DEV__) console.log('[SOS_DEBUG] CELLULAR_STATE', {
-    isCellularAvailable: connectivity.isCellularAvailable,
-    type: connectivity.details?.type || null,
-    detailsType: connectivity.details?.type || null,
-    isConnected: connectivity.isConnected,
-    isInternetReachable: connectivity.isInternetReachable,
-    telephonyStatus: connectivity.telephonyStatus,
-  });
-  if (!cellularAvailable) {
-    return {status: 'PENDING', reason: 'Cellular service is unavailable; emergency call is queued for retry.'};
   }
 
   const callPermission = 'android.permission.CALL_PHONE';

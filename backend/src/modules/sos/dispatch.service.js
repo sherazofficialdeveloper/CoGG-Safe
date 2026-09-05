@@ -109,9 +109,24 @@ async function dispatchEmail(sos, recipients, subject, renderedMessage) {
       });
       return;
     }
-    const results = await Promise.allSettled(
-      emailable.map((recipient) => emailProvider.send({ to: recipient.email, subject, body: renderedMessage }))
-    );
+    // SMTP can transiently time out during an emergency. Retry each
+    // recipient a small number of times before recording a final failure;
+    // this keeps email dispatch durable at the server without duplicating
+    // the client SOS queue or blocking the other channels.
+    const sendWithRetry = async (recipient) => {
+      let lastError = null;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          return await emailProvider.send({ to: recipient.email, subject, body: renderedMessage });
+        } catch (err) {
+          lastError = err;
+          if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+        }
+      }
+      throw lastError || new Error('Email delivery failed');
+    };
+
+    const results = await Promise.allSettled(emailable.map(sendWithRetry));
     const providerStatuses = results
       .filter((r) => r.status === 'fulfilled')
       .map((r) => String(r.value?.status || '').toLowerCase());

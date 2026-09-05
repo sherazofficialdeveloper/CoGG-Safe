@@ -25,7 +25,7 @@ export const reportSosService = (token, id, component, body) =>
 export const uploadSosMedia = (token, id, component, file) => {
   const body = new FormData();
   body.append('file', file);
-  return request(`/sos/${id}/media/${component}/upload`, {method: 'PATCH', token, body});
+  return request(`/sos/${id}/media/${component}/upload`, {method: 'PATCH', token, body, timeoutMs: 90000});
 };
 export const startLiveLocation = (token, id) => request(`/sos/${id}/live-location/start`, {method: 'POST', token});
 export const pingLiveLocation = (token, id, body) => request(`/sos/${id}/live-location/ping`, {method: 'POST', token, body});

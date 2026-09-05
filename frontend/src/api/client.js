@@ -25,7 +25,7 @@ export function getCachedApiData(path, token) {
   return responseCache.get(requestKey(path, token))?.data || null;
 }
 
-export async function request(path, {method = 'GET', body, token} = {}) {
+export async function request(path, {method = 'GET', body, token, timeoutMs} = {}) {
   const normalizedMethod = method.toUpperCase();
   const key = requestKey(path, token);
   if (normalizedMethod === 'GET') {
@@ -47,7 +47,8 @@ export async function request(path, {method = 'GET', body, token} = {}) {
   let response;
   const isMultipart = typeof FormData !== 'undefined' && body instanceof FormData;
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timeoutHandle = setTimeout(() => controller?.abort(), 15000);
+  const effectiveTimeoutMs = Number.isFinite(timeoutMs) ? timeoutMs : (isMultipart ? 90000 : 20000);
+  const timeoutHandle = setTimeout(() => controller?.abort(), effectiveTimeoutMs);
 
   try {
     if (__DEV__) console.log('[API] REQUEST_START', {method: normalizedMethod, path});

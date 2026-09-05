@@ -18,6 +18,10 @@ function normalizeReason(errorOrResult) {
   return errorOrResult?.error || errorOrResult?.reason || errorOrResult?.message || 'Unknown SOS service failure';
 }
 
+function isTransient(reason) {
+  return /timeout|timed out|network|connection|temporarily|unavailable|retry|queued|request failed|check your connection/i.test(String(reason || ''));
+}
+
 export function reportSosServiceError(serviceName, errorOrResult, {status = 'FAILED', eventId} = {}) {
   const reason = normalizeReason(errorOrResult);
   const label = SERVICE_LABELS[serviceName] || serviceName;
@@ -32,11 +36,15 @@ export function reportSosServiceError(serviceName, errorOrResult, {status = 'FAI
     });
   }
 
-  const prefix = status === 'QUEUED' ? `${label} pending` : `${label} failed`;
-  try {
-    emitSosToast(`${prefix}: ${reason}`, status === 'QUEUED' ? 'warning' : 'error', 4500);
-  } catch (reportingError) {
-    if (__DEV__) console.log('[SOS][FLOW] ERROR_REPORT_FAILED', {serviceName, reason: reportingError?.message});
+  // Offline/temporary provider failures are intentionally silent here. The
+  // durable SOS queue will retry them and the UI should not fill with red
+  // error cards for an expected transient condition.
+  if (status !== 'QUEUED' && !isTransient(reason)) {
+    try {
+      emitSosToast(`${label} failed: ${reason}`, 'error', 4500);
+    } catch (reportingError) {
+      if (__DEV__) console.log('[SOS][FLOW] ERROR_REPORT_FAILED', {serviceName, reason: reportingError?.message});
+    }
   }
 
   return {service: serviceName, status, reason};

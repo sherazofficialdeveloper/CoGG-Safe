@@ -33,7 +33,7 @@ function requiresCellular(item) {
   // "cellular-for-the-send" as two
   // independent gates, exactly like the rest of the SMS/CALL vs internet
   // split elsewhere in this file.
-  return ['SMS', 'CALL', 'LINK_SMS'].includes(item.type);
+  return ['SMS', 'CALL', 'LINK_SMS', 'LOCATION_SMS'].includes(item.type);
 }
 
 function isEligible(item, state, now = Date.now()) {
@@ -178,6 +178,11 @@ async function processSosQueueRun({processors = {}, now = Date.now()} = {}) {
         await sosLocalStore.upsertSos(syncedEvent);
         if (item.serviceName === 'backend' && isValidLocation(syncedEvent.location)) {
           await enqueueSosJob({sosId: event.id, type: 'LOCATION', serviceName: 'location'});
+        }
+        if (item.serviceName === 'backend' && syncedEvent.emergencyLink) {
+          // Backend recovery path: make sure the tracking-link SMS is queued
+          // even when the original direct SOS activation happened offline.
+          await enqueueSosJob({sosId: event.id, type: 'LINK_SMS', serviceName: 'linkSms'});
         }
         if (
           syncedEvent.services?.camera?.frontImagePath ||

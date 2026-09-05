@@ -150,7 +150,7 @@ describe('POST /api/sos (creation + ownership)', () => {
     expect(count).toBe(1);
   });
 
-  test('a second active SOS from the same user is created independently', async () => {
+  test('a second active SOS from the same user is rejected', async () => {
     const collection = await createCollection();
     const { token } = await createUserAndLogin({ collectionId: collection._id });
 
@@ -158,8 +158,7 @@ describe('POST /api/sos (creation + ownership)', () => {
     const second = await request(app).post('/api/sos').set('Authorization', `Bearer ${token}`).send({});
 
     expect(first.status).toBe(201);
-    expect(second.status).toBe(201);
-    expect(second.body.data.sos.id).not.toBe(first.body.data.sos.id);
+    expect(second.status).toBe(409);
   });
 
   test('direct-active creation does not create an SOS activation scheduler job', async () => {

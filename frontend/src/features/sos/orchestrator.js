@@ -19,7 +19,7 @@ import {emitSosDiagnostic} from './services/sosDiagnosticService';
 // cameraService.js's 'PENDING' status for a partial front/back result) gets
 // picked up again by queueWorker's 'camera' processor (App.js), which
 // re-captures only the missing lens instead of the whole pair.
-const RETRYABLE_SERVICES = new Set(['sms', 'call', 'backend', 'location', 'liveLocation', 'camera', 'audio']);
+const RETRYABLE_SERVICES = new Set(['sms', 'call', 'backend', 'location', 'locationSms', 'liveLocation', 'camera', 'audio']);
 
 export function generateClientSosId() {
   const cryptoRef = (typeof window !== 'undefined' && window.crypto)
@@ -48,6 +48,7 @@ export function createBaseServiceState() {
     // (LINK_SMS), never an in-memory Promise — see enqueueSosJob() call in
     // activateSosFlow below and the `linkSms` processor in App.js.
     linkSms: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null},
+    locationSms: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null, recipients: []},
   };
 }
 
@@ -92,7 +93,7 @@ export function resolveSosServiceStatus(serviceName, networkState) {
     return internetAvailable ? 'READY' : 'PENDING';
   }
 
-  if (serviceName === 'sms' || serviceName === 'call') {
+  if (serviceName === 'sms' || serviceName === 'call' || serviceName === 'locationSms') {
     if (!cellularAvailable) return 'PENDING';
     if (telephonyStatus === 'TEMPORARILY_UNAVAILABLE') return 'PENDING';
     if (telephonyStatus === 'UNSUPPORTED' || !telephonySupported) return 'UNSUPPORTED';
@@ -159,10 +160,11 @@ export async function activateSosFlow({
     email: async () => 'email',
     notifications: async () => 'notifications',
     liveLocation: async () => 'liveLocation',
+    linkSms: async () => 'linkSms',
   };
 
   const runners = {...defaultRunners, ...serviceRunners};
-  const executionOrder = ['backend', 'location', 'camera', 'audio', 'mediaUpload', 'sms', 'call', 'email', 'notifications', 'liveLocation'];
+  const executionOrder = ['backend', 'location', 'camera', 'audio', 'mediaUpload', 'sms', 'call', 'email', 'notifications', 'liveLocation', 'linkSms'];
   const extraNames = Object.keys(runners).filter((name) => !executionOrder.includes(name));
   const names = [...executionOrder.filter(name => Object.prototype.hasOwnProperty.call(runners, name)), ...extraNames];
 
@@ -214,6 +216,9 @@ export async function activateSosFlow({
           event.emergencyLink = result.emergencyLink || null;
           event.activatedAt = result.activatedAt || event.activatedAt || null;
           backendReady = true;
+          // Persist backendId immediately. This makes the Stop Sharing action
+          // usable while the remaining camera/audio jobs are still running.
+          await sosLocalStore.upsertSos({...event, backendId: event.backendId, emergencyLink: event.emergencyLink});
         }
       }
 
@@ -280,6 +285,14 @@ export async function activateSosFlow({
         await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
       }
 
+      // The follow-up SMS jobs are created before their immediate direct
+      // attempt. Remove the durable copy only after that direct attempt has
+      // succeeded; otherwise the queue remains the retry/recovery path.
+      if (['linkSms', 'locationSms'].includes(serviceName)
+        && ['COMPLETED', 'SENT', 'QUEUED_TO_ANDROID'].includes(resultStatus)) {
+        await sosLocalStore.removeQueueItem(`${event.id}:${serviceName === 'linkSms' ? 'LINK_SMS' : 'LOCATION_SMS'}`);
+      }
+
       return {serviceName, status: resultStatus, result};
     } catch (error) {
       if (__DEV__) {
@@ -317,13 +330,49 @@ export async function activateSosFlow({
   // genuinely needs the backend SOS id, so it still runs after both finish.
   const captureNames = remainingNames.filter(name => ['location', 'camera', 'audio', 'sms', 'call'].includes(name));
   const backendPromise = names.includes('backend') ? runService('backend') : null;
-  const capturePromise = Promise.allSettled(captureNames.map(serviceName => runService(serviceName)));
+  // Live location needs the backend SOS id, but once backend creation
+  // finishes it must start immediately and independently of camera/audio.
+  const liveLocationPromise = backendPromise && names.includes('liveLocation')
+    ? backendPromise.then(() => runService('liveLocation'))
+    : Promise.resolve(null);
+  const locationCapturePromise = captureNames.includes('location')
+    ? runService('location')
+    : null;
+  const otherCaptureNames = captureNames.filter(name => name !== 'location');
+  const otherCapturePromise = Promise.allSettled(otherCaptureNames.map(serviceName => runService(serviceName)));
+  const locationSmsPromise = locationCapturePromise
+    ? locationCapturePromise.then(async locationResult => {
+        if (isValidLocation(event.location) && names.includes('locationSms')) {
+          return runService('locationSms');
+        }
+        return null;
+      }).catch(error => ({serviceName: 'locationSms', status: 'FAILED', error: error?.message || 'Location SMS failed'}))
+    : Promise.resolve(null);
+  const capturePromise = Promise.all([
+    otherCapturePromise,
+    locationCapturePromise ? Promise.allSettled([locationCapturePromise]) : Promise.resolve([]),
+    locationSmsPromise,
+  ]);
 
-  const [backendResult, captureResults] = await Promise.all([backendPromise, capturePromise]);
+  const [backendResult, captureBundle, liveLocationResult] = await Promise.all([backendPromise, capturePromise, liveLocationPromise]);
   if (backendResult) {
     execution.push(backendResult);
   }
-  appendSettled(captureResults);
+  if (liveLocationResult) {
+    execution.push(liveLocationResult);
+  }
+  const [otherCaptureResults, locationResults, locationSmsResult] = captureBundle;
+  appendSettled(otherCaptureResults || []);
+  appendSettled(locationResults || []);
+  if (locationSmsResult) execution.push(locationSmsResult);
+
+  // The emergency tracking-link SMS is attempted immediately after the
+  // backend returns the canonical link. It is addressed to collection
+  // members, never to the collection's emergency-call number. If backend
+  // creation is offline, the durable LINK_SMS queue job handles it later.
+  if (backendReady && names.includes('linkSms')) {
+    execution.push(await runService('linkSms'));
+  }
 
   // Location capture and backend creation run concurrently. Deliver the
   // captured coordinates only after the backend has returned its id; this
@@ -335,16 +384,12 @@ export async function activateSosFlow({
   if (remainingNames.includes('mediaUpload')) {
     execution.push(await runService('mediaUpload'));
   }
-  const dispatchPreparationNames = remainingNames.filter(name => !['location', 'camera', 'audio', 'sms', 'call', 'mediaUpload', 'notifications', 'liveLocation'].includes(name));
+  const dispatchPreparationNames = remainingNames.filter(name => !['location', 'camera', 'audio', 'sms', 'call', 'mediaUpload', 'notifications', 'liveLocation', 'linkSms', 'locationSms'].includes(name));
   appendSettled(await Promise.allSettled(dispatchPreparationNames.map(serviceName => runService(serviceName))));
 
   if (remainingNames.includes('notifications')) {
     execution.push(await runService('notifications'));
   }
-  if (remainingNames.includes('liveLocation')) {
-    execution.push(await runService('liveLocation'));
-  }
-
   if (cancelSignal?.cancelled) {
     const cancellation = transitionSosState(event, SOS_STATES.CANCELLED);
     if (cancellation.ok) {

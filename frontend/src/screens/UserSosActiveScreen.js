@@ -1,11 +1,15 @@
 import React, {useEffect, useState} from 'react';
 import {SafeAreaView, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
-import {getSos} from '../api/resources';
+import {getSos, getLiveLocation, stopLiveLocation} from '../api/resources';
 import {getCachedApiData} from '../api/client';
+import {sosLocalStore} from '../features/sos/storage';
+import {stopLiveLocationSharing} from '../features/sos/services/liveLocationService';
 
 const UserSosActiveScreen = ({sos, token, onBack}) => {
   const [detail, setDetail] = useState(sos || null);
   const [error, setError] = useState('');
+  const [liveLocation, setLiveLocation] = useState(null);
+  const [stopping, setStopping] = useState(false);
   const recordId = sos?.id || sos?._id;
   const normalizedStatus = String(detail?.status || 'active').toLowerCase();
   const validationInfo = detail?.validation;
@@ -13,6 +17,7 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
     ? validationInfo
     : validationInfo?.summary || validationInfo?.message || validationInfo?.status;
   const shouldRenderValidation = !['pending', 'active'].includes(normalizedStatus) && Boolean(validationText);
+  const liveActive = String(liveLocation?.status || detail?.liveLocation?.status || '').toLowerCase() === 'active';
 
   useEffect(() => {
     setError('');
@@ -25,6 +30,52 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
       .catch(requestError => mounted && setError(requestError.message || 'Unable to load SOS details.'));
     return () => { mounted = false; };
   }, [recordId, token]);
+
+  useEffect(() => {
+    if (!token || !recordId) return undefined;
+    let mounted = true;
+    const refresh = async () => {
+      try {
+        // The local event is authoritative for the in-progress UI until the
+        // backend id is known. The orchestrator persists that id immediately.
+        const localEvent = await sosLocalStore.getSosById(recordId);
+        if (mounted && localEvent) setDetail(current => ({...(current || {}), ...localEvent}));
+        const backendId = localEvent?.backendId || detail?.backendId;
+        if (!backendId) return;
+        const [sosResult, liveResult] = await Promise.all([
+          getSos(token, backendId),
+          getLiveLocation(token, backendId, {limit: 1}),
+        ]);
+        if (!mounted) return;
+        if (sosResult?.sos) setDetail(current => ({...(current || {}), ...sosResult.sos, backendId}));
+        setLiveLocation({
+          ...(liveResult?.liveLocation || {}),
+          lastLocation: liveResult?.liveLocation?.lastLocation || liveResult?.pings?.[0] || null,
+        });
+      } catch (_) { /* live location is best-effort; detail remains usable */ }
+    };
+    refresh();
+    const timer = setInterval(refresh, 5000);
+    return () => { mounted = false; clearInterval(timer); };
+  }, [recordId, token, detail?.backendId]);
+
+  const handleStopSharing = async () => {
+    const backendId = detail?.backendId;
+    if (!backendId || stopping || !liveActive) return;
+    setStopping(true);
+    setError('');
+    try {
+      const response = await stopLiveLocationSharing({token, sosId: recordId, backendId});
+      if (response?.sos) {
+        setDetail(response.sos);
+        setLiveLocation(response.sos.liveLocation || null);
+      }
+    } catch (stopError) {
+      setError(stopError?.message || 'Unable to stop live location.');
+    } finally {
+      setStopping(false);
+    }
+  };
 
   if (!detail) {
     return (
@@ -41,6 +92,11 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
       <View style={styles.content}>
         <Text style={styles.title}>SOS status</Text>
         <Text style={styles.status}>{String(detail.status || 'active').toUpperCase()}</Text>
+        {liveActive ? (
+          <TouchableOpacity style={styles.stopSharingButton} onPress={handleStopSharing} disabled={stopping}>
+            <Text style={styles.stopSharingText}>{stopping ? 'Stopping...' : 'Stop Sharing Live Location'}</Text>
+          </TouchableOpacity>
+        ) : null}
         {shouldRenderValidation ? (
           <View style={styles.validationBox}>
             <Text style={styles.validationLabel}>Validation</Text>
@@ -60,6 +116,8 @@ const styles = StyleSheet.create({
   content: {alignItems: 'center'},
   title: {fontSize: 22, fontWeight: '900', color: '#1A1A1A', textAlign: 'center'},
   status: {fontSize: 28, fontWeight: '900', color: '#E4002B', marginTop: 12},
+  stopSharingButton: {width: '100%', backgroundColor: '#FFF', borderWidth: 1.5, borderColor: '#E4002B', borderRadius: 12, paddingVertical: 14, marginTop: 18, alignItems: 'center'},
+  stopSharingText: {color: '#E4002B', fontWeight: '900'},
   validationBox: {width: '100%', backgroundColor: '#FFF', borderRadius: 12, padding: 12, marginTop: 16},
   validationLabel: {fontSize: 12, fontWeight: '800', color: '#7D8794', textAlign: 'center'},
   validationText: {fontSize: 14, color: '#1A1A1A', textAlign: 'center', marginTop: 4},

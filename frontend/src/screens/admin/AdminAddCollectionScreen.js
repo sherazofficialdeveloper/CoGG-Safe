@@ -18,6 +18,7 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 const AdminAddCollectionScreen = ({
   onBack,
   onSave,
+  onCreated,
   token,
 }) => {
   const insets = useSafeAreaInsets();
@@ -53,6 +54,7 @@ const AdminAddCollectionScreen = ({
         type: category.toLowerCase(),
         emergencyCallNumber: emergencyNumber.trim(),
       });
+      onCreated?.(collectionData.collection);
       if (onSave) onSave(collectionData.collection);
     } catch (requestError) {
       setError(requestError.message || 'Unable to create collection.');

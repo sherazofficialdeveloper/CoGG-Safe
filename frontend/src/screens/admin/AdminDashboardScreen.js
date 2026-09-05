@@ -7,6 +7,7 @@ import StatCard from '../../components/StatCard';
 import Icon from '../../components/Icon';
 
 const dashboardSnapshots = new Map();
+export const clearDashboardSnapshots = () => dashboardSnapshots.clear();
 
 const AdminDashboardScreen = ({
   onNavigate,
@@ -69,7 +70,13 @@ const AdminDashboardScreen = ({
   useEffect(() => {
     let mounted = true;
     if (!snapshot) loadDashboard(() => mounted);
-    return () => { mounted = false; };
+    // Keep the dashboard fresh without refetching on every navigation.
+    // Mutations clear the snapshot immediately; while the screen stays open,
+    // a low-frequency refresh picks up SOS/users/collections changed elsewhere.
+    const refreshTimer = setInterval(() => {
+      if (mounted) loadDashboard(() => mounted);
+    }, 60000);
+    return () => { mounted = false; clearInterval(refreshTimer); };
   }, [loadDashboard, snapshot]);
 
   const recentSos = [];

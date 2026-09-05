@@ -5,7 +5,6 @@ import android.app.Activity
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
@@ -17,6 +16,7 @@ import android.util.Log
 import android.telecom.PhoneAccountHandle
 import android.telecom.TelecomManager
 import android.telephony.SmsManager
+import android.location.Location
 import android.telephony.SubscriptionManager
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -111,7 +111,7 @@ class EmergencyMediaModule(
             addAction("SOS_SMS_SENT")
             addAction("SOS_SMS_DELIVERED")
         }
-        reactContext.applicationContext.registerReceiver(smsStatusReceiver, filter)
+        ContextCompat.registerReceiver(reactContext.applicationContext, smsStatusReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         smsStatusReceiverRegistered = true
     }
 
@@ -120,10 +120,8 @@ class EmergencyMediaModule(
         sosId: String,
         promise: Promise
     ) {
-        // Access the current Activity through ReactApplicationContext.
-        val activity = reactContext.currentActivity as? LifecycleOwner
-
-        if (activity == null) {
+        val owner = reactContext.currentActivity as? LifecycleOwner
+        if (owner == null) {
             promise.reject(
                 "E_NO_FOREGROUND_ACTIVITY",
                 "Camera capture requires the SOS app to be in the foreground."
@@ -131,94 +129,57 @@ class EmergencyMediaModule(
             return
         }
 
-        val directory = File(
-            reactContext.filesDir,
-            "sos-media/$sosId"
-        ).apply {
-            mkdirs()
-        }
-
+        val directory = File(reactContext.filesDir, "sos-media/$sosId").apply { mkdirs() }
         val result = Arguments.createMap()
 
         try {
-            val cameraProviderFuture =
-                ProcessCameraProvider.getInstance(reactContext)
+            val future = ProcessCameraProvider.getInstance(reactContext)
+            future.addListener({
+                try {
+                    val provider = future.get()
+                    captureLensWithRetry(provider, owner, CameraSelector.LENS_FACING_FRONT, File(directory, "front-${System.currentTimeMillis()}.jpg"), 2) { front, frontError ->
+                        if (front != null) result.putString("frontImagePath", front.absolutePath)
+                        else result.putString("frontError", frontError ?: "Front camera failed.")
 
-            cameraProviderFuture.addListener(
-                {
-                    try {
-                        val provider = cameraProviderFuture.get()
+                        captureLensWithRetry(provider, owner, CameraSelector.LENS_FACING_BACK, File(directory, "back-${System.currentTimeMillis()}.jpg"), 2) { back, backError ->
+                            if (back != null) result.putString("backImagePath", back.absolutePath)
+                            else result.putString("backError", backError ?: "Back camera failed.")
 
-                        captureCamera(
-                            provider = provider,
-                            owner = activity,
-                            lens = CameraSelector.LENS_FACING_FRONT,
-                            output = File(
-                                directory,
-                                "front-${System.currentTimeMillis()}.jpg"
-                            )
-                        ) { front, frontError ->
-
-                            if (front != null) {
-                                result.putString(
-                                    "frontImagePath",
-                                    front.absolutePath
-                                )
+                            // One camera failing must not discard the other successful capture.
+                            if (front == null && back == null) {
+                                promise.reject("E_CAMERA_CAPTURE", "Both SOS camera captures failed.")
                             } else {
-                                result.putString(
-                                    "frontError",
-                                    frontError
-                                )
-                            }
-
-                            captureCamera(
-                                provider = provider,
-                                owner = activity,
-                                lens = CameraSelector.LENS_FACING_BACK,
-                                output = File(
-                                    directory,
-                                    "back-${System.currentTimeMillis()}.jpg"
-                                )
-                            ) { back, backError ->
-
-                                if (back != null) {
-                                    result.putString(
-                                        "backImagePath",
-                                        back.absolutePath
-                                    )
-                                } else {
-                                    result.putString(
-                                        "backError",
-                                        backError
-                                    )
-                                }
-
-                                if (front == null && back == null) {
-                                    promise.reject(
-                                        "E_CAMERA_CAPTURE",
-                                        "Both SOS camera captures failed."
-                                    )
-                                } else {
-                                    promise.resolve(result)
-                                }
+                                promise.resolve(result)
                             }
                         }
-                    } catch (error: Exception) {
-                        promise.reject(
-                            "E_CAMERA_CAPTURE",
-                            "Unable to initialize the SOS camera.",
-                            error
-                        )
                     }
-                },
-                executor
-            )
+                } catch (error: Exception) {
+                    promise.reject("E_CAMERA_CAPTURE", "Unable to initialize the SOS camera.", error)
+                }
+            }, executor)
         } catch (error: Exception) {
-            promise.reject(
-                "E_CAMERA_CAPTURE",
-                "Unable to access the SOS camera.",
-                error
-            )
+            promise.reject("E_CAMERA_CAPTURE", "Unable to access the SOS camera.", error)
+        }
+    }
+
+    private fun captureLensWithRetry(
+        provider: ProcessCameraProvider,
+        owner: LifecycleOwner,
+        lens: Int,
+        output: File,
+        attemptsLeft: Int,
+        callback: (File?, String?) -> Unit
+    ) {
+        captureCamera(provider, owner, lens, output) { file, error ->
+            if (file != null) {
+                callback(file, null)
+            } else if (attemptsLeft > 1) {
+                Handler(Looper.getMainLooper()).postDelayed({
+                    captureLensWithRetry(provider, owner, lens, output, attemptsLeft - 1, callback)
+                }, 350L)
+            } else {
+                callback(null, error)
+            }
         }
     }
 
@@ -230,62 +191,46 @@ class EmergencyMediaModule(
         callback: (File?, String?) -> Unit
     ) {
         try {
-            val imageCapture = ImageCapture.Builder()
-                .setCaptureMode(
-                    ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY
-                )
-                .build()
-
+            // Each lens gets a fresh ImageCapture use case. CameraX is explicitly
+            // unbound before switching lenses, then bound to the current lifecycle.
             provider.unbindAll()
 
-            provider.bindToLifecycle(
-                owner,
-                CameraSelector.Builder()
-                    .requireLensFacing(lens)
-                    .build(),
-                imageCapture
-            )
+            val selector = CameraSelector.Builder()
+                .requireLensFacing(lens)
+                .build()
 
-            val outputOptions =
-                ImageCapture.OutputFileOptions.Builder(output).build()
+            if (!provider.hasCamera(selector)) {
+                callback(null, if (lens == CameraSelector.LENS_FACING_FRONT) "Front camera is not available." else "Back camera is not available.")
+                return
+            }
 
-            imageCapture.takePicture(
-                outputOptions,
-                executor,
-                object : ImageCapture.OnImageSavedCallback {
+            val imageCapture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .build()
 
-                    override fun onImageSaved(
-                        outputFileResults: ImageCapture.OutputFileResults
-                    ) {
-                        if (isUsableMediaFile(output)) {
-                            callback(output, null)
-                        } else {
-                            callback(null, "Captured image file is missing, unreadable, or empty.")
-                        }
-                    }
+            provider.bindToLifecycle(owner, selector, imageCapture)
 
-                    override fun onError(
-                        exception: ImageCaptureException
-                    ) {
-                        callback(
-                            null,
-                            exception.message
-                                ?: "Camera capture failed"
-                        )
-                    }
+            val outputOptions = ImageCapture.OutputFileOptions.Builder(output).build()
+            imageCapture.takePicture(outputOptions, executor, object : ImageCapture.OnImageSavedCallback {
+                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                    if (isUsableMediaFile(output)) callback(output, null)
+                    else callback(null, "Captured image file is missing, unreadable, or empty.")
                 }
-            )
+
+                override fun onError(exception: ImageCaptureException) {
+                    callback(null, exception.message ?: "Camera capture failed.")
+                }
+            })
         } catch (error: Exception) {
-            callback(
-                null,
-                error.message ?: "Camera capture failed"
-            )
+            callback(null, error.message ?: "Camera capture failed.")
         }
     }
+
     @ReactMethod
     fun sendEmergencySms(
         phoneNumber: String,
         message: String,
+        preferredSubscriptionId: Int,
         promise: Promise
     ) {
         Log.i("EmergencyMedia", "[SOS][SMS] native send requested")
@@ -313,7 +258,7 @@ class EmergencyMediaModule(
         try {
             ensureSmsStatusReceiverRegistered()
 
-            val subscriptionId = resolvePreferredSubscriptionId()
+            val subscriptionId = resolveSmsSubscriptionId(preferredSubscriptionId)
             val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (subscriptionId > 0) {
                     android.telephony.SmsManager.getSmsManagerForSubscriptionId(subscriptionId)
@@ -455,12 +400,10 @@ class EmergencyMediaModule(
         Log.i("EmergencyMedia", "[SOS][CALL] native call requested")
         emitDiagnostic("CALL DEBUG — Native placeCall() reached")
         val cleanNumber = phoneNumber.trim()
-        if (cleanNumber.isEmpty() || !cleanNumber.matches(Regex("^[0-9+*#,;]+$"))) {
-            emitDiagnostic("CALL_NATIVE: phone number invalid", "error")
-            promise.reject("CALL_INVALID_NUMBER", "Emergency call number is invalid.")
+        if (cleanNumber.isEmpty()) {
+            promise.reject("E_CALL_NUMBER", "Emergency call number is missing.")
             return
         }
-        emitDiagnostic("CALL_NATIVE: phone number validated")
 
         if (ContextCompat.checkSelfPermission(
                 reactContext,
@@ -468,80 +411,114 @@ class EmergencyMediaModule(
             ) != PackageManager.PERMISSION_GRANTED
         ) {
             Log.w("EmergencyMedia", "[SOS][CALL] CALL_PHONE permission denied")
-            emitDiagnostic("CALL_NATIVE: CALL_PHONE denied", "error")
+            emitDiagnostic("CALL_NATIVE 01: CALL_PHONE denied", "error")
             promise.reject(
-                "CALL_PERMISSION_DENIED",
+                "E_CALL_PERMISSION",
                 "CALL_PHONE permission is required to place the emergency call from the user device."
             )
             return
         }
-        emitDiagnostic("CALL_NATIVE: CALL_PHONE permission granted")
 
         val activity = reactContext.currentActivity
         if (activity == null) {
-            emitDiagnostic("CALL_NATIVE: no foreground Activity", "error")
+            emitDiagnostic("CALL_NATIVE 02: no foreground Activity", "error")
             promise.reject(
-                "CALL_NO_ACTIVITY",
+                "E_CALL_NO_ACTIVITY",
                 "Emergency calling requires an active Android activity."
             )
             return
         }
 
-        val callIntent = Intent(Intent.ACTION_CALL, Uri.fromParts("tel", cleanNumber, null))
+        // Do not guess a PhoneAccountHandle from a subscription id. Android's
+        // Telecom account ids are OEM/carrier specific, and the old substring
+        // matching caused calls to fail on dual-SIM devices. Let Android route
+        // the call through the device's default voice SIM.
+        val callIntent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$cleanNumber"))
         Log.i("EmergencyMedia", "[SOS][CALL] ACTION_CALL intent created")
-        emitDiagnostic("CALL_NATIVE: ACTION_CALL intent created")
-        val resolution = try {
-            val telecomManager = reactContext.getSystemService(TelecomManager::class.java)
-            emitDiagnostic("CALL_NATIVE: subscription handling attempted")
-            resolvePhoneAccountHandle(telecomManager, preferredSubscriptionId)
-        } catch (error: Exception) {
-            // Phone-account enumeration may require READ_PHONE_STATE, which is
-            // not needed for ACTION_CALL itself. Let Android choose the route.
-            Log.w("EmergencyMedia", "[SOS][CALL] phone-account lookup unavailable; using default route", error)
-            emitDiagnostic("CALL_NATIVE: default telephony fallback", "info")
-            PhoneAccountResolution(null, false)
-        }
-
-        if (resolution.handle != null) {
-            callIntent.putExtra("android.telecom.extra.PHONE_ACCOUNT_HANDLE", resolution.handle)
-        }
+        emitDiagnostic("CALL_NATIVE 03: ACTION_CALL intent created")
 
         try {
             Log.i("EmergencyMedia", "[SOS][CALL] startActivity attempted")
             emitDiagnostic("CALL DEBUG — ACTION_CALL attempted")
-            emitDiagnostic("CALL_NATIVE: ACTION_CALL launch requested")
+            emitDiagnostic("CALL_NATIVE 05: startActivity ACTION_CALL")
             activity.startActivity(callIntent)
             Log.i("EmergencyMedia", "[SOS][CALL] ACTION_CALL requested")
-            emitDiagnostic("CALL_NATIVE: ACTION_CALL launch succeeded")
-            val reason = when {
-                resolution.usedFallback ->
-                    "Android launched the emergency call using a fallback telephony account because the saved emergency SIM is no longer active, but the final call status is not yet confirmed by the device."
-                resolution.handle != null ->
-                    "Android launched the emergency call intent using a device-exposed telephony account, but the final call status is not yet confirmed by the device."
-                else ->
-                    "Android launched the emergency call intent using the default device telephony path, but the final call status is not yet confirmed by the device."
-            }
+            emitDiagnostic("CALL_NATIVE 06: ACTION_CALL returned")
             promise.resolve(Arguments.createMap().apply {
-                putString("status", "pending")
-                putString("reason", reason)
-                putBoolean("usedFallbackSim", resolution.usedFallback)
+                putString("status", "initiated")
+                putString("reason", "Android accepted the ACTION_CALL request using the device default voice SIM. Final call connection status is controlled by the carrier/device.")
             })
-        } catch (error: SecurityException) {
-            Log.e("EmergencyMedia", "[SOS][CALL] ACTION_CALL security failure", error)
-            emitDiagnostic("CALL_NATIVE: permission/security failure", "error")
-            promise.reject("CALL_SECURITY_ERROR", "Android rejected the emergency call permission.", error)
-        } catch (error: ActivityNotFoundException) {
-            Log.e("EmergencyMedia", "[SOS][CALL] ACTION_CALL activity unavailable", error)
-            emitDiagnostic("CALL_NATIVE: call activity unavailable", "error")
-            promise.reject("CALL_ACTIVITY_NOT_FOUND", "No Android telephony activity can place the emergency call.", error)
         } catch (error: Exception) {
             Log.e("EmergencyMedia", "[SOS][CALL] ACTION_CALL failed", error)
-            emitDiagnostic("CALL_NATIVE: ACTION_CALL failed", "error")
+            emitDiagnostic("CALL_NATIVE 07: ACTION_CALL failed: ${error.message}", "error")
             promise.reject(
-                "CALL_FAILED",
+                "E_CALL_LAUNCH",
                 "Android could not launch the emergency call.",
                 error
             )
+        }
+    }
+
+    private fun resolveSmsSubscriptionId(preferredSubscriptionId: Int): Int {
+        return try {
+            val manager = reactContext.getSystemService(SubscriptionManager::class.java)
+            val active = manager?.activeSubscriptionInfoList ?: emptyList()
+            if (active.isEmpty()) return -1
+
+            if (preferredSubscriptionId >= 0) {
+                active.firstOrNull { it.subscriptionId == preferredSubscriptionId }?.let { return it.subscriptionId }
+            }
+
+            val defaultSms = try { SubscriptionManager.getDefaultSmsSubscriptionId() } catch (_: Exception) { -1 }
+            active.firstOrNull { it.subscriptionId == defaultSms }?.let { return it.subscriptionId }
+            active.firstOrNull { it.simSlotIndex == 0 }?.let { return it.subscriptionId }
+            active.first().subscriptionId
+        } catch (_: Exception) {
+            -1
+        }
+    }
+
+    @ReactMethod
+    fun startLiveLocationService(
+        baseUrl: String,
+        token: String,
+        backendSosId: String,
+        promise: Promise
+    ) {
+        if (baseUrl.isBlank() || token.isBlank() || backendSosId.isBlank()) {
+            promise.reject("E_LIVE_LOCATION_CONFIG", "Live location service requires baseUrl, token and backend SOS id.")
+            return
+        }
+        if (ContextCompat.checkSelfPermission(reactContext, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            ContextCompat.checkSelfPermission(reactContext, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            promise.reject("E_LOCATION_PERMISSION", "Location permission is required for live location.")
+            return
+        }
+
+        try {
+            val intent = Intent(reactContext, LiveLocationForegroundService::class.java).apply {
+                putExtra(LiveLocationForegroundService.EXTRA_BASE_URL, baseUrl.trimEnd('/'))
+                putExtra(LiveLocationForegroundService.EXTRA_TOKEN, token)
+                putExtra(LiveLocationForegroundService.EXTRA_SOS_ID, backendSosId)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(reactContext, intent)
+            } else {
+                reactContext.startService(intent)
+            }
+            promise.resolve(Arguments.createMap().apply { putString("status", "started") })
+        } catch (error: Exception) {
+            promise.reject("E_LIVE_LOCATION_START", "Unable to start live location service: ${error.message}", error)
+        }
+    }
+
+    @ReactMethod
+    fun stopLiveLocationService(promise: Promise) {
+        try {
+            reactContext.stopService(Intent(reactContext, LiveLocationForegroundService::class.java))
+            promise.resolve(Arguments.createMap().apply { putString("status", "stopped") })
+        } catch (error: Exception) {
+            promise.reject("E_LIVE_LOCATION_STOP", "Unable to stop live location service.", error)
         }
     }
 
@@ -686,7 +663,7 @@ class EmergencyMediaModule(
         try {
             val telephonyManager = reactContext.getSystemService(android.telephony.TelephonyManager::class.java)
             val simState = telephonyManager?.simState ?: android.telephony.TelephonyManager.SIM_STATE_UNKNOWN
-            val hasActiveSubscription = resolvePreferredSubscriptionId() >= 0
+            val hasActiveSubscription = resolveSmsSubscriptionId(-1) >= 0
 
             val status: String
             val reason: String
@@ -728,74 +705,4 @@ class EmergencyMediaModule(
         }
     }
 
-    private fun resolvePreferredSubscriptionId(): Int {
-        return try {
-            val subscriptionManager = reactContext.getSystemService(SubscriptionManager::class.java)
-            if (subscriptionManager == null) return -1
-
-            val activeSubscriptions = subscriptionManager.activeSubscriptionInfoList
-            if (activeSubscriptions == null || activeSubscriptions.isEmpty()) return -1
-
-            // If only one SIM, use it
-            if (activeSubscriptions.size == 1) {
-                return activeSubscriptions[0].subscriptionId
-            }
-
-            // Multiple SIMs: prefer SIM slot 0, or first active
-            val preferred = activeSubscriptions
-                .filter { it.simSlotIndex >= 0 }
-                .minByOrNull { it.simSlotIndex }
-                ?: activeSubscriptions.firstOrNull()
-
-            preferred?.subscriptionId ?: -1
-        } catch (e: Exception) {
-            -1
-        }
-    }
-
-    private data class PhoneAccountResolution(val handle: PhoneAccountHandle?, val usedFallback: Boolean)
-
-    /**
-     * Resolves which telephony account to place the emergency call on.
-     *
-     * - preferredSubscriptionId >= 0 (a user-saved emergency SIM, or the
-     *   single active SIM on a single-SIM device): use it if it's still
-     *   active; otherwise fall back to the current default/first SIM rather
-     *   than failing the call outright — a disappeared SIM must never
-     *   silently block an emergency call.
-     * - preferredSubscriptionId < 0 (no preference saved, e.g. dual-SIM with
-     *   no configured choice yet): fall back to slot 0 / first active SIM,
-     *   same as the previous automatic behavior.
-     */
-    private fun resolvePhoneAccountHandle(telecomManager: TelecomManager?, preferredSubscriptionId: Int): PhoneAccountResolution {
-        if (telecomManager == null) return PhoneAccountResolution(null, false)
-
-        val candidates = telecomManager.callCapablePhoneAccounts
-        if (candidates.isEmpty()) return PhoneAccountResolution(null, false)
-
-        val subscriptionManager = reactContext.getSystemService(SubscriptionManager::class.java)
-        val activeSubscriptions = subscriptionManager?.activeSubscriptionInfoList ?: emptyList()
-
-        val requestedSubscription = if (preferredSubscriptionId >= 0) {
-            activeSubscriptions.firstOrNull { it.subscriptionId == preferredSubscriptionId }
-        } else {
-            null
-        }
-
-        val usedFallback = preferredSubscriptionId >= 0 && requestedSubscription == null
-
-        val resolvedSubscription = requestedSubscription
-            ?: activeSubscriptions.firstOrNull { it.simSlotIndex == 0 }
-            ?: activeSubscriptions.firstOrNull()
-
-        if (resolvedSubscription == null) {
-            return PhoneAccountResolution(candidates.firstOrNull(), usedFallback)
-        }
-
-        val handle = candidates.firstOrNull {
-            it.id.contains(resolvedSubscription.subscriptionId.toString(), ignoreCase = true)
-        } ?: candidates.firstOrNull()
-
-        return PhoneAccountResolution(handle, usedFallback)
-    }
 }

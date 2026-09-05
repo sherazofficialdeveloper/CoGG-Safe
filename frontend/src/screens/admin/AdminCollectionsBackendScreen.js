@@ -7,7 +7,8 @@ import {rememberCredential} from '../../utils/adminCredentials';
 const EMPTY_USER = {username: '', mobileNumber: '', email: '', password: ''};
 const TYPES = ['family', 'children', 'workers', 'other'];
 const collectionSnapshots = new Map();
-export const clearCollectionSnapshots = () => collectionSnapshots.clear();
+const memberSnapshots = new Map();
+export const clearCollectionSnapshots = () => { collectionSnapshots.clear(); memberSnapshots.clear(); };
 
 export default function AdminCollectionsBackendScreen({token, onBack, onAddCollection, onUserDetail, onEditUser, initialCredentials = {}, onCredentialRemember}) {
   const insets = useSafeAreaInsets();
@@ -39,16 +40,31 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
     }
   }, [token]);
 
-  useEffect(() => { if (!collectionSnapshots.has(token)) loadCollections(); }, [loadCollections, token]);
+  useEffect(() => {
+  if (!collectionSnapshots.has(token)) loadCollections();
+  const timer = setInterval(() => loadCollections(), 60000);
+  return () => clearInterval(timer);
+}, [loadCollections, token]);
 
   const openCollection = async collection => {
     setSelected(collection);
     setEditForm({...collection});
+    const memberKey = `${token}:${collection._id}`;
+    const cachedEntry = memberSnapshots.get(memberKey);
+    const cachedMembers = cachedEntry?.items || null;
+    const cacheFresh = cachedEntry && Date.now() - cachedEntry.fetchedAt < 60000;
+    if (cacheFresh && cachedMembers) {
+      setMembers(cachedMembers);
+      setMembersLoading(false);
+      return;
+    }
     setMembersLoading(true);
     setError('');
     try {
       const response = await listCollectionUsers(token, collection._id);
-      setMembers(response.users || []);
+      const nextMembers = response.users || [];
+      memberSnapshots.set(memberKey, {items: nextMembers, fetchedAt: Date.now()});
+      setMembers(nextMembers);
     } catch (requestError) {
       setError('Unable to load collection users.');
       setMembers([]);
@@ -102,6 +118,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
         setUserForm(EMPTY_USER);
         setEditingUser(null);
         setShowUserForm(false);
+        memberSnapshots.delete(`${token}:${selected._id}`);
         await openCollection(selected);
       } catch (requestError) {
         setError(requestError.message || 'Unable to update user.');
