@@ -82,7 +82,9 @@ export async function recoverActiveSosWork(now = Date.now()) {
     // overwrite each other with competing writes.
     for (const [serviceName, type] of Object.entries(RECOVERABLE_SERVICES)) {
       const status = event.services?.[serviceName]?.status;
-      if (status === 'PENDING' || status === 'FAILED' || status === 'RETRY_WAITING' || status === 'PROCESSING') {
+      const permanentlyFailed = event.services?.[serviceName]?.lastResult?.permanent === true;
+      if (!permanentlyFailed
+        && (status === 'PENDING' || status === 'FAILED' || status === 'RETRY_WAITING' || status === 'PROCESSING')) {
         emitSosDiagnostic(`SOS DEBUG STARTUP 05: Recovered job type=${type} Job ID=${event.id}:${type} Retry count=${event.services?.[serviceName]?.attempts || 0} Local SOS ID=${event.id}`);
         await enqueueSosJob({sosId: event.id, type, serviceName});
         recovered.push({sosId: event.id, serviceName});
