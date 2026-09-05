@@ -3,6 +3,7 @@ import {getConnectivityState} from '../connectivity';
 import {sosLocalStore} from '../storage';
 import {validateNativeSosMedia} from './nativeMedia';
 import {emitSosDiagnostic} from './sosDiagnosticService';
+import {isValidLocation} from './locationService';
 const MEDIA_COMPONENTS = [
   {component: 'frontImage', service: 'camera', path: 'frontImagePath', mimeType: 'image/jpeg'},
   {component: 'backImage', service: 'camera', path: 'backImagePath', mimeType: 'image/jpeg'},
@@ -13,7 +14,8 @@ export async function syncSosLocation({token, sosId, location}) {
   const latitude = Number(location?.latitude);
   const longitude = Number(location?.longitude);
   if (!token || !sosId || !Number.isFinite(latitude) || latitude < -90 || latitude > 90
-    || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+    || !Number.isFinite(longitude) || longitude < -180 || longitude > 180
+    || (latitude === 0 && longitude === 0)) {
     return {status: 'FAILED', error: 'A valid location and authenticated backend SOS are required.'};
   }
 
@@ -47,7 +49,7 @@ export async function syncSosToBackend({
 
   const payload = {
     idempotencyKey: idempotencyKey || sosEvent.id,
-    location: sosEvent.location?.latitude != null && sosEvent.location?.longitude != null
+    location: isValidLocation(sosEvent.location)
       ? {
           latitude: sosEvent.location.latitude,
           longitude: sosEvent.location.longitude,
@@ -89,6 +91,11 @@ export async function syncSosToBackend({
     });
     if (error?.status === 409) {
       emitSosDiagnostic(`SOS DEBUG 409: HTTP=409 source=${diagnosticContext.source || 'unknown'} localSOSId=${sosEvent?.id || 'none'} queueJobId=${diagnosticContext.queueJobId || 'none'} attempt=${diagnosticContext.attempt ?? 0} message=${error?.message || 'An SOS is already pending or active for this user'}`, 'error');
+      return {
+        status: 'FAILED',
+        permanent: true,
+        error: error?.message || 'An SOS is already pending or active for this user',
+      };
     }
     throw error;
   }

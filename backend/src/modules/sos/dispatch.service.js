@@ -209,7 +209,9 @@ async function dispatchSos(sos) {
   // emergency page (via `link`) remains the authoritative, always-current
   // source (live location, photos, audio), so this is deliberately just a
   // quick reference and never the only place location is shown.
-  const hasInitialLocation = sos.location?.latitude != null && sos.location?.longitude != null;
+  const hasInitialLocation = Number.isFinite(Number(sos.location?.latitude))
+    && Number.isFinite(Number(sos.location?.longitude))
+    && !(Number(sos.location.latitude) === 0 && Number(sos.location.longitude) === 0);
   const locationLine = hasInitialLocation
     ? ` Last known location: https://maps.google.com/?q=${sos.location.latitude},${sos.location.longitude}.`
     : '';

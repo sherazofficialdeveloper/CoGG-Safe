@@ -130,6 +130,7 @@ export function isValidLocation(location) {
 
   if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) return false;
   if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) return false;
+  if (latitude === 0 && longitude === 0) return false;
 
   if (location.accuracy !== undefined && location.accuracy !== null && location.accuracy !== '') {
     const accuracy = Number(location.accuracy);

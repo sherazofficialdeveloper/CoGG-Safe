@@ -37,7 +37,7 @@ describe('location validation', () => {
     expect(isValidLocation({latitude: 91, longitude: 0, capturedAt: 'now'})).toBe(false);
     expect(isValidLocation({latitude: 0, longitude: 0})).toBe(false);
     expect(isValidLocation({latitude: 0, longitude: 0, capturedAt: 'invalid-date', accuracy: NaN})).toBe(false);
-    expect(isValidLocation({latitude: 0, longitude: 0, capturedAt: '2026-09-03T00:00:00.000Z', accuracy: 0})).toBe(true);
+    expect(isValidLocation({latitude: 0, longitude: 0, capturedAt: '2026-09-03T00:00:00.000Z', accuracy: 0})).toBe(false);
   });
 
   test('returns a network fallback when GPS is unavailable', async () => {

@@ -19,6 +19,13 @@ const createSosValidation = [
     .if(body('location').exists())
     .isFloat({ min: -180, max: 180 })
     .withMessage('location.longitude must be between -180 and 180'),
+  body('location')
+    .custom((location) => {
+      if (location && Number(location.latitude) === 0 && Number(location.longitude) === 0) {
+        throw new Error('location must not be the default 0,0 coordinate');
+      }
+      return true;
+    }),
   body('location.accuracy')
     .optional()
     .isFloat({ min: 0 })
@@ -55,6 +62,13 @@ const reportLocationValidation = [
     .if(body('status').not().equals(COMPONENT_STATUS.FAILED))
     .isFloat({ min: -180, max: 180 })
     .withMessage('longitude must be between -180 and 180'),
+  body()
+    .custom((body) => {
+      if (Number(body.latitude) === 0 && Number(body.longitude) === 0) {
+        throw new Error('location must not be the default 0,0 coordinate');
+      }
+      return true;
+    }),
   body('error')
     .if(body('status').equals(COMPONENT_STATUS.FAILED))
     .notEmpty()
@@ -103,6 +117,13 @@ const liveLocationPingValidation = [
   ...sosIdParamValidation,
   body('latitude').isFloat({ min: -90, max: 90 }).withMessage('latitude must be between -90 and 90'),
   body('longitude').isFloat({ min: -180, max: 180 }).withMessage('longitude must be between -180 and 180'),
+  body()
+    .custom((body) => {
+      if (Number(body.latitude) === 0 && Number(body.longitude) === 0) {
+        throw new Error('location must not be the default 0,0 coordinate');
+      }
+      return true;
+    }),
   body('accuracy').optional().isFloat({ min: 0 }).withMessage('accuracy must be a non-negative number'),
   body('capturedAt').optional().isISO8601().withMessage('capturedAt must be a valid ISO8601 timestamp'),
   body('source').optional().isString().isLength({ max: 32 }).withMessage('source must be a short string'),

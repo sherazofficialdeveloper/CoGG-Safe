@@ -274,7 +274,9 @@ export async function activateSosFlow({
         emitSosToast('Emergency call initiated', 'success', 2000);
       }
       
-      if (['PENDING', 'FAILED'].includes(resultStatus) && RETRYABLE_SERVICES.has(serviceName)) {
+      if (['PENDING', 'FAILED'].includes(resultStatus)
+        && RETRYABLE_SERVICES.has(serviceName)
+        && !result?.permanent) {
         await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
       }
 

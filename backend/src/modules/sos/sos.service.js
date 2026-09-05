@@ -238,7 +238,15 @@ async function createSos({ userId, idempotencyKey, location }) {
     await sos.save();
   }
 
-  await dispatchService.dispatchSos(sos);
+  // The emergency record is durable at this point. Dispatch is deliberately
+  // started after the response path so a slow provider cannot delay SOS
+  // creation; dispatchSos isolates and records each channel failure.
+  void dispatchService.dispatchSos(sos).catch((err) => {
+    console.error('[SOS_DEBUG] DISPATCH_UNHANDLED', {
+      sosId: String(sos._id),
+      error: err?.message || 'SOS dispatch failed unexpectedly',
+    });
+  });
 
   return { sos, alreadyExisted: false };
 }
