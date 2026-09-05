@@ -51,7 +51,7 @@ async function login(identifier, plainPassword, selectedRole) {
   });
 
   const collection = user.collectionId
-    ? await Collection.findById(user.collectionId).select('name type')
+    ? await Collection.findById(user.collectionId).select('name type emergencyCallNumber')
     : null;
 
   return { token, user, collection };

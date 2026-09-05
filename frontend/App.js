@@ -55,8 +55,6 @@ import {
   syncSosLocation,
   uploadCapturedSosMedia,
 } from './src/features/sos/services/backendSyncService';
-import {getCollection} from './src/api/resources';
-
 import {getCurrentLocation} from './src/features/sos/services/locationService';
 import {sendEmergencySms, sendEmergencySmsToNumbers} from './src/features/sos/services/smsService';
 import {initiateEmergencyCall} from './src/features/sos/services/callService';
@@ -298,6 +296,7 @@ function AppContent() {
   useEffect(() => {
     const collectionId = user?.collectionId;
     const cacheKey = token && collectionId ? `${token}:${collectionId}` : 'no-collection';
+    const collection = user?.collection;
 
     if (!token || !collectionId) {
       collectionCacheSuccessRef.current = null;
@@ -309,15 +308,14 @@ function AppContent() {
       setCollectionCacheReadyKey(cacheKey);
       return undefined;
     }
-
     let active = true;
     setCollectionCacheReadyKey(null);
+    setCollectionCacheReadyKey(null);
 
-    getCollection(token, collectionId)
-      .then(async response => {
-        if (!active) return;
-        if (!response?.collection) return;
-        await sosLocalStore.setCachedCollectionInfo(collectionId, response.collection);
+    Promise.resolve()
+      .then(async () => {
+        if (!active || !collection) return;
+        await sosLocalStore.setCachedCollectionInfo(collectionId, collection);
         collectionCacheSuccessRef.current = cacheKey;
         setCollectionCacheReadyKey(cacheKey);
       })
@@ -325,7 +323,7 @@ function AppContent() {
     return () => {
       active = false;
     };
-  }, [token, user?.collectionId]);
+  }, [token, user?.collectionId, user?.collection]);
 
   useEffect(() => {
     if (!token || !user) {
