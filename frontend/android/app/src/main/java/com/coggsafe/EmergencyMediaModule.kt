@@ -5,6 +5,7 @@ import android.app.Activity
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
@@ -454,10 +455,12 @@ class EmergencyMediaModule(
         Log.i("EmergencyMedia", "[SOS][CALL] native call requested")
         emitDiagnostic("CALL DEBUG — Native placeCall() reached")
         val cleanNumber = phoneNumber.trim()
-        if (cleanNumber.isEmpty()) {
-            promise.reject("E_CALL_NUMBER", "Emergency call number is missing.")
+        if (cleanNumber.isEmpty() || !cleanNumber.matches(Regex("^[0-9+*#,;]+$"))) {
+            emitDiagnostic("CALL_NATIVE: phone number invalid", "error")
+            promise.reject("CALL_INVALID_NUMBER", "Emergency call number is invalid.")
             return
         }
+        emitDiagnostic("CALL_NATIVE: phone number validated")
 
         if (ContextCompat.checkSelfPermission(
                 reactContext,
@@ -465,35 +468,37 @@ class EmergencyMediaModule(
             ) != PackageManager.PERMISSION_GRANTED
         ) {
             Log.w("EmergencyMedia", "[SOS][CALL] CALL_PHONE permission denied")
-            emitDiagnostic("CALL_NATIVE 01: CALL_PHONE denied", "error")
+            emitDiagnostic("CALL_NATIVE: CALL_PHONE denied", "error")
             promise.reject(
-                "E_CALL_PERMISSION",
+                "CALL_PERMISSION_DENIED",
                 "CALL_PHONE permission is required to place the emergency call from the user device."
             )
             return
         }
+        emitDiagnostic("CALL_NATIVE: CALL_PHONE permission granted")
 
         val activity = reactContext.currentActivity
         if (activity == null) {
-            emitDiagnostic("CALL_NATIVE 02: no foreground Activity", "error")
+            emitDiagnostic("CALL_NATIVE: no foreground Activity", "error")
             promise.reject(
-                "E_CALL_NO_ACTIVITY",
+                "CALL_NO_ACTIVITY",
                 "Emergency calling requires an active Android activity."
             )
             return
         }
 
-        val callIntent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$cleanNumber"))
+        val callIntent = Intent(Intent.ACTION_CALL, Uri.fromParts("tel", cleanNumber, null))
         Log.i("EmergencyMedia", "[SOS][CALL] ACTION_CALL intent created")
-        emitDiagnostic("CALL_NATIVE 03: ACTION_CALL intent created")
+        emitDiagnostic("CALL_NATIVE: ACTION_CALL intent created")
         val resolution = try {
             val telecomManager = reactContext.getSystemService(TelecomManager::class.java)
+            emitDiagnostic("CALL_NATIVE: subscription handling attempted")
             resolvePhoneAccountHandle(telecomManager, preferredSubscriptionId)
-        } catch (error: SecurityException) {
+        } catch (error: Exception) {
             // Phone-account enumeration may require READ_PHONE_STATE, which is
             // not needed for ACTION_CALL itself. Let Android choose the route.
             Log.w("EmergencyMedia", "[SOS][CALL] phone-account lookup unavailable; using default route", error)
-            emitDiagnostic("CALL_NATIVE 04: phone-account lookup denied; default route", "info")
+            emitDiagnostic("CALL_NATIVE: default telephony fallback", "info")
             PhoneAccountResolution(null, false)
         }
 
@@ -504,10 +509,10 @@ class EmergencyMediaModule(
         try {
             Log.i("EmergencyMedia", "[SOS][CALL] startActivity attempted")
             emitDiagnostic("CALL DEBUG — ACTION_CALL attempted")
-            emitDiagnostic("CALL_NATIVE 05: startActivity ACTION_CALL")
+            emitDiagnostic("CALL_NATIVE: ACTION_CALL launch requested")
             activity.startActivity(callIntent)
             Log.i("EmergencyMedia", "[SOS][CALL] ACTION_CALL requested")
-            emitDiagnostic("CALL_NATIVE 06: ACTION_CALL returned")
+            emitDiagnostic("CALL_NATIVE: ACTION_CALL launch succeeded")
             val reason = when {
                 resolution.usedFallback ->
                     "Android launched the emergency call using a fallback telephony account because the saved emergency SIM is no longer active, but the final call status is not yet confirmed by the device."
@@ -521,11 +526,19 @@ class EmergencyMediaModule(
                 putString("reason", reason)
                 putBoolean("usedFallbackSim", resolution.usedFallback)
             })
+        } catch (error: SecurityException) {
+            Log.e("EmergencyMedia", "[SOS][CALL] ACTION_CALL security failure", error)
+            emitDiagnostic("CALL_NATIVE: permission/security failure", "error")
+            promise.reject("CALL_SECURITY_ERROR", "Android rejected the emergency call permission.", error)
+        } catch (error: ActivityNotFoundException) {
+            Log.e("EmergencyMedia", "[SOS][CALL] ACTION_CALL activity unavailable", error)
+            emitDiagnostic("CALL_NATIVE: call activity unavailable", "error")
+            promise.reject("CALL_ACTIVITY_NOT_FOUND", "No Android telephony activity can place the emergency call.", error)
         } catch (error: Exception) {
             Log.e("EmergencyMedia", "[SOS][CALL] ACTION_CALL failed", error)
-            emitDiagnostic("CALL_NATIVE 07: ACTION_CALL failed: ${error.message}", "error")
+            emitDiagnostic("CALL_NATIVE: ACTION_CALL failed", "error")
             promise.reject(
-                "E_CALL_LAUNCH",
+                "CALL_FAILED",
                 "Android could not launch the emergency call.",
                 error
             )
