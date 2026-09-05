@@ -7,6 +7,17 @@ mongoose.set('strictQuery', true);
 async function connectDB() {
   try {
     await mongoose.connect(env.mongoUri);
+    const sosCollectionExists = await mongoose.connection.db
+      .listCollections({name: 'sos'}, {nameOnly: true})
+      .hasNext();
+    if (sosCollectionExists) {
+      const sosCollection = mongoose.connection.db.collection('sos');
+      const existingIndexes = await sosCollection.listIndexes().toArray();
+      if (existingIndexes.some(index => index.name === 'one_open_sos_per_user')) {
+        await sosCollection.dropIndex('one_open_sos_per_user');
+        logger.info('Removed legacy one-open-SOS index');
+      }
+    }
     logger.info(`MongoDB connected: ${mongoose.connection.host}`);
   } catch (err) {
     logger.error('MongoDB connection failed', { error: err.message });
