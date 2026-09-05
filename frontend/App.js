@@ -316,15 +316,12 @@ function AppContent() {
     getCollection(token, collectionId)
       .then(async response => {
         if (!active) return;
-        if (response?.collection) {
-          await sosLocalStore.setCachedCollectionInfo(collectionId, response.collection);
-          collectionCacheSuccessRef.current = cacheKey;
-        }
+        if (!response?.collection) return;
+        await sosLocalStore.setCachedCollectionInfo(collectionId, response.collection);
+        collectionCacheSuccessRef.current = cacheKey;
         setCollectionCacheReadyKey(cacheKey);
       })
-      .catch(() => {
-        if (active) setCollectionCacheReadyKey(cacheKey);
-      });
+      .catch(() => undefined);
     return () => {
       active = false;
     };
