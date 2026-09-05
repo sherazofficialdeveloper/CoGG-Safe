@@ -805,6 +805,7 @@ function AppContent() {
             showNotification={false}
             showLogout={false}>
             <UserNotificationDetailScreen
+              token={token}
               notification={selectedNotification}
               onBack={() => setScreen('userNotifications')}
               onViewSos={sosId => {
