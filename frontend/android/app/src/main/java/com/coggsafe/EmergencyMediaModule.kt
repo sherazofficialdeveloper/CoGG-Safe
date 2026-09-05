@@ -148,11 +148,11 @@ class EmergencyMediaModule(
                         else if (captureFront) result.putString("frontError", frontError ?: "Front camera failed.")
                         if (back != null) result.putString("backImagePath", back.absolutePath)
                         else if (captureBack) result.putString("backError", backError ?: "Back camera failed.")
-                        if ((captureFront && front == null) || (captureBack && back == null)) {
-                            promise.reject("E_CAMERA_CAPTURE", "SOS camera capture failed.")
-                        } else {
-                            promise.resolve(result)
-                        }
+                        result.putString("status", if ((!captureFront || front != null) && (!captureBack || back != null)) "completed" else if (front != null || back != null) "partial" else "failed")
+                        // Always resolve with the per-lens result. A single lens may fail
+                        // transiently; rejecting here used to discard the successful lens
+                        // path and made the missing back image impossible to retry safely.
+                        promise.resolve(result)
                     }
 
                     fun captureBackIfNeeded(front: File?, frontError: String?) {
@@ -160,13 +160,13 @@ class EmergencyMediaModule(
                             finish(front, frontError, null, null)
                             return
                         }
-                        captureLensWithRetry(provider, owner, CameraSelector.LENS_FACING_BACK, File(directory, "back-${System.currentTimeMillis()}.jpg"), 4) { back, backError ->
+                        captureLensWithRetry(provider, owner, CameraSelector.LENS_FACING_BACK, File(directory, "back-${System.currentTimeMillis()}.jpg"), 5) { back, backError ->
                             finish(front, frontError, back, backError)
                         }
                     }
 
                     if (captureFront) {
-                        captureLensWithRetry(provider, owner, CameraSelector.LENS_FACING_FRONT, File(directory, "front-${System.currentTimeMillis()}.jpg"), 4) { front, frontError ->
+                        captureLensWithRetry(provider, owner, CameraSelector.LENS_FACING_FRONT, File(directory, "front-${System.currentTimeMillis()}.jpg"), 5) { front, frontError ->
                             captureBackIfNeeded(front, frontError)
                         }
                     } else {
@@ -247,7 +247,7 @@ class EmergencyMediaModule(
               } catch (error: Exception) {
                 callback(null, error.message ?: "Camera capture failed.")
               }
-            }, 250L)
+            }, 900L)
         } catch (error: Exception) {
             callback(null, error.message ?: "Camera capture failed.")
         }

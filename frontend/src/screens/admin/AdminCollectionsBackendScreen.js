@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {ActivityIndicator, Alert, Clipboard, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View} from 'react-native';
 import {SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
-import {createUser, deleteUser, listCollectionUsers, listCollections, updateCollection, updateUser} from '../../api/resources';
+import {createUser, deleteUser, getUserCredentials, listCollectionUsers, listCollections, updateCollection, updateUser} from '../../api/resources';
 import {rememberCredential} from '../../utils/adminCredentials';
 
 const EMPTY_USER = {username: '', mobileNumber: '', email: '', password: ''};
@@ -184,16 +184,23 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
   };
 
   const handleCopyCredentials = async member => {
-    const password = credentialMap[member?._id || member?.id] || '';
-    if (!member?.username || !password) {
-      Alert.alert('Copy unavailable', 'These credentials are not available in the current session.');
-      return;
-    }
+    const memberId = member?._id || member?.id;
     try {
-      await Clipboard.setString(`${member.username}\n${password}`);
+      let password = credentialMap[memberId] || '';
+      let username = member?.username || '';
+      if (!password && memberId) {
+        const response = await getUserCredentials(token, memberId);
+        username = response?.credentials?.username || username;
+        password = response?.credentials?.password || '';
+        if (password) {
+          setCredentialMap(current => rememberCredential(current, {id: memberId, username}, password));
+        }
+      }
+      if (!username || !password) throw new Error('Credentials are not available for this user.');
+      await Clipboard.setString(`${username}\n${password}`);
       Alert.alert('Copied', 'Username and password copied to clipboard.');
     } catch (requestError) {
-      Alert.alert('Copy failed', requestError.message || 'Unable to copy.');
+      Alert.alert('Copy unavailable', requestError.message || 'Unable to retrieve credentials.');
     }
   };
 

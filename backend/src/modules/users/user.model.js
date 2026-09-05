@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const { Schema } = mongoose;
 const { ALL_ROLES, ROLES } = require('../../constants/roles');
 const { USER_STATUS } = require('../../constants/sosConstants');
-const { hashPassword, comparePassword } = require('../../utils/password');
+const { hashPassword, comparePassword, encryptCredentialPassword } = require('../../utils/password');
 
 /**
  * Core User entity.
@@ -45,6 +45,11 @@ const userSchema = new Schema(
       type: String,
       required: true,
       select: false, // never returned by default queries
+    },
+    credentialPasswordEncrypted: {
+      type: String,
+      default: null,
+      select: false,
     },
     role: {
       type: String,
@@ -104,6 +109,7 @@ userSchema.index({ deletedAt: 1 });
  */
 userSchema.methods.setPassword = async function setPassword(plainPassword) {
   this.passwordHash = await hashPassword(plainPassword);
+  this.credentialPasswordEncrypted = encryptCredentialPassword(plainPassword);
 };
 
 /**

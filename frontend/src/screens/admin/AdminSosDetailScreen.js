@@ -16,7 +16,7 @@ import {
 import {deactivateSos, getLiveLocation, getSos, stopLiveLocation} from '../../api/resources';
 import {API_BASE_URL} from '../../api/config';
 import AudioPlayer from '../../components/AudioPlayer';
-import {buildMediaUrl} from '../../utils/media';
+import {buildEmergencyMediaUrl} from '../../utils/media';
 import {downloadAuthenticatedSosMedia} from '../../features/sos/services/nativeMedia';
 import FullscreenImageViewer from '../../components/FullscreenImageViewer';
 
@@ -36,6 +36,7 @@ const AdminSosDetailScreen = ({
   const [detailRecord, setDetailRecord] = useState(null);
   const [frontLocalMedia, setFrontLocalMedia] = useState(null);
   const [backLocalMedia, setBackLocalMedia] = useState(null);
+  const [hiddenImages, setHiddenImages] = useState({front: false, back: false});
   const detailRequestRef = useRef(0);
   const actionInFlightRef = useRef(false);
 
@@ -113,14 +114,14 @@ const AdminSosDetailScreen = ({
   const audio = record.components?.audio;
   const localCamera = record.services?.camera;
   const localAudio = record.services?.audio;
-  const frontMediaUrl = ['success', 'uploaded', 'ready', 'completed'].includes(String(frontImage?.status || '').toLowerCase()) && frontImage.storageRef
-    ? buildMediaUrl(API_BASE_URL, record.id || record._id, 'frontImage')
+  const frontMediaUrl = ['success', 'uploaded', 'ready', 'completed'].includes(String(frontImage?.status || '').toLowerCase()) && record.emergencyLink
+    ? buildEmergencyMediaUrl(record.emergencyLink, 'frontImage')
     : null;
-  const backMediaUrl = ['success', 'uploaded', 'ready', 'completed'].includes(String(backImage?.status || '').toLowerCase()) && backImage.storageRef
-    ? buildMediaUrl(API_BASE_URL, record.id || record._id, 'backImage')
+  const backMediaUrl = ['success', 'uploaded', 'ready', 'completed'].includes(String(backImage?.status || '').toLowerCase()) && record.emergencyLink
+    ? buildEmergencyMediaUrl(record.emergencyLink, 'backImage')
     : null;
-  const audioMediaUrl = ['success', 'uploaded', 'ready', 'completed'].includes(String(audio?.status || '').toLowerCase()) && audio.storageRef
-    ? buildMediaUrl(API_BASE_URL, record.id || record._id, 'audio')
+  const audioMediaUrl = ['success', 'uploaded', 'ready', 'completed'].includes(String(audio?.status || '').toLowerCase()) && record.emergencyLink
+    ? buildEmergencyMediaUrl(record.emergencyLink, 'audio')
     : null;
   useEffect(() => {
     setLiveLocationStatus(initialLiveLocationStatus);
@@ -179,14 +180,10 @@ const AdminSosDetailScreen = ({
   }, [liveLocationActive, recordId, token]);
 
   useEffect(() => {
-    let mounted = true;
+    setHiddenImages({front: false, back: false});
     setFrontLocalMedia(null);
     setBackLocalMedia(null);
-    const downloads = [];
-    if (frontMediaUrl && token) downloads.push(downloadAuthenticatedSosMedia(frontMediaUrl, token).then(path => mounted && setFrontLocalMedia(path)).catch(() => undefined));
-    if (backMediaUrl && token) downloads.push(downloadAuthenticatedSosMedia(backMediaUrl, token).then(path => mounted && setBackLocalMedia(path)).catch(() => undefined));
-    return () => { mounted = false; };
-  }, [frontMediaUrl, backMediaUrl, token]);
+  }, [frontMediaUrl, backMediaUrl]);
 
   const hasLiveLocationData = [liveLocation, record.liveLocation?.lastLocation, record.liveLocation, record.location].some((entry) => {
     if (!entry || typeof entry !== 'object') return false;
@@ -194,7 +191,7 @@ const AdminSosDetailScreen = ({
     const longitude = Number(entry.lng ?? entry.longitude ?? 'NaN');
     return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
   });
-  const hasImageData = Boolean(frontMediaUrl || backMediaUrl);
+  const hasImageData = Boolean((frontMediaUrl && !hiddenImages.front) || (backMediaUrl && !hiddenImages.back));
   const displayFrontImage = frontLocalMedia || frontMediaUrl;
   const displayBackImage = backLocalMedia || backMediaUrl;
 
@@ -319,6 +316,16 @@ const AdminSosDetailScreen = ({
                   {displayAccuracy != null ? `±${displayAccuracy}m` : 'Accuracy unavailable'}
                 </Text>
               </View>
+              {displayLat != null && displayLng != null ? (
+                <TouchableOpacity style={styles.trackingLinkCard} onPress={handleOpenLocation}>
+                  <Text style={styles.trackingLinkText}>Open current location in Google Maps</Text>
+                </TouchableOpacity>
+              ) : null}
+              {record.location?.latitude != null && record.location?.longitude != null ? (
+                <View style={{marginTop: 10}}>
+                  <Text style={styles.locationUpdate}>Initial SOS location: {Number(record.location.latitude).toFixed(5)}, {Number(record.location.longitude).toFixed(5)}</Text>
+                </View>
+              ) : null}
               <View style={styles.locationRow}>
                 <Text style={styles.locationUpdate}>
                   Updated {locationUpdateTime}
@@ -347,19 +354,19 @@ const AdminSosDetailScreen = ({
           <View style={styles.photosSection}>
             <Text style={styles.photosLabel}>📷 CAMERA SNAPS</Text>
             <View style={styles.photosGrid}>
-              {frontMediaUrl ? (
+              {frontMediaUrl && !hiddenImages.front ? (
                 <View style={styles.photoBox}>
                   <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Front</Text></View>
                   <TouchableOpacity onPress={() => setSelectedImage(displayFrontImage)} activeOpacity={0.85}>
-                    <Image source={{uri: displayFrontImage, ...(frontLocalMedia ? {} : {headers: {Authorization: `Bearer ${token}`}})}} style={styles.photoImage} />
+                    <Image source={{uri: displayFrontImage}} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, front: true}))} />
                   </TouchableOpacity>
                 </View>
               ) : null}
-              {backMediaUrl ? (
+              {backMediaUrl && !hiddenImages.back ? (
                 <View style={styles.photoBox}>
                   <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Back</Text></View>
                   <TouchableOpacity onPress={() => setSelectedImage(displayBackImage)} activeOpacity={0.85}>
-                    <Image source={{uri: displayBackImage, ...(backLocalMedia ? {} : {headers: {Authorization: `Bearer ${token}`}})}} style={styles.photoImage} />
+                    <Image source={{uri: displayBackImage}} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, back: true}))} />
                   </TouchableOpacity>
                 </View>
               ) : null}
@@ -372,7 +379,7 @@ const AdminSosDetailScreen = ({
           <Text style={styles.audioLabel}>🎙️ VOICE RECORDING</Text>
           <View style={styles.audioCard}>
             {audioMediaUrl ? (
-              <AudioPlayer audioUrl={audioMediaUrl} token={token} style={styles.audioPlayer} />
+              <AudioPlayer audioUrl={audioMediaUrl} token={token} publicMedia style={styles.audioPlayer} />
             ) : (
               <>
                 <View style={styles.waveformContainer}>

@@ -13,7 +13,7 @@ if (typeof jest === 'undefined') {
   }
 }
 
-const AudioPlayer = ({audioUrl, localPath = null, token, onError = null, style = {}}) => {
+const AudioPlayer = ({audioUrl, localPath = null, token, publicMedia = false, onError = null, style = {}}) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [sound, setSound] = useState(null);
@@ -46,9 +46,13 @@ const AudioPlayer = ({audioUrl, localPath = null, token, onError = null, style =
         // react-native-sound cannot attach request headers itself.
         let playablePath = localPath;
         if (!playablePath) {
-          if (!token) return fail('Audio cannot be loaded because this session has no authentication token.');
-          playablePath = await downloadAuthenticatedSosMedia(audioUrl, token);
-          emitSosDiagnostic('SOS DEBUG AUDIO 08: Download completed');
+          if (publicMedia && /^https?:\/\//i.test(String(audioUrl))) {
+            playablePath = String(audioUrl);
+          } else {
+            if (!token) return fail('Audio cannot be loaded because this session has no authentication token.');
+            playablePath = await downloadAuthenticatedSosMedia(audioUrl, token);
+            emitSosDiagnostic('SOS DEBUG AUDIO 08: Download completed');
+          }
         }
         if (!isMounted) return;
 
@@ -71,7 +75,7 @@ const AudioPlayer = ({audioUrl, localPath = null, token, onError = null, style =
       isMounted = false;
       if (loadedSound) loadedSound.release();
     };
-  }, [audioUrl, localPath, onError, reloadKey, token]);
+  }, [audioUrl, localPath, onError, publicMedia, reloadKey, token]);
 
   const handlePlayPause = () => {
     if (!sound) return setError('Stored audio is unavailable.');

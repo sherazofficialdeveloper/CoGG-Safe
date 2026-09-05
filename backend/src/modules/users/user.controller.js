@@ -56,6 +56,12 @@ const setPassword = asyncHandler(async (req, res) => {
   ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Password updated', data: null });
 });
 
+
+const getCredentials = asyncHandler(async (req, res) => {
+  const credentials = await userService.getCredentials(req.params.id);
+  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Credentials retrieved', data: { credentials } });
+});
+
 const activateUser = asyncHandler(async (req, res) => {
   const user = await userService.activateUser(req.params.id);
   ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'User activated', data: { user } });
@@ -79,6 +85,7 @@ module.exports = {
   getUser,
   updateUser,
   setPassword,
+  getCredentials,
   activateUser,
   deactivateUser,
   deleteUser,

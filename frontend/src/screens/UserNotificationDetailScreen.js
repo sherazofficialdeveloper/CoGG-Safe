@@ -5,7 +5,7 @@ import AudioPlayer from '../components/AudioPlayer';
 import {API_BASE_URL} from '../api/config';
 import {getSos, getLiveLocation} from '../api/resources';
 import {stopLiveLocationSharing} from '../features/sos/services/liveLocationService';
-import {buildMediaRequestOptions, buildMediaUrl} from '../utils/media';
+import {buildEmergencyMediaUrl, buildMediaRequestOptions, buildMediaUrl} from '../utils/media';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import FullscreenImageViewer from '../components/FullscreenImageViewer';
 
@@ -54,16 +54,16 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
   const media = currentSos?.components || {};
   const liveActive = String(liveLocation?.status || currentSos?.liveLocation?.status || '').toLowerCase() === 'active';
   const frontMediaUrl = useMemo(
-    () => hasStoredMedia(media.frontImage) && sosId ? buildMediaUrl(API_BASE_URL, sosId, 'frontImage') : null,
-    [media.frontImage, sosId],
+    () => hasStoredMedia(media.frontImage) && currentSos?.emergencyLink ? buildEmergencyMediaUrl(currentSos.emergencyLink, 'frontImage') : null,
+    [currentSos?.emergencyLink, media.frontImage],
   );
   const backMediaUrl = useMemo(
-    () => hasStoredMedia(media.backImage) && sosId ? buildMediaUrl(API_BASE_URL, sosId, 'backImage') : null,
-    [media.backImage, sosId],
+    () => hasStoredMedia(media.backImage) && currentSos?.emergencyLink ? buildEmergencyMediaUrl(currentSos.emergencyLink, 'backImage') : null,
+    [currentSos?.emergencyLink, media.backImage],
   );
   const audioMediaUrl = useMemo(
-    () => hasStoredMedia(media.audio) && sosId ? buildMediaUrl(API_BASE_URL, sosId, 'audio') : null,
-    [media.audio, sosId],
+    () => hasStoredMedia(media.audio) && currentSos?.emergencyLink ? buildEmergencyMediaUrl(currentSos.emergencyLink, 'audio') : null,
+    [currentSos?.emergencyLink, media.audio],
   );
   const imageOptions = buildMediaRequestOptions(token);
   const visibleImageCount = Number(Boolean(frontMediaUrl && !hiddenImages.front)) + Number(Boolean(backMediaUrl && !hiddenImages.back));
@@ -112,6 +112,11 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
                   ? `${Number(latestLocation.latitude).toFixed(5)}, ${Number(latestLocation.longitude).toFixed(5)}`
                   : 'Location unavailable'}
               </Text>
+              {latestLocation?.latitude != null && latestLocation?.longitude != null ? (
+                <TouchableOpacity style={styles.linkCard} onPress={() => require('react-native').Linking.openURL(`https://www.google.com/maps?q=${latestLocation.latitude},${latestLocation.longitude}`)}>
+                  <Text style={styles.linkText}>Open current location in Google Maps</Text>
+                </TouchableOpacity>
+              ) : null}
               {liveActive ? <TouchableOpacity style={styles.stopButton} onPress={stopSharing} disabled={stopping}><Text style={styles.buttonText}>{stopping ? 'Stopping...' : 'Stop Sharing'}</Text></TouchableOpacity> : null}
             </View>
           ) : null}
@@ -137,7 +142,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
           {currentSos ? (
             <View style={styles.mediaBlock}>
               <Text style={styles.mediaTitle}>Audio</Text>
-              {audioMediaUrl ? <AudioPlayer audioUrl={audioMediaUrl} token={token} /> : <Text style={styles.emptyMedia}>No successfully stored audio is available.</Text>}
+              {audioMediaUrl ? <AudioPlayer audioUrl={audioMediaUrl} token={token} publicMedia /> : <Text style={styles.emptyMedia}>No successfully stored audio is available.</Text>}
             </View>
           ) : null}
 

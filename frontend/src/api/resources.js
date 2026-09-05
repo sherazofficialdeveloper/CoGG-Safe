@@ -39,6 +39,7 @@ export const getUser = (token, id) => request(`/users/${id}`, {token});
 export const createUser = (token, body) => request('/users', {method: 'POST', token, body});
 export const updateUser = (token, id, body) => request(`/users/${id}`, {method: 'PATCH', token, body});
 export const setUserPassword = (token, id, password) => request(`/users/${id}/password`, {method: 'PATCH', token, body: {password}});
+export const getUserCredentials = (token, id) => request(`/users/${id}/credentials`, {token, forceRefresh: true});
 export const setUserStatus = (token, id, active) => request(`/users/${id}/${active ? 'activate' : 'deactivate'}`, {method: 'PATCH', token});
 export const deleteUser = (token, id) => request(`/users/${id}`, {method: 'DELETE', token});
 

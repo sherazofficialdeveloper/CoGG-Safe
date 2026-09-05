@@ -12,11 +12,6 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
   const [stopping, setStopping] = useState(false);
   const recordId = sos?.id || sos?._id;
   const normalizedStatus = String(detail?.status || 'active').toLowerCase();
-  const validationInfo = detail?.validation;
-  const validationText = typeof validationInfo === 'string'
-    ? validationInfo
-    : validationInfo?.summary || validationInfo?.message || validationInfo?.status;
-  const shouldRenderValidation = !['pending', 'active'].includes(normalizedStatus) && Boolean(validationText);
   const liveActive = String(liveLocation?.status || detail?.liveLocation?.status || '').toLowerCase() === 'active';
 
   useEffect(() => {
@@ -97,12 +92,6 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
             <Text style={styles.stopSharingText}>{stopping ? 'Stopping...' : 'Stop Sharing Live Location'}</Text>
           </TouchableOpacity>
         ) : null}
-        {shouldRenderValidation ? (
-          <View style={styles.validationBox}>
-            <Text style={styles.validationLabel}>Validation</Text>
-            <Text style={styles.validationText}>{String(validationText)}</Text>
-          </View>
-        ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
         <Text style={styles.text}>The app keeps the user on the normal Home dashboard while the SOS workflow runs in the background.</Text>
       </View>
@@ -118,9 +107,6 @@ const styles = StyleSheet.create({
   status: {fontSize: 28, fontWeight: '900', color: '#E4002B', marginTop: 12},
   stopSharingButton: {width: '100%', backgroundColor: '#FFF', borderWidth: 1.5, borderColor: '#E4002B', borderRadius: 12, paddingVertical: 14, marginTop: 18, alignItems: 'center'},
   stopSharingText: {color: '#E4002B', fontWeight: '900'},
-  validationBox: {width: '100%', backgroundColor: '#FFF', borderRadius: 12, padding: 12, marginTop: 16},
-  validationLabel: {fontSize: 12, fontWeight: '800', color: '#7D8794', textAlign: 'center'},
-  validationText: {fontSize: 14, color: '#1A1A1A', textAlign: 'center', marginTop: 4},
   text: {fontSize: 15, color: '#59636E', textAlign: 'center', marginTop: 12, lineHeight: 22},
   error: {fontSize: 13, color: '#B42318', textAlign: 'center', marginTop: 10},
   backButton: {backgroundColor: '#E4002B', paddingVertical: 16, borderRadius: 12, marginTop: 28, alignItems: 'center'},

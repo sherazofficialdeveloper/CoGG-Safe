@@ -46,11 +46,8 @@ const UserNotificationScreen = ({
       })
       .catch(requestError => mounted && setError(requestError.message))
       .finally(() => mounted && setLoading(false));
-    if (!snapshot && !hasCachedNotifications) refresh();
-    else {
-      setLoading(false);
-      refresh();
-    }
+    setLoading(!hasCachedNotifications && !snapshot);
+    refresh();
     const timer = setInterval(refresh, 10000);
     return () => { mounted = false; clearInterval(timer); };
   }, [token]);
@@ -163,7 +160,7 @@ const UserNotificationScreen = ({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}>
 
-        {loading && <Text style={styles.sectionTitle}>Loading notifications...</Text>}
+        {loading && notifications.length === 0 && <Text style={styles.sectionTitle}>Loading notifications...</Text>}
         {error && <Text style={styles.notificationMessage}>{error}</Text>}
 
         {/* Active SOS Banner */}

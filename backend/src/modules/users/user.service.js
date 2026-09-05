@@ -5,6 +5,7 @@ const { ROLES } = require('../../constants/roles');
 const { USER_STATUS } = require('../../constants/sosConstants');
 const { parsePagination, buildPaginationMeta } = require('../../utils/paginate');
 const escapeRegex = require('../../utils/escapeRegex');
+const { decryptCredentialPassword } = require('../../utils/password');
 
 // Every read in this module excludes soft-deleted users by default —
 // a deleted user should behave as gone from all admin management views,
@@ -118,6 +119,18 @@ async function setPassword(id, newPassword) {
   return user;
 }
 
+async function getCredentials(id) {
+  const user = await User.findOne({ _id: id, ...NOT_DELETED }).select('+credentialPasswordEncrypted');
+  if (!user) throw ApiError.notFound('User not found');
+  if (!user.credentialPasswordEncrypted) {
+    throw ApiError.conflict('Credentials are not available for this user. Reset the password to generate copyable credentials.');
+  }
+  let password;
+  try { password = decryptCredentialPassword(user.credentialPasswordEncrypted); }
+  catch (_) { throw ApiError.internal('Stored credentials could not be recovered.'); }
+  return { username: user.username, password };
+}
+
 async function setStatus(id, status) {
   const user = await getUserById(id);
   user.status = status;
@@ -160,6 +173,7 @@ module.exports = {
   getUserById,
   updateUser,
   setPassword,
+  getCredentials,
   activateUser,
   deactivateUser,
   deleteUser,

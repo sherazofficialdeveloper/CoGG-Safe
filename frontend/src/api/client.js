@@ -28,9 +28,10 @@ export function getCachedApiData(path, token) {
 export async function request(path, {method = 'GET', body, token, timeoutMs, forceRefresh = false, cacheTtlMs = GET_CACHE_TTL_MS} = {}) {
   const normalizedMethod = method.toUpperCase();
   const key = requestKey(path, token);
+  const isSosMediaFile = normalizedMethod === 'GET' && /\/sos\/[^/]+\/media\//.test(path);
   if (normalizedMethod === 'GET') {
     const cached = responseCache.get(key);
-    if (!forceRefresh && cached && Date.now() - cached.cachedAt < cacheTtlMs) {
+    if (!forceRefresh && !isSosMediaFile && cached && Date.now() - cached.cachedAt < cacheTtlMs) {
       if (__DEV__) console.log('[API] CACHE_HIT', {method: normalizedMethod, path});
       return cached.data;
     }

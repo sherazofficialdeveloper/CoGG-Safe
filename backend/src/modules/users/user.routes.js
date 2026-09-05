@@ -26,6 +26,7 @@ router.get('/', listUsersValidation, validateRequest, userController.listUsers);
 router.get('/:id', userIdParamValidation, validateRequest, userController.getUser);
 router.patch('/:id', updateUserValidation, validateRequest, userController.updateUser);
 router.patch('/:id/password', setPasswordValidation, validateRequest, userController.setPassword);
+router.get('/:id/credentials', userIdParamValidation, validateRequest, userController.getCredentials);
 router.patch('/:id/activate', userIdParamValidation, validateRequest, userController.activateUser);
 router.patch('/:id/deactivate', userIdParamValidation, validateRequest, userController.deactivateUser);
 router.delete('/:id', userIdParamValidation, validateRequest, userController.deleteUser);

@@ -11,6 +11,12 @@
   return `${normalizedBase}/sos/${primaryId}/media/${secondaryIdOrComponent}/file`;
 }
 
+export function buildEmergencyMediaUrl(emergencyLink, component) {
+  if (!emergencyLink || !component) return null;
+  const base = String(emergencyLink).replace(/\/$/, '');
+  return `${base}/media/${component}`;
+}
+
 export function buildMediaRequestOptions(token) {
   return {
     headers: {
@@ -19,4 +25,4 @@ export function buildMediaRequestOptions(token) {
   };
 }
 
-export default { buildMediaUrl, buildMediaRequestOptions };
+export default { buildMediaUrl, buildEmergencyMediaUrl, buildMediaRequestOptions };
