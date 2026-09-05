@@ -52,11 +52,34 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
       : undefined,
   };
   if (__DEV__) {
+    console.log('[SOS_DEBUG] BACKEND_CREATE_START', {localSosId: sosEvent?.id || null});
+    console.log('[SOS_DEBUG] BACKEND_CREATE_REQUEST', {
+      localSosId: sosEvent?.id || null,
+      idempotencyKey: payload.idempotencyKey,
+    });
+    console.log('[SOS_DEBUG] IDEMPOTENCY_KEY', {key: payload.idempotencyKey});
+  }
+  if (__DEV__) {
     console.log('[SOS_DEBUG] CREATE_START', {eventId: sosEvent?.id});
     console.log('BACKEND_SOS_CREATE_STARTED', {eventId: sosEvent?.id});
   }
 
-  const response = await createSos(token, payload);
+  let response;
+  try {
+    response = await createSos(token, payload);
+  } catch (error) {
+    if (__DEV__) console.log('[SOS_DEBUG] BACKEND_CREATE_ERROR', {
+      localSosId: sosEvent?.id || null,
+      idempotencyKey: payload.idempotencyKey,
+      message: error?.message || 'Backend SOS creation failed',
+      status: error?.status || null,
+    });
+    throw error;
+  }
+  if (__DEV__) console.log('[SOS_DEBUG] BACKEND_CREATE_RESPONSE', {
+    localSosId: sosEvent?.id || null,
+    hasResponse: Boolean(response),
+  });
   const sosRecord = response?.sos || response;
   const backendId = sosRecord?._id || sosRecord?.id || null;
   if (__DEV__) {
@@ -70,6 +93,7 @@ export async function syncSosToBackend({token, sosEvent, idempotencyKey}) {
       error: 'SOS backend creation did not return a valid SOS identifier.',
     };
   }
+  if (__DEV__) console.log('[SOS_DEBUG] BACKEND_ID', {localSosId: sosEvent?.id || null, backendId});
 
   return {
     status: 'COMPLETED',
@@ -143,7 +167,18 @@ export async function uploadCapturedSosMedia({token, sosEvent, component = null}
 
     try {
       if (localPath) {
+        if (__DEV__) console.log('[SOS_DEBUG] MEDIA_UPLOAD_START', {
+          component: item.component,
+          localPath,
+          backendId,
+        });
         const validFile = await validateNativeSosMedia(localPath);
+        if (__DEV__) console.log('[SOS_DEBUG] MEDIA_VALIDATION', {
+          component: item.component,
+          localPath,
+          valid: Boolean(validFile),
+          backendId,
+        });
         if (!validFile) {
           uploadState[item.component] = {
             status: 'FAILED',
@@ -157,6 +192,12 @@ export async function uploadCapturedSosMedia({token, sosEvent, component = null}
           uri: localPath.startsWith('file://') ? localPath : `file://${localPath}`,
           type: item.mimeType,
           name: `${item.component}-${Date.now()}${item.component === 'audio' ? '.m4a' : '.jpg'}`,
+        });
+        if (__DEV__) console.log('[SOS_DEBUG] MEDIA_UPLOAD_RESULT', {
+          component: item.component,
+          backendId,
+          status: response?.sos?.components?.[item.component]?.status || null,
+          storageRef: response?.sos?.components?.[item.component]?.storageRef || null,
         });
         const media = response?.sos?.components?.[item.component];
         if (media?.status !== 'success' || !media.storageRef) {
@@ -182,6 +223,11 @@ export async function uploadCapturedSosMedia({token, sosEvent, component = null}
         uploadState[item.component] = {status: 'REPORTED_FAILED'};
       }
     } catch (error) {
+      if (__DEV__) console.log('[SOS_DEBUG] MEDIA_UPLOAD_ERROR', {
+        component: item.component,
+        backendId,
+        message: error?.message || 'Upload failed',
+      });
       // This component stays retryable; every other component still gets
       // its own attempt below rather than the whole job aborting here.
       uploadState[item.component] = {status: 'PENDING', error: error?.message || 'Upload failed'};

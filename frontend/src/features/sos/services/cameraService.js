@@ -105,6 +105,10 @@ export async function captureEmergencyPhotos({sosId, previousResult = null, even
     const backImagePath = result?.backImagePath || previousResult?.backImagePath || null;
     const frontIsUsable = isUsableMediaPath(frontImagePath);
     const backIsUsable = isUsableMediaPath(backImagePath);
+    if (__DEV__) {
+      console.log('[SOS_DEBUG] FRONT_CAPTURE_RESULT', {sosId, localPath: frontImagePath, valid: frontIsUsable});
+      console.log('[SOS_DEBUG] BACK_CAPTURE_RESULT', {sosId, localPath: backImagePath, valid: backIsUsable});
+    }
     const frontError = frontIsUsable ? null : (result?.frontError || 'Front camera capture failed');
     const backError = backIsUsable ? null : (result?.backError || 'Back camera capture failed');
 

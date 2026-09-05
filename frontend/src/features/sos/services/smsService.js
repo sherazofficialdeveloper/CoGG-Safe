@@ -28,6 +28,13 @@ export async function sendEmergencySms({phoneNumber, message}) {
 
   const connectivity = getConnectivityState();
   const cellularAvailable = Boolean(connectivity.isCellularAvailable);
+  if (__DEV__) console.log('[SOS_DEBUG] SMS_CELLULAR_STATE', {
+    isCellularAvailable: connectivity.isCellularAvailable,
+    type: connectivity.details?.type || null,
+    isConnected: connectivity.isConnected,
+    isInternetReachable: connectivity.isInternetReachable,
+    telephonyStatus: connectivity.telephonyStatus,
+  });
   if (__DEV__) console.log('[SOS][SMS] CELLULAR_STATE', {available: cellularAvailable});
   if (!cellularAvailable) {
     return {status: 'PENDING', reason: 'Cellular service is unavailable; emergency SMS is queued for retry.'};
@@ -43,6 +50,7 @@ export async function sendEmergencySms({phoneNumber, message}) {
 
   try {
     const permissionState = await checkPermission('android.permission.SEND_SMS');
+    if (__DEV__) console.log('[SOS_DEBUG] SMS_PERMISSION_STATE', {state: permissionState});
     if (__DEV__) console.log('[SOS][SMS] SEND_SMS_PERMISSION', {state: permissionState});
     const permissionGranted = permissionState === PERMISSION_STATUS.GRANTED;
     emitSosDiagnostic(permissionGranted ? 'SMS DEBUG — SEND_SMS permission granted' : 'SMS ERROR — SEND_SMS permission denied', permissionGranted ? 'info' : 'error');
@@ -64,6 +72,12 @@ export async function sendEmergencySms({phoneNumber, message}) {
         phoneNumber,
         message || 'Emergency assistance requested.',
       );
+      if (__DEV__) console.log('[SOS_DEBUG] SMS_SEND_ATTEMPT', {recipient: `${phoneNumber.slice(0, 3)}***`});
+      if (__DEV__) console.log('[SOS_DEBUG] SMS_SEND_RESULT', {
+        status: result?.status || null,
+        subscriptionId: result?.subscriptionId || null,
+        reason: result?.reason || null,
+      });
 
       const normalizedStatus = String(result?.status || '').toUpperCase();
       if (normalizedStatus === 'SENT' || normalizedStatus === 'COMPLETED') {
@@ -111,6 +125,7 @@ export async function sendEmergencySms({phoneNumber, message}) {
       reason: 'No SMS method is available on this device.',
     };
   } catch (error) {
+    if (__DEV__) console.log('[SOS_DEBUG] SMS_SEND_ERROR', {message: error?.message || 'unknown'});
     emitSosDiagnostic('SMS ERROR — ' + (error?.message || 'Android could not send the SMS.'), 'error');
     if (__DEV__) console.log('[SOS][SMS] FAILED', {reason: error?.message || 'Android could not send the SMS.'});
     return {

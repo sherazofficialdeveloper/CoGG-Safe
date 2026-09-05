@@ -92,6 +92,14 @@ export async function initiateEmergencyCall({emergencyNumber}) {
 
   const connectivity = getConnectivityState();
   const cellularAvailable = Boolean(connectivity.isCellularAvailable || connectivity.details?.type === 'cellular');
+  if (__DEV__) console.log('[SOS_DEBUG] CELLULAR_STATE', {
+    isCellularAvailable: connectivity.isCellularAvailable,
+    type: connectivity.details?.type || null,
+    detailsType: connectivity.details?.type || null,
+    isConnected: connectivity.isConnected,
+    isInternetReachable: connectivity.isInternetReachable,
+    telephonyStatus: connectivity.telephonyStatus,
+  });
   if (!cellularAvailable) {
     return {status: 'PENDING', reason: 'Cellular service is unavailable; emergency call is queued for retry.'};
   }

@@ -202,6 +202,14 @@ async function createSos({ userId, idempotencyKey, location }) {
     userId: user._id,
     status: { $in: [SOS_STATUS.PENDING, SOS_STATUS.ACTIVE] },
   }).sort({ createdAt: -1 });
+  console.log('[SOS_DEBUG] OPEN_SOS_CHECK', {
+    userId: String(user._id),
+    exists: Boolean(openSos),
+    sosId: openSos ? String(openSos._id) : null,
+    status: openSos?.status || null,
+    idempotencyKey: idempotencyKey || null,
+  });
+
   if (openSos) {
     throw ApiError.conflict('An SOS is already pending or active for this user');
   }

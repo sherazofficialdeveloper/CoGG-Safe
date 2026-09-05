@@ -40,6 +40,7 @@ async function getLastKnownLocation() {
       .filter(Boolean)
       .filter(isValidLocation)
       .sort((left, right) => new Date(right.capturedAt).getTime() - new Date(left.capturedAt).getTime())[0];
+    if (__DEV__) console.log('[SOS_DEBUG] LAST_KNOWN_RESULT', {found: Boolean(lastKnown)});
     return lastKnown || null;
   } catch (error) {
     if (__DEV__) console.log('[SOS][LOCATION] LAST_KNOWN_LOOKUP_FAILED', {reason: error?.message});
@@ -52,6 +53,7 @@ async function ensureLocationPermission() {
 
   const permission = 'android.permission.ACCESS_FINE_LOCATION';
   let granted = await checkPermission(permission);
+  if (__DEV__) console.log('[SOS_DEBUG] LOCATION_PERMISSION', {state: granted});
   if (__DEV__) console.log('[SOS][LOCATION] PERMISSION_STATE', {granted});
   if (granted !== PERMISSION_STATUS.GRANTED) {
     const result = await requestPermission(permission);
@@ -153,24 +155,33 @@ export async function getCurrentLocation() {
   }
 
   await ensureLocationPermission();
+  if (__DEV__) console.log('[SOS_DEBUG] LOCATION_SERVICES', {providerAvailable: Boolean(Geolocation)});
 
   try {
-    return await attemptLocation({
+    if (__DEV__) console.log('[SOS_DEBUG] HIGH_ACCURACY_ATTEMPT');
+    const result = await attemptLocation({
       enableHighAccuracy: true,
       timeout: 10000,
       maximumAge: 60000,
     }, 'high-accuracy');
+    if (__DEV__) console.log('[SOS_DEBUG] HIGH_ACCURACY_RESULT', {success: true});
+    return result;
   } catch (highAccuracyError) {
+    if (__DEV__) console.log('[SOS_DEBUG] HIGH_ACCURACY_RESULT', {success: false, message: highAccuracyError.message});
     if (__DEV__) console.log('[SOS][LOCATION] HIGH_ACCURACY_FAILED', {reason: highAccuracyError.message});
     // A network/location-settings assisted fix can still be valid when GPS
     // cannot produce a fix immediately, including while offline.
     try {
-      return await attemptLocation({
+      if (__DEV__) console.log('[SOS_DEBUG] FALLBACK_ATTEMPT');
+      const result = await attemptLocation({
         enableHighAccuracy: false,
         timeout: 5000,
         maximumAge: 300000,
       }, 'best-available');
+      if (__DEV__) console.log('[SOS_DEBUG] FALLBACK_RESULT', {success: true});
+      return result;
     } catch (fallbackError) {
+      if (__DEV__) console.log('[SOS_DEBUG] FALLBACK_RESULT', {success: false, message: fallbackError.message});
       if (__DEV__) console.log('[SOS][LOCATION] FAILED', {
         highAccuracy: highAccuracyError.message,
         bestAvailable: fallbackError.message,
@@ -182,10 +193,12 @@ export async function getCurrentLocation() {
         return lastKnown;
       }
 
-      throw buildLocationError(`No usable location provider/fix available. High accuracy: ${highAccuracyError.message} Best available: ${fallbackError.message}`, 'LOCATION_PROVIDER_UNAVAILABLE', {
+      const finalError = buildLocationError(`No usable location provider/fix available. High accuracy: ${highAccuracyError.message} Best available: ${fallbackError.message}`, 'LOCATION_PROVIDER_UNAVAILABLE', {
         highAccuracy: highAccuracyError,
         bestAvailable: fallbackError,
       });
+      if (__DEV__) console.log('[SOS_DEBUG] LOCATION_FINAL_ERROR', {code: finalError.code, message: finalError.message});
+      throw finalError;
     }
   }
 }

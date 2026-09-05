@@ -73,6 +73,7 @@ export async function createSosLocalEvent({userId, collectionId, meta = {}}) {
     throw new Error(pending.reason);
   }
   await sosLocalStore.upsertSos(pending.event);
+  if (__DEV__) console.log('[SOS_DEBUG] LOCAL_SOS_CREATED', {localSosId: pending.event.id});
   return pending.event;
 }
 
@@ -105,6 +106,11 @@ export async function activateSosFlow({
   onPending = null,
   countdownMs = null,
 } = {}) {
+  if (__DEV__) console.log('[SOS_DEBUG] ACTIVATE_FLOW_START', {
+    timestamp: new Date().toISOString(),
+    userId,
+    collectionId,
+  });
   if (cancelSignal?.cancelled) {
     return {event: null, execution: [], cancelled: true};
   }

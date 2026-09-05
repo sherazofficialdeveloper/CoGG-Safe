@@ -480,6 +480,7 @@ function AppContent() {
     setSosError('');
     setSosLoading(true);
     sosCancelSignalRef.current = {cancelled: false};
+    if (__DEV__) console.log('[SOS_DEBUG] TRIGGER_START', {timestamp: new Date().toISOString()});
 
     try {
       let collection = await sosLocalStore.getCachedCollectionInfo(user?.collectionId);
@@ -499,6 +500,10 @@ function AppContent() {
               emergencyNumber: collection?.emergencyCallNumber || null,
             },
           });
+          if (__DEV__) {
+            console.log('[SOS_DEBUG] TRIGGER_ID', {localSosId: result?.event?.id || null});
+            console.log('[SOS_DEBUG] IDEMPOTENCY_KEY', {key: result?.event?.id || null});
+          }
         },
 
         serviceRunners: {
