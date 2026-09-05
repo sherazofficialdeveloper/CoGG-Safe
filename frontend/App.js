@@ -100,6 +100,8 @@ function AppContent() {
   const [activeSosCount, setActiveSosCount] = useState(0);
   const [userNotificationCount, setUserNotificationCount] = useState(0);
   const [adminNotificationCount, setAdminNotificationCount] = useState(0);
+  const [collectionCacheReadyKey, setCollectionCacheReadyKey] = useState(null);
+  const collectionCacheSuccessRef = useRef(null);
   const sosCancelSignalRef = useRef({cancelled: false});
 
   // Toast State
@@ -294,16 +296,35 @@ function AppContent() {
   }, [token, user?.username]);
 
   useEffect(() => {
-    if (!token || !user?.collectionId) return undefined;
+    const collectionId = user?.collectionId;
+    const cacheKey = token && collectionId ? `${token}:${collectionId}` : 'no-collection';
+
+    if (!token || !collectionId) {
+      collectionCacheSuccessRef.current = null;
+      setCollectionCacheReadyKey(cacheKey);
+      return undefined;
+    }
+
+    if (collectionCacheSuccessRef.current === cacheKey) {
+      setCollectionCacheReadyKey(cacheKey);
+      return undefined;
+    }
+
     let active = true;
-    getCollection(token, user.collectionId)
-      .then(response => {
-        if (active && response?.collection) {
-          return sosLocalStore.setCachedCollectionInfo(user.collectionId, response.collection);
+    setCollectionCacheReadyKey(null);
+
+    getCollection(token, collectionId)
+      .then(async response => {
+        if (!active) return;
+        if (response?.collection) {
+          await sosLocalStore.setCachedCollectionInfo(collectionId, response.collection);
+          collectionCacheSuccessRef.current = cacheKey;
         }
-        return undefined;
+        setCollectionCacheReadyKey(cacheKey);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        if (active) setCollectionCacheReadyKey(cacheKey);
+      });
     return () => {
       active = false;
     };
@@ -599,7 +620,11 @@ function AppContent() {
   // LOADING SCREEN
   // ============================================================
 
-  if (screen === 'loading' || loading) {
+  const collectionCacheKey = token && user?.collectionId
+    ? `${token}:${user.collectionId}`
+    : 'no-collection';
+
+  if (screen === 'loading' || loading || collectionCacheReadyKey !== collectionCacheKey) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator size="large" color="#E4002B" />
