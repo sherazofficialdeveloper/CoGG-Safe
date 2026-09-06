@@ -113,9 +113,17 @@ const AdminSosDetailScreen = ({
   const hasStoredMediaStatus = component => ['success', 'uploaded', 'ready', 'completed'].includes(String(component?.status || '').toLowerCase()) && (Boolean(component?.storageRef) || Boolean(component?.localPath));
   const getPublicMediaUrl = (emergencyLink, componentName) => {
     const exact = record?.emergencyMediaUrls?.[componentName];
-    if (exact) return exact;
-    const match = String(emergencyLink || '').match(/\/([^/]+)\/?$/);
-    return match?.[1] ? `${API_BASE_URL}/emergency/${match[1]}/media/${componentName}` : null;
+    let url = exact || null;
+    if (!url) {
+      const match = String(emergencyLink || '').match(/\/([^/]+)\/?$/);
+      url = match?.[1] ? `${API_BASE_URL}/emergency/${match[1]}/media/${componentName}` : null;
+    }
+    if (!url) return null;
+    // The media URL stays stable while the binary is uploaded later.
+    // Cache-busting with the SOS update timestamp prevents React Native
+    // from reusing an earlier 404/empty response for the same image/audio URL.
+    const version = record?.updatedAt || record?.createdAt || Date.now();
+    return `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(version)}`;
   };
 
   // Two different routes can serve the same media:
@@ -206,12 +214,12 @@ const AdminSosDetailScreen = ({
     };
   }, [liveLocationActive, recordId, token]);
 
-  const hasLiveLocationData = [liveLocation, record.liveLocation?.lastLocation, record.liveLocation, record.location].some((entry) => {
+  const hasLiveLocationData = [liveLocation, record.liveLocation?.lastLocation, record.location].some((entry) => {
     if (!entry || typeof entry !== 'object') return false;
     const latitude = Number(entry.lat ?? entry.latitude ?? 'NaN');
     const longitude = Number(entry.lng ?? entry.longitude ?? 'NaN');
     return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
-  });
+  }) || liveLocationActive || Boolean(record.location?.status && String(record.location.status).toLowerCase() === 'success');
   const hasImageData = Boolean((displayFrontImage && !hiddenImages.front) || (displayBackImage && !hiddenImages.back));
 
   return (

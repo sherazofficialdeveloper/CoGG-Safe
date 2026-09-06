@@ -95,10 +95,14 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
   // require a Bearer header — when the public route isn't available
   // (e.g. record has no emergencyLink yet, or media was never public).
   const getPublicMediaUrl = componentName => {
-    const exact = detail?.emergencyMediaUrls?.[componentName];
-    if (exact) return exact;
-    const match = String(detail?.emergencyLink || '').match(/\/([^/]+)\/?$/);
-    return match?.[1] ? `${API_BASE_URL}/emergency/${match[1]}/media/${componentName}` : null;
+    let url = detail?.emergencyMediaUrls?.[componentName] || null;
+    if (!url) {
+      const match = String(detail?.emergencyLink || '').match(/\/([^/]+)\/?$/);
+      url = match?.[1] ? `${API_BASE_URL}/emergency/${match[1]}/media/${componentName}` : null;
+    }
+    if (!url) return null;
+    const version = detail?.updatedAt || detail?.createdAt || Date.now();
+    return `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(version)}`;
   };
   const resolveMediaSource = componentName => {
     const publicUrl = getPublicMediaUrl(componentName);
@@ -123,7 +127,7 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
   const displayLat = displayLocation?.lat ?? displayLocation?.latitude;
   const displayLng = displayLocation?.lng ?? displayLocation?.longitude;
   const displayAccuracy = displayLocation?.accuracy;
-  const hasLocationData = displayLat != null && displayLng != null;
+  const hasLocationData = (displayLat != null && displayLng != null) || liveActive || detail?.location?.status === 'success';
   const gpsMapsUrl = hasLocationData ? `https://www.google.com/maps?q=${displayLat},${displayLng}` : null;
   const initialLocation = detail?.location;
   const hasInitialLocation = initialLocation?.latitude != null && initialLocation?.longitude != null;
@@ -161,7 +165,9 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
             </View>
             <TouchableOpacity style={styles.card} onPress={() => gpsMapsUrl && Linking.openURL(gpsMapsUrl)} activeOpacity={0.8}>
               <Text style={styles.coords}>
-                {Number(displayLat).toFixed(5)}°, {Number(displayLng).toFixed(5)}°
+                {hasLocationData && displayLat != null && displayLng != null
+                  ? `${Number(displayLat).toFixed(5)}°, ${Number(displayLng).toFixed(5)}°`
+                  : 'Waiting for a GPS fix...'}
               </Text>
               <Text style={styles.accuracy}>
                 {displayAccuracy != null ? `±${displayAccuracy}m accuracy` : 'Accuracy unavailable'}

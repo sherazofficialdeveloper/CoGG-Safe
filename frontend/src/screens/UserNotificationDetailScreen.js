@@ -16,10 +16,15 @@ const hasStoredMedia = component => (
 );
 
 const getPublicMediaUrl = (sos, componentName) => {
-  if (sos?.emergencyMediaUrls?.[componentName]) return sos.emergencyMediaUrls[componentName];
-  const emergencyLink = sos?.emergencyLink;
-  const match = String(emergencyLink || '').match(/\/([^/]+)\/?$/);
-  return match?.[1] ? `${API_BASE_URL}/emergency/${match[1]}/media/${componentName}` : null;
+  let url = sos?.emergencyMediaUrls?.[componentName] || null;
+  if (!url) {
+    const emergencyLink = sos?.emergencyLink;
+    const match = String(emergencyLink || '').match(/\/([^/]+)\/?$/);
+    url = match?.[1] ? `${API_BASE_URL}/emergency/${match[1]}/media/${componentName}` : null;
+  }
+  if (!url) return null;
+  const version = sos?.updatedAt || sos?.createdAt || Date.now();
+  return `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(version)}`;
 };
 
 const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) => {
@@ -118,7 +123,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
             </View>
           ) : null}
 
-          {currentSos && latestLocation ? (
+          {currentSos && (latestLocation || liveActive || currentSos?.location?.status === 'success') ? (
             <View style={styles.mediaBlock}>
               <Text style={styles.mediaTitle}>Live Location</Text>
               <Text style={styles.metaValue}>{liveActive ? 'LIVE' : String(liveLocation?.status || currentSos?.liveLocation?.status || 'LOCATION').toUpperCase()}</Text>

@@ -43,17 +43,18 @@ const AudioPlayer = ({audioUrl, localPath = null, token, publicMedia = false, on
         // token-gated URL, matching the working emergency-link page. This
         // avoids an extra native download/cached-file dependency.
         // LocalPath remains useful for an SOS that has not uploaded yet.
-        let playablePath = localPath;
-        if (!playablePath) {
-          if (publicMedia && /^https?:\/\//i.test(String(audioUrl))) {
-            playablePath = String(audioUrl);
-          } else {
-            if (!token) return fail('Audio cannot be loaded because this session has no authentication token.');
-            // Protected authenticated URLs are still supported through the
-            // native downloader when a caller does not use public media.
-            const {downloadAuthenticatedSosMedia} = require('../features/sos/services/nativeMedia');
-            playablePath = await downloadAuthenticatedSosMedia(audioUrl, token);
-          }
+        let playablePath = null;
+        if (publicMedia && /^https?:\/\//i.test(String(audioUrl))) {
+          // The public emergency media endpoint is already the exact same
+          // token-gated stream used by the working emergency-link page.
+          // Do NOT download it first and do NOT substitute a device-local path.
+          playablePath = String(audioUrl);
+        } else if (localPath) {
+          playablePath = localPath;
+        } else {
+          if (!token) return fail('Audio cannot be loaded because this session has no authentication token.');
+          const {downloadAuthenticatedSosMedia} = require('../features/sos/services/nativeMedia');
+          playablePath = await downloadAuthenticatedSosMedia(audioUrl, token);
         }
         if (!isMounted) return;
 

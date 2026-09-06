@@ -28,10 +28,20 @@ function isValidRecipientEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !isPlaceholder(email);
 }
 
+function isResendFromDomainUsable(value) {
+  const from = String(value || '').trim().toLowerCase();
+  if (!from) return false;
+  // Resend does not permit arbitrary public mailbox domains (e.g. gmail.com)
+  // as a sender unless that domain is verified in the Resend account. Treat
+  // this as configuration, not a transient delivery failure.
+  const domain = from.includes('@') ? from.split('@').pop() : '';
+  return Boolean(domain) && domain !== 'gmail.com' && domain !== 'yahoo.com' && domain !== 'outlook.com' && domain !== 'hotmail.com';
+}
+
 function isConfigured() {
   const provider = String(env.email.provider || 'smtp').toLowerCase();
   if (provider === 'resend') {
-    return !isPlaceholder(env.email.resendApiKey) && !isPlaceholder(env.email.from);
+    return !isPlaceholder(env.email.resendApiKey) && !isPlaceholder(env.email.from) && isResendFromDomainUsable(env.email.from);
   }
   return !isPlaceholder(env.email.host) && !isPlaceholder(env.email.user) && !isPlaceholder(env.email.password);
 }
@@ -90,6 +100,12 @@ async function send({ to, subject, body }) {
   }
 
   if (!isConfigured()) {
+    if (String(env.email.provider || '').toLowerCase() === 'resend' && !isResendFromDomainUsable(env.email.from)) {
+      const error = new Error('Resend EMAIL_FROM must use a domain verified in Resend; gmail.com and other public mailbox domains are not valid senders.');
+      error.code = 'EMAIL_RESEND_FROM_NOT_VERIFIED';
+      logger.warn('Resend sender is not configured with a verified domain', { to, subject });
+      throw error;
+    }
     logger.warn('Email provider is not configured', { provider: env.email.provider, to, subject });
     return { status: 'unsupported', error: 'Email provider is not configured' };
   }

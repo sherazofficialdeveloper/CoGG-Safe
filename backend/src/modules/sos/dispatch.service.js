@@ -156,9 +156,12 @@ async function dispatchEmail(sos, recipients, subject, renderedMessage) {
       throw (firstFailure && firstFailure.reason) || new Error('All email deliveries failed');
     }
   } catch (err) {
-    logger.error('Email dispatch failed', { sosId: sos._id.toString(), error: err.message });
-    await setComponentStatus(sos._id, COMPONENT_NAMES.EMAIL, COMPONENT_STATUS.FAILED, {
-      error: safeErrorMessage(err, 'Email delivery failed'),
+    logger.error('Email dispatch failed', { sosId: sos._id.toString(), error: err.message, code: err.code || null });
+    const configError = err?.code === 'EMAIL_RESEND_FROM_NOT_VERIFIED';
+    await setComponentStatus(sos._id, COMPONENT_NAMES.EMAIL, configError ? COMPONENT_STATUS.UNSUPPORTED : COMPONENT_STATUS.FAILED, {
+      error: configError
+        ? 'Resend sender is not verified. Set RESEND_FROM to an address on a verified domain in Resend.'
+        : safeErrorMessage(err, 'Email delivery failed'),
     });
   }
 }
