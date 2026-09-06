@@ -35,8 +35,8 @@ function getTransporter() {
       port: env.email.port,
       secure: env.email.port === 465, // implicit TLS on 465; STARTTLS otherwise
       auth: { user: env.email.user, pass: env.email.password },
-      connectionTimeout: 15000,
-      greetingTimeout: 15000,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
       socketTimeout: 60000,
     });
   }
@@ -54,10 +54,10 @@ async function send({ to, subject, body }) {
 
   try {
     const transporter = getTransporter();
-    await transporter.verify();
-    // Let Nodemailer complete the SMTP transaction. Transport-level timeouts
-    // prevent a dead SMTP connection from hanging forever while verify() also
-    // catches bad host/auth configuration before the emergency message is sent.
+    // sendMail performs the real SMTP connection/authentication/transaction.
+    // Avoid a separate verify() round-trip for every recipient; during an
+    // emergency that extra handshake can itself time out and falsely report
+    // the email as undelivered.
     const info = await transporter.sendMail({
       from: env.email.from,
       to,

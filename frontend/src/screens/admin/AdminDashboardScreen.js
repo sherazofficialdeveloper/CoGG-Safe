@@ -2,7 +2,7 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {View, Text, TouchableOpacity, StyleSheet, ScrollView} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {listCollections, listSos, listUsers} from '../../api/resources';
+import {listCollections, listNotifications, listSos, listUsers} from '../../api/resources';
 import StatCard from '../../components/StatCard';
 import Icon from '../../components/Icon';
 
@@ -32,18 +32,20 @@ const AdminDashboardScreen = ({
   const [totalSos, setTotalSos] = useState(() => snapshot?.totalSos || 0);
   const [loading, setLoading] = useState(() => !snapshot);
   const [error, setError] = useState('');
+  const [recentSos, setRecentSos] = useState(() => snapshot?.recentSos || []);
 
   const loadDashboard = useCallback(async (isMounted = () => true, background = false) => {
     if (!background) setLoading(true);
     setError('');
 
     try {
-      const [collectionResult, userResult, activeUserResult, inactiveUserResult, sosResult] = await Promise.all([
-        listCollections(token, undefined, {forceRefresh: true}),
+      const [collectionResult, userResult, activeUserResult, inactiveUserResult, sosResult, notificationResult] = await Promise.all([
+        listCollections(token, {limit: 5}, {forceRefresh: true}),
         listUsers(token, {limit: 1}, {forceRefresh: true}),
         listUsers(token, {limit: 1, status: 'active'}, {forceRefresh: true}),
         listUsers(token, {limit: 1, status: 'inactive'}, {forceRefresh: true}),
-        listSos(token, {limit: 1}, {forceRefresh: true}),
+        listSos(token, {limit: 8}, {forceRefresh: true}),
+        listNotifications(token, {limit: 20, unreadOnly: true}, {forceRefresh: true}),
       ]);
       if (!isMounted()) return;
       setCollections(collectionResult.collections || []);
@@ -52,6 +54,19 @@ const AdminDashboardScreen = ({
       setActiveUsers(activeUserResult.meta?.total ?? 0);
       setInactiveUsers(inactiveUserResult.meta?.total ?? 0);
       setTotalSos(sosResult.meta?.total ?? 0);
+      const unreadSosIds = new Set((notificationResult.notifications || []).map(item => String(item.sosId?.id || item.sosId?._id || item.sosId || '')).filter(Boolean));
+      const mappedRecentSos = (sosResult.sos || [])
+        .filter(record => !notificationResult.notifications?.length || unreadSosIds.has(String(record.id || record._id)))
+        .slice(0, 5)
+        .map(record => ({
+          id: record.id || record._id,
+          userName: record.userId?.username || 'CoGG Safe user',
+          collectionName: record.collectionId?.name || 'Assigned collection',
+          initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
+          time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
+          status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Active',
+        }));
+      setRecentSos(mappedRecentSos);
       dashboardSnapshots.set(token, {
         collections: collectionResult.collections || [],
         totalCollections: collectionResult.meta?.total ?? (collectionResult.collections || []).length,
@@ -59,6 +74,7 @@ const AdminDashboardScreen = ({
         activeUsers: activeUserResult.meta?.total ?? 0,
         inactiveUsers: inactiveUserResult.meta?.total ?? 0,
         totalSos: sosResult.meta?.total ?? 0,
+        recentSos: mappedRecentSos,
       });
     } catch (requestError) {
       if (isMounted()) setError(requestError.message || 'Unable to load the admin overview.');
@@ -69,17 +85,15 @@ const AdminDashboardScreen = ({
 
   useEffect(() => {
     let mounted = true;
-    if (!snapshot) loadDashboard(() => mounted);
-    // Keep the dashboard fresh without refetching on every navigation.
-    // Mutations clear the snapshot immediately; while the screen stays open,
-    // a low-frequency refresh picks up SOS/users/collections changed elsewhere.
+    if (!dashboardSnapshots.has(token)) loadDashboard(() => mounted);
+    else loadDashboard(() => mounted, true);
+    // Keep the dashboard fresh without refetching on every state render.
     const refreshTimer = setInterval(() => {
       if (mounted) loadDashboard(() => mounted, true);
-    }, 10000);
+    }, 30000);
     return () => { mounted = false; clearInterval(refreshTimer); };
-  }, [loadDashboard, snapshot]);
+  }, [loadDashboard, token]);
 
-  const recentSos = [];
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['left', 'right', 'bottom']}>
@@ -209,7 +223,7 @@ const AdminDashboardScreen = ({
           <View style={styles.collectionsList}>
             {!loading && !error && collections.length === 0 ? (
               <Text style={styles.emptyText}>No collections have been created yet.</Text>
-            ) : collections.map((col, index) => (
+            ) : collections.slice(0, 5).map((col, index) => (
               <TouchableOpacity
                 key={col._id || col.id}
                 style={[

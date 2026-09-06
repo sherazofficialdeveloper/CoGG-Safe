@@ -875,12 +875,15 @@ function AppContent() {
         setSosError('');
       }
     } catch (error) {
-      const message =
-        error?.message || 'Unable to trigger the SOS alert.';
-
-      setSosError(message);
-
-      showToast('Failed to trigger SOS', 'error');
+      const message = error?.message || 'Unable to trigger the SOS alert.';
+      const silentTransient = /validation failed|please try again later|too many requests|already pending|already active|timeout|timed out|network|connection/i.test(message);
+      if (__DEV__) console.log('[SOS][FLOW] activation catch', {message, status: error?.status || null});
+      // Service-level/transient problems must never turn a successfully
+      // activated local SOS into a red global error under the SOS button.
+      // Only genuine activation failures are shown to the user.
+      if (silentTransient) setSosError('');
+      else setSosError(message);
+      if (!silentTransient) showToast('Failed to trigger SOS', 'error');
     } finally {
       setSosLoading(false);
       sosActivationInFlightRef.current = false;

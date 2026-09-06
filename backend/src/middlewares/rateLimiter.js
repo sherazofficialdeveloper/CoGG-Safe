@@ -10,9 +10,13 @@ const apiLimiter = rateLimit({
   // requests from one Supertest address. Disabling only this transport
   // guard in NODE_ENV=test keeps production rate limiting intact and
   // prevents unrelated later tests from receiving a 429.
-  skip: (req) => env.nodeEnv === 'test' || /^\/auth\//i.test(req.path || ''),
+  skip: (req) => env.nodeEnv === 'test' || /^\/auth\//i.test(req.path || '') || ['GET', 'HEAD', 'OPTIONS'].includes(req.method),
   windowMs: env.rateLimit.windowMinutes * 60 * 1000,
-  max: env.rateLimit.maxRequests,
+  // GET/HEAD requests are safe read operations and the mobile app
+  // intentionally refreshes cached data in the background. Do not let those
+  // refreshes exhaust the mutation/API budget. POST/PATCH/DELETE remain
+  // protected by the configured production limit.
+  max: Math.max(env.rateLimit.maxRequests, 300),
   standardHeaders: true,
   legacyHeaders: false,
   message: {

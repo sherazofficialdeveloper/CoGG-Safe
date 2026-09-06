@@ -4,6 +4,7 @@ const paginationValidation = require('../../utils/paginationValidation');
 const listNotificationsValidation = [
   ...paginationValidation,
   query('onlyActive').optional().isBoolean().withMessage('onlyActive must be true or false'),
+  query('unreadOnly').optional().isBoolean().withMessage('unreadOnly must be true or false'),
 ];
 
 const notificationIdParamValidation = [param('id').isMongoId().withMessage('Invalid notification id')];

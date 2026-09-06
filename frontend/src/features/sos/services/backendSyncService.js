@@ -222,11 +222,24 @@ export async function uploadCapturedSosMedia({token, sosEvent, component = null}
           failures.push({component: item.component, error: `${item.component} file is not readable yet.`});
           continue;
         }
-        const response = await uploadSosMedia(token, backendId, item.component, {
+        const uploadFile = {
           uri: localPath.startsWith('file://') ? localPath : `file://${localPath}`,
           type: item.mimeType,
           name: `${item.component}-${Date.now()}${item.component === 'audio' ? '.m4a' : '.jpg'}`,
-        });
+        };
+        let response;
+        let lastUploadError = null;
+        for (let uploadAttempt = 1; uploadAttempt <= 3; uploadAttempt += 1) {
+          try {
+            response = await uploadSosMedia(token, backendId, item.component, uploadFile);
+            if (response?.sos?.components?.[item.component]?.status === 'success') break;
+            throw new Error(`Backend did not confirm durable storage for ${item.component}.`);
+          } catch (uploadError) {
+            lastUploadError = uploadError;
+            if (uploadAttempt < 3) await new Promise(resolve => setTimeout(resolve, uploadAttempt * 1200));
+          }
+        }
+        if (!response) throw (lastUploadError || new Error(`Upload failed for ${item.component}.`));
         emitSosDiagnostic(`SOS DEBUG UPLOAD: ${item.component} completed`);
         if (__DEV__) console.log('[SOS_DEBUG] MEDIA_UPLOAD_RESULT', {
           component: item.component,
@@ -306,9 +319,16 @@ export async function reportServiceResult({token, sosId, component, status, erro
     return {status: 'PENDING', reason: 'Internet unavailable; service result reporting queued.'};
   }
 
+  const normalizedStatus = (() => {
+    const value = String(status || '').trim().toLowerCase();
+    if (['success', 'completed', 'initiated', 'sent', 'delivered', 'queued_to_android', 'sent_broadcast', 'delivered_broadcast'].includes(value)) return 'success';
+    if (['pending', 'processing', 'unknown', 'failed', 'unsupported', 'skipped'].includes(value)) return value;
+    return 'unknown';
+  })();
+
   try {
     const response = await reportSosService(token, sosId, component, {
-      status,
+      status: normalizedStatus,
       error: error || null,
     });
     return {status: 'COMPLETED', response};

@@ -160,13 +160,13 @@ class EmergencyMediaModule(
                             finish(front, frontError, null, null)
                             return
                         }
-                        captureLensWithRetry(provider, owner, CameraSelector.LENS_FACING_BACK, File(directory, "back-${System.currentTimeMillis()}.jpg"), 5) { back, backError ->
+                        captureLensWithRetry(provider, owner, CameraSelector.LENS_FACING_BACK, File(directory, "back-${System.currentTimeMillis()}.jpg"), 8) { back, backError ->
                             finish(front, frontError, back, backError)
                         }
                     }
 
                     if (captureFront) {
-                        captureLensWithRetry(provider, owner, CameraSelector.LENS_FACING_FRONT, File(directory, "front-${System.currentTimeMillis()}.jpg"), 5) { front, frontError ->
+                        captureLensWithRetry(provider, owner, CameraSelector.LENS_FACING_FRONT, File(directory, "front-${System.currentTimeMillis()}.jpg"), 8) { front, frontError ->
                             captureBackIfNeeded(front, frontError)
                         }
                     } else {
@@ -253,7 +253,7 @@ class EmergencyMediaModule(
               } catch (error: Exception) {
                 callback(null, error.message ?: "Camera capture failed.")
               }
-            }, 650L)
+            }, 900L)
         } catch (error: Exception) {
             callback(null, error.message ?: "Camera capture failed.")
         }

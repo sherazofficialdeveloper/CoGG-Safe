@@ -75,6 +75,7 @@ async function createForSos(sos, { user, collection }) {
 async function listForUser(userId, query = {}) {
   const { page, limit, skip } = parsePagination(query);
   const filter = { recipientUserId: userId };
+  if (String(query.unreadOnly) === 'true') filter.isRead = false;
 
   const [items, total] = await Promise.all([
     Notification.find(filter)

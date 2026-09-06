@@ -16,6 +16,11 @@ const hasStoredMedia = component => (
   component.storageRef.trim().length > 0
 );
 
+const getPublicMediaUrl = (emergencyLink, componentName) => {
+  const match = String(emergencyLink || '').match(/\/([^/]+)\/?$/);
+  return match?.[1] ? `${API_BASE_URL}/emergency/${match[1]}/media/${componentName}` : null;
+};
+
 const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) => {
   const insets = useSafeAreaInsets();
   const sosId = notification?.sosId && typeof notification.sosId === 'object'
@@ -56,16 +61,19 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
   const liveActive = String(liveLocation?.status || currentSos?.liveLocation?.status || '').toLowerCase() === 'active';
   const currentSosId = currentSos?.id || currentSos?._id || sosId;
   const frontMediaUrl = useMemo(
-    () => hasStoredMedia(media.frontImage) && currentSosId ? `${API_BASE_URL}/sos/${currentSosId}/media/frontImage/file?rev=${media.frontImage?.updatedAt ? new Date(media.frontImage.updatedAt).getTime() : 0}` : null,
-    [currentSosId, media.frontImage],
+    () => currentSosId && (getPublicMediaUrl(currentSos?.emergencyLink, 'frontImage')
+      || (hasStoredMedia(media.frontImage) ? `${API_BASE_URL}/sos/${currentSosId}/media/frontImage/file` : null)),
+    [currentSosId, media.frontImage, currentSos?.emergencyLink],
   );
   const backMediaUrl = useMemo(
-    () => hasStoredMedia(media.backImage) && currentSosId ? `${API_BASE_URL}/sos/${currentSosId}/media/backImage/file` : null,
-    [currentSosId, media.backImage],
+    () => currentSosId && (getPublicMediaUrl(currentSos?.emergencyLink, 'backImage')
+      || (hasStoredMedia(media.backImage) ? `${API_BASE_URL}/sos/${currentSosId}/media/backImage/file` : null)),
+    [currentSosId, media.backImage, currentSos?.emergencyLink],
   );
   const audioMediaUrl = useMemo(
-    () => hasStoredMedia(media.audio) && currentSosId ? `${API_BASE_URL}/sos/${currentSosId}/media/audio/file` : null,
-    [currentSosId, media.audio],
+    () => currentSosId && (getPublicMediaUrl(currentSos?.emergencyLink, 'audio')
+      || (hasStoredMedia(media.audio) ? `${API_BASE_URL}/sos/${currentSosId}/media/audio/file` : null)),
+    [currentSosId, media.audio, currentSos?.emergencyLink],
   );
   const imageOptions = buildMediaRequestOptions(token);
   const [frontLocalMedia, setFrontLocalMedia] = useState(null);
@@ -170,8 +178,8 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
           {currentSos ? (
             <View style={styles.mediaBlock}>
               <Text style={styles.mediaTitle}>Photos</Text>
-              {frontMediaUrl && !hiddenImages.front ? <TouchableOpacity onPress={() => setSelectedImage(frontLocalMedia || frontMediaUrl)}><Image source={{uri: frontLocalMedia || frontMediaUrl, ...imageOptions}} style={styles.image} onError={() => setHiddenImages(current => ({...current, front: true}))} accessibilityLabel="SOS front photo" /></TouchableOpacity> : null}
-              {backMediaUrl && !hiddenImages.back ? <TouchableOpacity onPress={() => setSelectedImage(backLocalMedia || backMediaUrl)}><Image source={{uri: backLocalMedia || backMediaUrl, ...imageOptions}} style={styles.image} onError={() => setHiddenImages(current => ({...current, back: true}))} accessibilityLabel="SOS back photo" /></TouchableOpacity> : null}
+              {frontMediaUrl && !hiddenImages.front ? <TouchableOpacity onPress={() => setSelectedImage(frontLocalMedia || frontMediaUrl)}><Image source={{uri: frontMediaUrl || frontLocalMedia, ...(getPublicMediaUrl(currentSos?.emergencyLink, 'frontImage') ? {} : imageOptions)}} style={styles.image} onError={() => setHiddenImages(current => ({...current, front: true}))} accessibilityLabel="SOS front photo" /></TouchableOpacity> : null}
+              {backMediaUrl && !hiddenImages.back ? <TouchableOpacity onPress={() => setSelectedImage(backLocalMedia || backMediaUrl)}><Image source={{uri: backMediaUrl || backLocalMedia, ...(getPublicMediaUrl(currentSos?.emergencyLink, 'backImage') ? {} : imageOptions)}} style={styles.image} onError={() => setHiddenImages(current => ({...current, back: true}))} accessibilityLabel="SOS back photo" /></TouchableOpacity> : null}
               {visibleImageCount === 0 ? <Text style={styles.emptyMedia}>No successfully stored photos are available.</Text> : null}
             </View>
           ) : null}
@@ -179,7 +187,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
           {currentSos ? (
             <View style={styles.mediaBlock}>
               <Text style={styles.mediaTitle}>Audio</Text>
-              {audioMediaUrl ? <AudioPlayer audioUrl={audioMediaUrl} localPath={audioLocalMedia} token={token} publicMedia={false} /> : <Text style={styles.emptyMedia}>No successfully stored audio is available.</Text>}
+              {audioMediaUrl ? <AudioPlayer audioUrl={audioMediaUrl} localPath={audioLocalMedia} token={token} publicMedia={true} /> : <Text style={styles.emptyMedia}>No successfully stored audio is available.</Text>}
             </View>
           ) : null}
 

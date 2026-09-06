@@ -115,18 +115,22 @@ const AdminSosDetailScreen = ({
   const localCamera = record.services?.camera;
   const localAudio = record.services?.audio;
   const hasStoredMediaStatus = component => ['success', 'uploaded', 'ready', 'completed'].includes(String(component?.status || '').toLowerCase()) && (Boolean(component?.storageRef) || Boolean(component?.localPath));
-  const frontMediaUrl = hasStoredMediaStatus(frontImage) && recordId
-    ? `${API_BASE_URL}/sos/${recordId}/media/frontImage/file`
-    : null;
-  const backMediaUrl = hasStoredMediaStatus(backImage) && recordId
-    ? `${API_BASE_URL}/sos/${recordId}/media/backImage/file`
-    : null;
-  const audioMediaUrl = hasStoredMediaStatus(audio) && recordId
-    ? `${API_BASE_URL}/sos/${recordId}/media/audio/file`
-    : null;
+  const getPublicMediaUrl = (emergencyLink, componentName) => {
+    const match = String(emergencyLink || '').match(/\/([^/]+)\/?$/);
+    return match?.[1] ? `${API_BASE_URL}/emergency/${match[1]}/media/${componentName}` : null;
+  };
+
+  const frontMediaUrl = recordId && (getPublicMediaUrl(record.emergencyLink, 'frontImage')
+    || (hasStoredMediaStatus(frontImage) ? `${API_BASE_URL}/sos/${recordId}/media/frontImage/file` : null));
+  const backMediaUrl = recordId && (getPublicMediaUrl(record.emergencyLink, 'backImage')
+    || (hasStoredMediaStatus(backImage) ? `${API_BASE_URL}/sos/${recordId}/media/backImage/file` : null));
+  const audioMediaUrl = recordId && (getPublicMediaUrl(record.emergencyLink, 'audio')
+    || (hasStoredMediaStatus(audio) ? `${API_BASE_URL}/sos/${recordId}/media/audio/file` : null));
   const authenticatedMediaOptions = {headers: {Authorization: `Bearer ${token}`}};
-  const displayFrontImage = frontLocalMedia || frontMediaUrl;
-  const displayBackImage = backLocalMedia || backMediaUrl;
+  // Prefer the exact public token-gated media route used by the working
+  // emergency page. Only the non-token fallback requires authenticated headers.
+  const displayFrontImage = frontMediaUrl || frontLocalMedia;
+  const displayBackImage = backMediaUrl || backLocalMedia;
 
   useEffect(() => {
     let mounted = true;
@@ -376,7 +380,7 @@ const AdminSosDetailScreen = ({
                 <View style={styles.photoBox}>
                   <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Front</Text></View>
                   <TouchableOpacity onPress={() => setSelectedImage(displayFrontImage)} activeOpacity={0.85}>
-                    <Image source={{uri: displayFrontImage, ...authenticatedMediaOptions}} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, front: true}))} />
+                    <Image source={{uri: displayFrontImage, ...(getPublicMediaUrl(record.emergencyLink, 'frontImage') ? {} : authenticatedMediaOptions)}} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, front: true}))} />
                   </TouchableOpacity>
                 </View>
               ) : null}
@@ -384,7 +388,7 @@ const AdminSosDetailScreen = ({
                 <View style={styles.photoBox}>
                   <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Back</Text></View>
                   <TouchableOpacity onPress={() => setSelectedImage(displayBackImage)} activeOpacity={0.85}>
-                    <Image source={{uri: displayBackImage, ...authenticatedMediaOptions}} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, back: true}))} />
+                    <Image source={{uri: displayBackImage, ...(getPublicMediaUrl(record.emergencyLink, 'backImage') ? {} : authenticatedMediaOptions)}} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, back: true}))} />
                   </TouchableOpacity>
                 </View>
               ) : null}
@@ -397,7 +401,7 @@ const AdminSosDetailScreen = ({
           <Text style={styles.audioLabel}>🎙️ VOICE RECORDING</Text>
           <View style={styles.audioCard}>
             {audioMediaUrl ? (
-              <AudioPlayer audioUrl={audioMediaUrl} localPath={audioLocalMedia} token={token} publicMedia={false} style={styles.audioPlayer} />
+              <AudioPlayer audioUrl={audioMediaUrl} localPath={audioLocalMedia} token={token} publicMedia={true} style={styles.audioPlayer} />
             ) : (
               <>
                 <View style={styles.waveformContainer}>

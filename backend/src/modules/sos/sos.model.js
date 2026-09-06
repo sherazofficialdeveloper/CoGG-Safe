@@ -158,14 +158,10 @@ const sosSchema = new Schema(
 );
 
 // Database-level race-condition backstop for concurrent create requests.
-sosSchema.index(
-  { userId: 1 },
-  {
-    unique: true,
-    partialFilterExpression: { status: { $in: [SOS_STATUS.PENDING, SOS_STATUS.ACTIVE] } },
-    name: 'one_open_sos_per_user',
-  }
-);
+// Multiple SOS events are valid for the same user. De-duplication of an offline
+// retry is handled exclusively by the (userId, idempotencyKey) unique index.
+// There must be no user-wide ACTIVE/PENDING uniqueness constraint because a
+// new emergency activation is a distinct event.
 sosSchema.index({ userId: 1, createdAt: -1 });
 sosSchema.index({ collectionId: 1 });
 sosSchema.index({ status: 1 });

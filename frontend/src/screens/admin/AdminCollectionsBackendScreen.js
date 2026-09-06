@@ -18,6 +18,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
   const [loading, setLoading] = useState(() => !collectionSnapshots.has(token));
   const [membersLoading, setMembersLoading] = useState(false);
   const [error, setError] = useState('');
+  const [memberError, setMemberError] = useState('');
   const [showUserForm, setShowUserForm] = useState(false);
   const [showEditForm, setShowEditForm] = useState(false);
   const [userForm, setUserForm] = useState(EMPTY_USER);
@@ -26,15 +27,17 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
   const [submitting, setSubmitting] = useState(false);
   const [credentialMap, setCredentialMap] = useState(initialCredentials);
 
-  const loadCollections = useCallback(async ({initial = false} = {}) => {
-    if (initial || collections.length === 0) setLoading(true);
-    setError('');
+  const loadCollections = useCallback(async ({initial = false, forceRefresh = false} = {}) => {
+    if (initial && !collectionSnapshots.has(token)) setLoading(true);
     try {
-      const response = await listCollections(token, undefined, {forceRefresh: true});
-      setCollections(response.collections || []);
-      collectionSnapshots.set(token, response.collections || []);
+      const response = await listCollections(token, undefined, {forceRefresh});
+      const nextCollections = response.collections || [];
+      setCollections(nextCollections);
+      collectionSnapshots.set(token, nextCollections);
+      setError('');
     } catch (requestError) {
-      setError('Unable to load collections. Please try again.');
+      // Keep the last good snapshot visible during transient/offline failures.
+      if (!collectionSnapshots.has(token) || collections.length === 0) setError(requestError.message || 'Unable to load collections. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -42,7 +45,8 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
 
   useEffect(() => {
   if (!collectionSnapshots.has(token)) loadCollections({initial: true});
-  const timer = setInterval(() => loadCollections(), 10000);
+  else loadCollections({forceRefresh: false});
+  const timer = setInterval(() => loadCollections({forceRefresh: true}), 30000);
   return () => clearInterval(timer);
 }, [loadCollections, token]);
 
@@ -53,21 +57,30 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
     const cachedEntry = memberSnapshots.get(memberKey);
     const cachedMembers = cachedEntry?.items || null;
     const cacheFresh = cachedEntry && Date.now() - cachedEntry.fetchedAt < 60000;
+    if (cachedMembers) setMembers(cachedMembers);
+    setMembersLoading(!cachedMembers);
     if (cacheFresh && cachedMembers) {
-      setMembers(cachedMembers);
-      setMembersLoading(false);
+      // Refresh only in the background; navigation stays instant.
+      listCollectionUsers(token, collection._id, {limit: 100}, {forceRefresh: true})
+        .then(response => {
+          const nextMembers = response.users || [];
+          memberSnapshots.set(memberKey, {items: nextMembers, fetchedAt: Date.now()});
+          setMembers(nextMembers);
+          setMemberError('');
+        })
+        .catch(() => undefined);
       return;
     }
-    setMembersLoading(true);
-    setError('');
+    setMemberError('');
     try {
-      const response = await listCollectionUsers(token, collection._id);
+      const response = await listCollectionUsers(token, collection._id, {limit: 100});
       const nextMembers = response.users || [];
       memberSnapshots.set(memberKey, {items: nextMembers, fetchedAt: Date.now()});
       setMembers(nextMembers);
+      setMemberError('');
     } catch (requestError) {
-      setError('Unable to load collection users.');
-      setMembers([]);
+      setMemberError(requestError.message || 'Unable to load collection users.');
+      if (!cachedMembers) setMembers([]);
     } finally {
       setMembersLoading(false);
     }
@@ -77,7 +90,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
     if (!selected || !token) return undefined;
     const refreshMembers = async () => {
       try {
-        const response = await listCollectionUsers(token, selected._id, undefined, {forceRefresh: true});
+        const response = await listCollectionUsers(token, selected._id, {limit: 100}, {forceRefresh: true});
         const nextMembers = response.users || [];
         memberSnapshots.set(`${token}:${selected._id}`, {items: nextMembers, fetchedAt: Date.now()});
         setMembers(nextMembers);
@@ -163,7 +176,16 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
 
       setUserForm(EMPTY_USER);
       setShowUserForm(false);
-      await openCollection(selected);
+      if (createdUser && createdId) {
+        setMembers(current => {
+          const nextMembers = [createdUser, ...current.filter(item => (item._id || item.id) !== createdId)];
+          memberSnapshots.set(`${token}:${selected._id}`, {items: nextMembers, fetchedAt: Date.now()});
+          return nextMembers;
+        });
+      }
+      // Refresh in the background; a transient refresh failure must never
+      // make an already-created user look like a failed create request.
+      openCollection(selected).catch(() => undefined);
       Alert.alert('User created', 'The user can now sign in with these credentials.');
     } catch (requestError) {
       setError(requestError.message || 'Unable to create user.');
@@ -245,7 +267,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
         {showEditForm ? <View style={styles.form}><Text style={styles.formTitle}>Edit collection</Text><TextInput style={styles.input} value={editForm?.name || ''} onChangeText={value => setEditForm(current => ({...current, name: value}))} placeholder="Collection name" /><TextInput style={styles.input} value={editForm?.emergencyCallNumber || ''} onChangeText={value => setEditForm(current => ({...current, emergencyCallNumber: value}))} placeholder="Emergency number" keyboardType="phone-pad" /><View style={styles.typeRow}>{TYPES.map(type => <TouchableOpacity key={type} onPress={() => setEditForm(current => ({...current, type}))} style={[styles.typeButton, editForm?.type === type && styles.typeButtonActive]}><Text style={editForm?.type === type ? styles.typeTextActive : styles.typeText}>{type}</Text></TouchableOpacity>)}</View><TouchableOpacity disabled={submitting} onPress={saveCollection} style={styles.submit}><Text style={styles.submitText}>{submitting ? 'Updating...' : 'Save changes'}</Text></TouchableOpacity></View> : <TouchableOpacity onPress={() => setShowEditForm(true)} style={styles.editButton}><Text style={styles.editButtonText}>Edit collection</Text></TouchableOpacity>}
         {showUserForm ? <InlineUserForm editMode={Boolean(editingUser)} form={userForm} setForm={setUserForm} submitting={submitting} onCancel={() => {setUserForm(EMPTY_USER); setEditingUser(null); setShowUserForm(false);}} onSubmit={submitUser} /> : null}
         <Text style={styles.sectionTitle}>COLLECTION USERS</Text>
-        {membersLoading ? <ActivityIndicator color="#E4002B" /> : members.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>No users in this collection</Text><Text style={styles.muted}>Add a user to this collection.</Text></View> : members.map(member => {
+        {memberError && members.length === 0 ? <View style={styles.empty}><Text style={styles.error}>{memberError}</Text><TouchableOpacity onPress={() => openCollection(selected)}><Text style={styles.retry}>Retry</Text></TouchableOpacity></View> : membersLoading ? <ActivityIndicator color="#E4002B" /> : members.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>No users in this collection</Text><Text style={styles.muted}>Add a user to this collection.</Text></View> : members.map(member => {
           const memberId = member._id || member.id;
           const statusLabel = member.status === 'active' ? 'Active' : 'Inactive';
           return (
@@ -291,8 +313,8 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
 export function InlineUserForm({editMode, form, setForm, submitting, onCancel, onSubmit}) {
   const update = field => value => setForm(current => ({...current, [field]: value}));
   const fields = editMode
-    ? [['username', 'Username', 'e.g. sheraz123'], ['mobileNumber', 'Mobile number', 'e.g. 03001234567'], ['email', 'Email (optional)', 'e.g. user@example.com']]
-    : [['username', 'Username', 'e.g. sheraz123'], ['password', 'Password', 'Enter password'], ['mobileNumber', 'Mobile number', 'e.g. 03001234567'], ['email', 'Email (optional)', 'e.g. user@example.com']];
+    ? [['username', 'Username', 'Username'], ['mobileNumber', 'Mobile number', 'Mobile number'], ['email', 'Email (optional)', 'Email (optional)']]
+    : [['username', 'Username', 'Username'], ['password', 'Password', 'Password'], ['mobileNumber', 'Mobile number', 'Mobile number'], ['email', 'Email (optional)', 'Email (optional)']];
   return <View style={styles.form}><Text style={styles.formTitle}>{editMode ? 'Edit user' : 'Add user'}</Text>{fields.map(([field, label, hint]) => <TextInput key={field} style={styles.input} placeholder={hint || label} placeholderTextColor="#9CA3AF" value={form[field]} onChangeText={update(field)} secureTextEntry={field === 'password'} keyboardType={field === 'mobileNumber' ? 'phone-pad' : field === 'email' ? 'email-address' : 'default'} autoCapitalize="none" />)}<View style={styles.actions}><TouchableOpacity onPress={onCancel} style={styles.cancel}><Text>Cancel</Text></TouchableOpacity><TouchableOpacity onPress={onSubmit} disabled={submitting} style={styles.submit}><Text style={styles.submitText}>{submitting ? (editMode ? 'Saving...' : 'Creating...') : (editMode ? 'Save changes' : 'Create user')}</Text></TouchableOpacity></View></View>;
 }
 
