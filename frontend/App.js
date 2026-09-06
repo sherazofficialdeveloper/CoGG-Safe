@@ -252,6 +252,7 @@ function AppContent() {
         const startupQueue = await sosLocalStore.getPendingQueue();
         emitSosDiagnostic(`SOS DEBUG STARTUP 06: Queue processor jobs=${startupQueue.length}`);
         await processSosQueue({
+          userId: user?._id || user?.id || null,
           processors: {
             backend: async (item, event) =>
               syncSosToBackend({
@@ -291,7 +292,7 @@ function AppContent() {
               }),
 
             audio: async (item, event) =>
-              recordEmergencyAudio({sosId: event.id}),
+              recordEmergencyAudio({sosId: event.id, previousResult: event.services?.audio}),
 
             liveLocation: async (item, event) =>
               startLiveLocationSharing({
@@ -615,17 +616,6 @@ function AppContent() {
   const handleTriggerSos = async () => {
     if (sosActivationInFlightRef.current) return;
 
-    // The local SOS is the immediate lock. This prevents a second 3-second
-    // hold from creating a second local event while the first backend request
-    // is still travelling, even when the network is slow/offline.
-    const existingLocalEvents = await sosLocalStore.getAllEvents().catch(() => []);
-    const openLocal = existingLocalEvents.find(item => item?.userId === (user?._id || user?.id)
-      && ['ACTIVE', 'PENDING'].includes(String(item?.status || '').toUpperCase()));
-    if (openLocal) {
-      setSelectedSos(openLocal);
-      setScreen('userSosActive');
-      return;
-    }
 
     sosActivationInFlightRef.current = true;
     emitSosDiagnostic('SOS DEBUG 01: Trigger received');
@@ -677,8 +667,8 @@ function AppContent() {
             },
           });
           if (__DEV__) {
-            console.log('[SOS_DEBUG] TRIGGER_ID', {localSosId: result?.event?.id || null});
-            console.log('[SOS_DEBUG] IDEMPOTENCY_KEY', {key: result?.event?.id || null});
+            console.log('[SOS_DEBUG] TRIGGER_ID', {localSosId: event?.id || null});
+            console.log('[SOS_DEBUG] IDEMPOTENCY_KEY', {key: event?.id || null});
           }
         },
 
@@ -700,6 +690,13 @@ function AppContent() {
               `I am ${user?.username || 'the user'}. I may be in danger. Please help me.`
             ).replace(/\[Username\]/gi, user?.username || 'the user');
 
+            let selectedSubscriptionId = null;
+            try {
+              selectedSubscriptionId = await chooseSmsSubscription({forcePrompt: true});
+            } catch (_) {
+              selectedSubscriptionId = null;
+            }
+
             if (recipients.length) {
               await sosLocalStore.upsertSos({
                 ...(await sosLocalStore.getSosById(event.id) || event),
@@ -715,6 +712,7 @@ function AppContent() {
               phoneNumbers: recipients,
               message,
               sosId: event.id,
+              preferredSubscriptionId: selectedSubscriptionId,
             });
             if (event.backendId) {
               await reportServiceResult({
@@ -871,10 +869,10 @@ function AppContent() {
         setSelectedSos(result.event);
         setScreen('userSosActive');
 
-        showToast(
-          'SOS alert triggered locally and queued for delivery.',
-          'success',
-        );
+        // The SOS screen is the authoritative status surface. Individual
+      // delivery/capture components retry independently and should not
+      // generate a misleading global toast here.
+        setSosError('');
       }
     } catch (error) {
       const message =

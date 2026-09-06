@@ -62,7 +62,7 @@ export async function enqueueSosJob({sosId, backendSosId = null, type, serviceNa
   });
 }
 
-async function processSosQueueRun({processors = {}, now = Date.now()} = {}) {
+async function processSosQueueRun({processors = {}, now = Date.now(), userId = null} = {}) {
   await connectivityService.refreshTelephonyState().catch(() => undefined);
   const state = getConnectivityState();
   const priority = {BACKEND: 0, BACKEND_SYNC: 0};

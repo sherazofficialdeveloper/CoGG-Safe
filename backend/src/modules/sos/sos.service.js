@@ -193,24 +193,9 @@ async function createSos({ userId, idempotencyKey, location }) {
     if (existing) return { sos: existing, alreadyExisted: true };
   }
 
-  const openSos = await Sos.findOne({
-    userId: user._id,
-    status: { $in: [SOS_STATUS.PENDING, SOS_STATUS.ACTIVE] },
-  }).sort({ createdAt: -1 });
-  console.log('[SOS_DEBUG] OPEN_SOS_CHECK', {
-    userId: String(user._id),
-    exists: Boolean(openSos),
-    sosId: openSos ? String(openSos._id) : null,
-    status: openSos?.status || null,
-    idempotencyKey: idempotencyKey || null,
-  });
-
-  if (openSos) {
-    // An already-open SOS is the same emergency session, not a validation
-    // error. Return it idempotently so delayed/offline retries reconcile to
-    // the existing backend record instead of creating noisy 409 failures.
-    return { sos: openSos, alreadyExisted: true };
-  }
+  // Multiple SOS events are valid for the same user.
+  // Only the client-generated idempotency key de-duplicates retries of the
+  // same activation request; there is intentionally no user-wide open-SOS lock.
 
   let sos;
   try {

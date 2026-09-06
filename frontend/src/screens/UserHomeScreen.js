@@ -53,8 +53,7 @@ const UserHomeScreen = ({
   // prevent testing or activating the Home SOS flow.
   const isSosButtonDisabled = Boolean(
     permissionState.isChecking ||
-    sosLoading ||
-    hasActiveSosSession
+    sosLoading
   );
 
   useEffect(() => {
@@ -177,10 +176,8 @@ const UserHomeScreen = ({
       });
     }
 
-    if (sosLoading || hasActiveSosSession) {
-      if (__DEV__) {
-        console.log('SOS_HOLD_CANCELLED', hasActiveSosSession ? 'an active SOS session already exists' : 'button unavailable due to app state');
-      }
+    if (sosLoading) {
+      if (__DEV__) console.log('SOS_HOLD_CANCELLED', 'another SOS activation is currently being started');
       return;
     }
 

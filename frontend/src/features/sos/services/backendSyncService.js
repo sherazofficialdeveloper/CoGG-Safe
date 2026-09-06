@@ -210,13 +210,16 @@ export async function uploadCapturedSosMedia({token, sosEvent, component = null}
           backendId,
         });
         if (!validFile) {
-          emitSosDiagnostic(`SOS DEBUG UPLOAD: ${item.component} local validation failed`, 'error');
+          // The camera/audio writer may still be finishing its file on slower
+          // devices. Treat this as retryable rather than a permanent failure.
+          // A later queue pass re-validates the exact same local path.
+          emitSosDiagnostic(`SOS DEBUG UPLOAD: ${item.component} waiting for file to become readable`);
           uploadState[item.component] = {
-            status: 'FAILED',
+            status: 'PENDING',
             component: item.component === 'frontImage' ? 'FRONT_CAMERA' : item.component === 'backImage' ? 'BACK_CAMERA' : 'AUDIO',
-            error: `${item.component} file is missing, unreadable, or empty.`,
+            error: null,
           };
-          failures.push({component: item.component, error: uploadState[item.component].error, permanent: true});
+          failures.push({component: item.component, error: `${item.component} file is not readable yet.`});
           continue;
         }
         const response = await uploadSosMedia(token, backendId, item.component, {

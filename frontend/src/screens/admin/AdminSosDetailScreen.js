@@ -35,6 +35,7 @@ const AdminSosDetailScreen = ({
   const [detailRecord, setDetailRecord] = useState(null);
   const [frontLocalMedia, setFrontLocalMedia] = useState(null);
   const [backLocalMedia, setBackLocalMedia] = useState(null);
+  const [audioLocalMedia, setAudioLocalMedia] = useState(null);
   const [hiddenImages, setHiddenImages] = useState({front: false, back: false});
   const detailRequestRef = useRef(0);
   const actionInFlightRef = useRef(false);
@@ -124,12 +125,15 @@ const AdminSosDetailScreen = ({
     ? `${API_BASE_URL}/sos/${recordId}/media/audio/file`
     : null;
   const authenticatedMediaOptions = {headers: {Authorization: `Bearer ${token}`}};
+  const displayFrontImage = frontLocalMedia || frontMediaUrl;
+  const displayBackImage = backLocalMedia || backMediaUrl;
 
   useEffect(() => {
     let mounted = true;
     setHiddenImages({front: false, back: false});
     setFrontLocalMedia(null);
     setBackLocalMedia(null);
+    setAudioLocalMedia(null);
     const load = async () => {
       if (!token || !recordId) return;
       if (frontMediaUrl) {
@@ -138,10 +142,13 @@ const AdminSosDetailScreen = ({
       if (backMediaUrl) {
         try { const path = await downloadAuthenticatedSosMedia(backMediaUrl, token); if (mounted) setBackLocalMedia(path); } catch (_) {}
       }
+      if (audioMediaUrl) {
+        try { const path = await downloadAuthenticatedSosMedia(audioMediaUrl, token); if (mounted) setAudioLocalMedia(path); } catch (_) {}
+      }
     };
     load();
     return () => { mounted = false; };
-  }, [frontMediaUrl, backMediaUrl, recordId, token]);
+  }, [frontMediaUrl, backMediaUrl, audioMediaUrl, recordId, token]);
   useEffect(() => {
     setLiveLocationStatus(initialLiveLocationStatus);
     setLiveLocation(initialLiveLocation);
@@ -205,8 +212,6 @@ const AdminSosDetailScreen = ({
     return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
   });
   const hasImageData = Boolean((displayFrontImage && !hiddenImages.front) || (displayBackImage && !hiddenImages.back));
-  const displayFrontImage = frontLocalMedia || frontMediaUrl;
-  const displayBackImage = backLocalMedia || backMediaUrl;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -392,7 +397,7 @@ const AdminSosDetailScreen = ({
           <Text style={styles.audioLabel}>🎙️ VOICE RECORDING</Text>
           <View style={styles.audioCard}>
             {audioMediaUrl ? (
-              <AudioPlayer audioUrl={audioMediaUrl} token={token} publicMedia={false} style={styles.audioPlayer} />
+              <AudioPlayer audioUrl={audioMediaUrl} localPath={audioLocalMedia} token={token} publicMedia={false} style={styles.audioPlayer} />
             ) : (
               <>
                 <View style={styles.waveformContainer}>

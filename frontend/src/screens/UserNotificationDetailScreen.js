@@ -56,7 +56,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
   const liveActive = String(liveLocation?.status || currentSos?.liveLocation?.status || '').toLowerCase() === 'active';
   const currentSosId = currentSos?.id || currentSos?._id || sosId;
   const frontMediaUrl = useMemo(
-    () => hasStoredMedia(media.frontImage) && currentSosId ? `${API_BASE_URL}/sos/${currentSosId}/media/frontImage/file` : null,
+    () => hasStoredMedia(media.frontImage) && currentSosId ? `${API_BASE_URL}/sos/${currentSosId}/media/frontImage/file?rev=${media.frontImage?.updatedAt ? new Date(media.frontImage.updatedAt).getTime() : 0}` : null,
     [currentSosId, media.frontImage],
   );
   const backMediaUrl = useMemo(
@@ -70,12 +70,14 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
   const imageOptions = buildMediaRequestOptions(token);
   const [frontLocalMedia, setFrontLocalMedia] = useState(null);
   const [backLocalMedia, setBackLocalMedia] = useState(null);
+  const [audioLocalMedia, setAudioLocalMedia] = useState(null);
 
   useEffect(() => {
     let mounted = true;
     setHiddenImages({front: false, back: false});
     setFrontLocalMedia(null);
     setBackLocalMedia(null);
+    setAudioLocalMedia(null);
     const load = async () => {
       if (!token || !currentSosId) return;
       if (frontMediaUrl) {
@@ -90,10 +92,16 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
           if (mounted) setBackLocalMedia(path);
         } catch (_) {}
       }
+      if (audioMediaUrl) {
+        try {
+          const path = await downloadAuthenticatedSosMedia(audioMediaUrl, token);
+          if (mounted) setAudioLocalMedia(path);
+        } catch (_) {}
+      }
     };
     load();
     return () => { mounted = false; };
-  }, [frontMediaUrl, backMediaUrl, currentSosId, token]);
+  }, [frontMediaUrl, backMediaUrl, audioMediaUrl, currentSosId, token]);
 
   const visibleImageCount = Number(Boolean((frontLocalMedia || frontMediaUrl) && !hiddenImages.front)) + Number(Boolean((backLocalMedia || backMediaUrl) && !hiddenImages.back));
   const latestLocation = liveLocation?.lastLocation || currentSos?.liveLocation?.lastLocation || currentSos?.location;
@@ -171,7 +179,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
           {currentSos ? (
             <View style={styles.mediaBlock}>
               <Text style={styles.mediaTitle}>Audio</Text>
-              {audioMediaUrl ? <AudioPlayer audioUrl={audioMediaUrl} token={token} publicMedia={false} /> : <Text style={styles.emptyMedia}>No successfully stored audio is available.</Text>}
+              {audioMediaUrl ? <AudioPlayer audioUrl={audioMediaUrl} localPath={audioLocalMedia} token={token} publicMedia={false} /> : <Text style={styles.emptyMedia}>No successfully stored audio is available.</Text>}
             </View>
           ) : null}
 
