@@ -113,7 +113,7 @@ const AdminSosDetailScreen = ({
   const audio = record.components?.audio;
   const localCamera = record.services?.camera;
   const localAudio = record.services?.audio;
-  const hasStoredMediaStatus = component => ['success', 'uploaded', 'ready', 'completed'].includes(String(component?.status || '').toLowerCase()) && Boolean(component?.storageRef);
+  const hasStoredMediaStatus = component => ['success', 'uploaded', 'ready', 'completed'].includes(String(component?.status || '').toLowerCase()) && (Boolean(component?.storageRef) || Boolean(component?.localPath));
   const frontMediaUrl = hasStoredMediaStatus(frontImage) && recordId
     ? `${API_BASE_URL}/sos/${recordId}/media/frontImage/file`
     : null;
@@ -124,6 +124,24 @@ const AdminSosDetailScreen = ({
     ? `${API_BASE_URL}/sos/${recordId}/media/audio/file`
     : null;
   const authenticatedMediaOptions = {headers: {Authorization: `Bearer ${token}`}};
+
+  useEffect(() => {
+    let mounted = true;
+    setHiddenImages({front: false, back: false});
+    setFrontLocalMedia(null);
+    setBackLocalMedia(null);
+    const load = async () => {
+      if (!token || !recordId) return;
+      if (frontMediaUrl) {
+        try { const path = await downloadAuthenticatedSosMedia(frontMediaUrl, token); if (mounted) setFrontLocalMedia(path); } catch (_) {}
+      }
+      if (backMediaUrl) {
+        try { const path = await downloadAuthenticatedSosMedia(backMediaUrl, token); if (mounted) setBackLocalMedia(path); } catch (_) {}
+      }
+    };
+    load();
+    return () => { mounted = false; };
+  }, [frontMediaUrl, backMediaUrl, recordId, token]);
   useEffect(() => {
     setLiveLocationStatus(initialLiveLocationStatus);
     setLiveLocation(initialLiveLocation);
@@ -180,19 +198,13 @@ const AdminSosDetailScreen = ({
     };
   }, [liveLocationActive, recordId, token]);
 
-  useEffect(() => {
-    setHiddenImages({front: false, back: false});
-    setFrontLocalMedia(null);
-    setBackLocalMedia(null);
-  }, [frontMediaUrl, backMediaUrl]);
-
   const hasLiveLocationData = [liveLocation, record.liveLocation?.lastLocation, record.liveLocation, record.location].some((entry) => {
     if (!entry || typeof entry !== 'object') return false;
     const latitude = Number(entry.lat ?? entry.latitude ?? 'NaN');
     const longitude = Number(entry.lng ?? entry.longitude ?? 'NaN');
     return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
   });
-  const hasImageData = Boolean((frontMediaUrl && !hiddenImages.front) || (backMediaUrl && !hiddenImages.back));
+  const hasImageData = Boolean((displayFrontImage && !hiddenImages.front) || (displayBackImage && !hiddenImages.back));
   const displayFrontImage = frontLocalMedia || frontMediaUrl;
   const displayBackImage = backLocalMedia || backMediaUrl;
 

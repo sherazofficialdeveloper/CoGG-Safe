@@ -177,8 +177,8 @@ export async function getCurrentLocation() {
     if (__DEV__) console.log('[SOS_DEBUG] BEST_AVAILABLE_RESULT', {success: true});
     return quickResult;
   } catch (bestAvailableError) {
-    if (__DEV__) console.log('[SOS_DEBUG] HIGH_ACCURACY_RESULT', {success: false, message: highAccuracyError.message});
-    if (__DEV__) console.log('[SOS][LOCATION] HIGH_ACCURACY_FAILED', {reason: highAccuracyError.message});
+    if (__DEV__) console.log('[SOS_DEBUG] BEST_AVAILABLE_RESULT', {success: false, message: bestAvailableError?.message || 'unavailable'});
+    if (__DEV__) console.log('[SOS][LOCATION] BEST_AVAILABLE_FAILED', {reason: bestAvailableError?.message || 'unavailable'});
     // A network/location-settings assisted fix can still be valid when GPS
     // cannot produce a fix immediately, including while offline.
     try {

@@ -41,7 +41,7 @@ const NON_RECOVERABLE_STATUSES = new Set(['CANCELLED', 'DEACTIVATED']);
  * backend remains the sole authority that ever promotes an event to
  * ACTIVE; this function only re-queues work, it never sets that field.
  */
-export async function recoverActiveSosWork(now = Date.now()) {
+export async function recoverActiveSosWork(userId, now = Date.now()) {
   const events = await sosLocalStore.getAllEvents();
   const recovered = [];
   const queue = await sosLocalStore.getPendingQueue();
@@ -60,6 +60,7 @@ export async function recoverActiveSosWork(now = Date.now()) {
   }
 
   for (const event of events) {
+    if (userId && String(event.userId) !== String(userId)) continue;
     if (NON_RECOVERABLE_STATUSES.has(event.status)) continue;
 
     const isExpired = event.liveLocationStartedAt

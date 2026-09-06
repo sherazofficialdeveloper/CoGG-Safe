@@ -441,7 +441,7 @@ const UserHomeScreen = ({
           <View style={styles.smsComposerNotice}>
             <Text style={styles.smsComposerNoticeTitle}>SMS requires your confirmation</Text>
             <Text style={styles.smsComposerNoticeText}>
-              Android restricts automatic SMS for this app. During SOS, the system SMS app opens with the emergency message ready; it is not sent until you confirm Send.
+              Your selected SIM will be used for emergency SMS. If Android does not allow direct SMS on this device, the system SMS composer will be used instead.
             </Text>
           </View>
         ) : null}

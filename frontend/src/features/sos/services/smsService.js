@@ -1,10 +1,10 @@
-import {NativeModules, Platform} from 'react-native';
-import {PERMISSION_STATUS, checkPermission} from '../../../permissions/sosPermissions';
+import {Alert, NativeModules, Platform} from 'react-native';
+import {PERMISSION_STATUS, checkPermission, requestPermission} from '../../../permissions/sosPermissions';
 import {connectivityService, getConnectivityState} from '../connectivity';
 import {sosLocalStore} from '../storage';
 import {emitSosDiagnostic, ensureSosNativeDiagnosticListener} from './sosDiagnosticService';
 
-export async function sendEmergencySms({phoneNumber, message}) {
+export async function sendEmergencySms({phoneNumber, message, preferredSubscriptionId = null}) {
   ensureSosNativeDiagnosticListener();
   emitSosDiagnostic('SMS DEBUG — Service reached');
   if (__DEV__) console.log('[SOS][SMS] RUNNER_STARTED', {hasRecipient: Boolean(phoneNumber)});
@@ -33,7 +33,10 @@ export async function sendEmergencySms({phoneNumber, message}) {
   }
 
   try {
-    const permissionState = await checkPermission('android.permission.SEND_SMS');
+    let permissionState = await checkPermission('android.permission.SEND_SMS');
+    if (permissionState !== PERMISSION_STATUS.GRANTED && permissionState !== PERMISSION_STATUS.BLOCKED) {
+      permissionState = await requestPermission('android.permission.SEND_SMS');
+    }
     if (__DEV__) console.log('[SOS_DEBUG] SMS_PERMISSION_STATE', {state: permissionState});
     if (__DEV__) console.log('[SOS][SMS] SEND_SMS_PERMISSION', {state: permissionState});
     const permissionGranted = permissionState === PERMISSION_STATUS.GRANTED;
@@ -43,39 +46,30 @@ export async function sendEmergencySms({phoneNumber, message}) {
       // the permission may be hard-restricted by the installer. Use the system
       // SMS composer instead of failing the SOS or trapping the user in a dead
       // permission prompt. The user can tap Send in the system UI.
-      if (typeof emergencyMedia.openSmsComposer === 'function') {
-        const composerResult = await emergencyMedia.openSmsComposer(
-          phoneNumber,
-          message || 'Emergency assistance requested.',
-        );
-        return {
-          status: String(composerResult?.status || '').toUpperCase() === 'UNSUPPORTED' ? 'UNSUPPORTED' : 'PENDING',
-          reason: composerResult?.reason || 'Android opened the SMS composer for confirmation.',
-        };
-      }
       return {
         status: 'UNSUPPORTED',
         reason: permissionState === PERMISSION_STATUS.BLOCKED
-          ? 'Direct SMS permission is blocked; Android SMS composer is required.'
-          : 'Direct SMS permission is not available; Android SMS composer is required.',
+          ? 'Direct SMS permission is blocked on this device. Enable SMS permission in Android app settings.'
+          : 'Direct SMS permission was not granted on this device.',
       };
     }
     if (typeof emergencyMedia.sendEmergencySms === 'function') {
       if (__DEV__) console.log('[SOS][SMS] SERVICE_INVOKED', {nativeMethod: 'EmergencyMedia.sendEmergencySms'});
       emitSosDiagnostic('SMS DEBUG — Native SMS method invoked');
       if (__DEV__) console.log('[SOS][SMS] ATTEMPT_NATIVE', {recipient: `${phoneNumber.slice(0, 3)}***`});
-      let preferredSubscriptionId = -1;
-      try {
-        const saved = await sosLocalStore.getEmergencyCallSimPreference();
-        if (saved?.subscriptionId != null) preferredSubscriptionId = saved.subscriptionId;
-      } catch (_) {
-        // Let Android choose the default SMS subscription.
+      let selectedSubscriptionId = preferredSubscriptionId == null ? -1 : Number(preferredSubscriptionId);
+      if (!Number.isInteger(selectedSubscriptionId)) selectedSubscriptionId = -1;
+      if (selectedSubscriptionId < 0) {
+        try {
+          const saved = await sosLocalStore.getEmergencyCallSimPreference();
+          if (saved?.subscriptionId != null) selectedSubscriptionId = Number(saved.subscriptionId);
+        } catch (_) {}
       }
 
       const result = await emergencyMedia.sendEmergencySms(
         phoneNumber,
         message || 'Emergency assistance requested.',
-        preferredSubscriptionId,
+        selectedSubscriptionId,
       );
       if (__DEV__) console.log('[SOS_DEBUG] SMS_SEND_ATTEMPT', {recipient: `${phoneNumber.slice(0, 3)}***`});
       if (__DEV__) console.log('[SOS_DEBUG] SMS_SEND_RESULT', {
@@ -161,7 +155,48 @@ export async function sendEmergencySms({phoneNumber, message}) {
  *    SMS capability at all).
  *  - 'NOT_CONFIGURED' if there were no valid numbers to send to.
  */
-export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId, serviceKey = 'sms'}) {
+export async function chooseSmsSubscription({forcePrompt = false} = {}) {
+  if (Platform.OS !== 'android') return -1;
+  const module = NativeModules?.EmergencyMedia;
+  if (!module || typeof module.getAvailableSims !== 'function') return -1;
+  try {
+    const rawSims = await module.getAvailableSims();
+    const sims = Array.isArray(rawSims) ? rawSims : [];
+    if (sims.length <= 1) {
+      const id = Number(sims[0]?.subscriptionId);
+      if (Number.isInteger(id) && id > 0) {
+        await sosLocalStore.setEmergencyCallSimPreference(id, {source: 'sms-auto-single-sim'});
+        return id;
+      }
+      return -1;
+    }
+    if (!forcePrompt) {
+      const saved = await sosLocalStore.getEmergencyCallSimPreference().catch(() => null);
+      const savedId = Number(saved?.subscriptionId);
+      if (Number.isInteger(savedId) && sims.some(item => Number(item.subscriptionId) === savedId)) return savedId;
+    }
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = async value => {
+        if (settled) return;
+        settled = true;
+        const id = Number(value);
+        if (Number.isInteger(id) && id > 0) await sosLocalStore.setEmergencyCallSimPreference(id, {source: 'sms-prompt'}).catch(() => undefined);
+        resolve(Number.isInteger(id) && id > 0 ? id : -1);
+      };
+      const buttons = sims.slice(0, 2).map(sim => ({
+        text: sim.displayName || sim.carrierName || `SIM ${Number(sim.slotIndex || 0) + 1}`,
+        onPress: () => finish(sim.subscriptionId),
+      }));
+      buttons.push({text: 'Cancel', style: 'cancel', onPress: () => finish(-1)});
+      Alert.alert('Choose SIM for SOS SMS', 'Select the SIM that should send the emergency SMS.', buttons, {cancelable: true, onDismiss: () => finish(-1)});
+    });
+  } catch (_) {
+    return -1;
+  }
+}
+
+export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId, serviceKey = 'sms', preferredSubscriptionId = null}) {
   const uniqueNumbers = [];
   const seenNumbers = new Set();
   for (const value of phoneNumbers || []) {
@@ -200,7 +235,7 @@ export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId, s
 
     const attempt = (previous?.attempts || 0) + 1;
     const attemptedAt = new Date().toISOString();
-    const result = await sendEmergencySms({phoneNumber, message});
+    const result = await sendEmergencySms({phoneNumber, message, preferredSubscriptionId});
     const recipientResult = {
       recipient: phoneNumber,
       phoneNumber,

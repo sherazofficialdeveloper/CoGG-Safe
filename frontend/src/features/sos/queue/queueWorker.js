@@ -81,6 +81,12 @@ async function processSosQueueRun({processors = {}, now = Date.now()} = {}) {
       await sosLocalStore.removeQueueItem(item.id);
       continue;
     }
+    // Never run one account's durable emergency jobs using another account's
+    // credentials, contacts, SMS recipients, or session token. This is
+    // critical when several users log in on the same phone.
+    if (userId && String(event.userId) !== String(userId)) {
+      continue;
+    }
     if (item.type.startsWith('MEDIA_UPLOAD:') && !event.backendId) {
       continue;
     }

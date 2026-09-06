@@ -10,7 +10,7 @@ const apiLimiter = rateLimit({
   // requests from one Supertest address. Disabling only this transport
   // guard in NODE_ENV=test keeps production rate limiting intact and
   // prevents unrelated later tests from receiving a 429.
-  skip: () => env.nodeEnv === 'test',
+  skip: (req) => env.nodeEnv === 'test' || /^\/auth\//i.test(req.path || ''),
   windowMs: env.rateLimit.windowMinutes * 60 * 1000,
   max: env.rateLimit.maxRequests,
   standardHeaders: true,
@@ -29,7 +29,13 @@ const apiLimiter = rateLimit({
 const authLimiter = rateLimit({
   skip: () => env.nodeEnv === 'test',
   windowMs: 15 * 60 * 1000,
+  // Rate-limit a credential pair instead of the whole device/IP. This keeps
+  // multiple legitimate users on the same phone from blocking one another.
   max: 20,
+  keyGenerator: (req) => {
+    const identifier = String(req.body?.identifier || '').trim().toLowerCase();
+    return `${req.ip}:${identifier || 'unknown'}`;
+  },
   standardHeaders: true,
   legacyHeaders: false,
   message: {

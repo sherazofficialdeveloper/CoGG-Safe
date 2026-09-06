@@ -57,7 +57,7 @@ import {
   uploadCapturedSosMedia,
 } from './src/features/sos/services/backendSyncService';
 import {getCurrentLocation, isValidLocation} from './src/features/sos/services/locationService';
-import {sendEmergencySms, sendEmergencySmsToNumbers} from './src/features/sos/services/smsService';
+import {sendEmergencySms, sendEmergencySmsToNumbers, chooseSmsSubscription} from './src/features/sos/services/smsService';
 import {initiateEmergencyCall} from './src/features/sos/services/callService';
 
 import {
@@ -420,9 +420,9 @@ function AppContent() {
     };
 
     emitSosDiagnostic('SOS DEBUG STARTUP 00: App startup');
-    recoverActiveSosWork()
-      .then(processQueue)
-      .catch(() => processQueue());
+    recoverActiveSosWork(user?._id || user?.id)
+      .then(() => processQueue({userId: user?._id || user?.id}))
+      .catch(() => processQueue({userId: user?._id || user?.id}));
 
     return connectivityService.subscribe(processQueue);
   }, [token, user?.username]);
