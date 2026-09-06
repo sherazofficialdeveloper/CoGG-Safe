@@ -167,9 +167,31 @@ function AppContent() {
     showToast('Logged out successfully.', 'info');
   }, [showToast, signOut, token]);
 
+  const refreshNotificationBadge = useCallback(async () => {
+    if (!token || !user) return;
+
+    try {
+      const result = await listNotifications(
+        token,
+        {limit: 1, unreadOnly: true},
+        {forceRefresh: true},
+      );
+      const unread = Number.isFinite(result?.meta?.total)
+        ? result.meta.total
+        : (result?.notifications || []).filter(item => !item.isRead).length;
+
+      if (user.role === 'admin') setAdminNotificationCount(unread);
+      else setUserNotificationCount(unread);
+    } catch (error) {
+      if (__DEV__) console.warn('[NOTIFICATIONS] Badge refresh failed', error);
+    }
+  }, [token, user]);
+
   const handleIncomingNotification = useCallback((remoteMessage, source = 'message') => {
     const title = remoteMessage?.notification?.title || remoteMessage?.data?.title || 'CoGG Safe update';
     const body = remoteMessage?.notification?.body || remoteMessage?.data?.body || 'You have a new notification.';
+
+    refreshNotificationBadge();
 
     if (user?.role === 'admin') {
       setPortal('admin');
@@ -192,7 +214,7 @@ function AppContent() {
     if (source === 'cold-start') {
       showToast(`${title}: ${body}`, 'info');
     }
-  }, [showToast, user?.role]);
+  }, [refreshNotificationBadge, showToast, user?.role]);
 
   // Keep a durable last-known collection member list so the trigger-critical
   // first SMS can still resolve recipients after an app restart or while the
@@ -219,22 +241,27 @@ function AppContent() {
   useEffect(() => {
     if (!token || !user) return undefined;
     let mounted = true;
-    const refreshNotificationBadge = async () => {
+    const loadNotificationBadge = async () => {
       try {
-        const result = await listNotifications(token, undefined, {forceRefresh: true});
+        const result = await listNotifications(
+          token,
+          {limit: 1, unreadOnly: true},
+          {forceRefresh: true},
+        );
         if (!mounted) return;
-        const items = Array.isArray(result?.notifications) ? result.notifications : [];
-        const unread = items.filter(item => !item.isRead).length;
+        const unread = Number.isFinite(result?.meta?.total)
+          ? result.meta.total
+          : (result?.notifications || []).filter(item => !item.isRead).length;
         if (user.role === 'admin') setAdminNotificationCount(unread);
         else setUserNotificationCount(unread);
-      } catch (_) {
-        // Badge keeps its last known value when the network is temporarily unavailable.
+      } catch (error) {
+        if (__DEV__) console.warn('[NOTIFICATIONS] Badge refresh failed', error);
       }
     };
-    refreshNotificationBadge();
-    const timer = setInterval(refreshNotificationBadge, 10000);
+    loadNotificationBadge();
+    const timer = setInterval(loadNotificationBadge, 10000);
     return () => { mounted = false; clearInterval(timer); };
-  }, [token, user?.id, user?.role]);
+  }, [token, user]);
 
   // ============================================================
   // SOS QUEUE / RECOVERY / CONNECTIVITY
@@ -955,7 +982,7 @@ function AppContent() {
         setScreen('userNotifications');
       },
 
-      notificationCount: userNotificationCount,
+      notificationCount: user?.role === 'admin' ? adminNotificationCount : userNotificationCount,
 
       showLogout: true,
 
@@ -1028,6 +1055,7 @@ function AppContent() {
             }>
             <UserProfileScreen
               user={user}
+              token={token}
               onLogout={goToLogin}
               onBack={() => setScreen('userHome')}
             />
@@ -1038,27 +1066,28 @@ function AppContent() {
       // USER HISTORY
       // --------------------------------------------------------
       case 'userHistory':
-        return (
-          <AppShell
-            {...userCommonProps}
-            showBack={true}
-            onBack={() => setScreen('userHome')}
-            bottomNav={
-              <UserBottomNav
-                activeTab="History"
-                onNavigate={handleUserNavigation}
-              />
-            }>
-            <UserHistoryScreen
-              token={token}
-              onBack={() => setScreen('userHome')}
-              onHistoryDetail={item => {
-                setSelectedSos(item);
-                setScreen('userSosDetail');
-              }}
-            />
-          </AppShell>
-        );
+  return (
+    <AppShell
+      {...userCommonProps}
+      showBack={true}
+      onBack={() => setScreen('userHome')}
+      bottomNav={
+        <UserBottomNav
+          activeTab="History"
+          onNavigate={handleUserNavigation}
+        />
+      }>
+      <UserHistoryScreen
+        token={token}
+        onBack={() => setScreen('userHome')}
+        onHistoryDetail={(item) => {
+          // ================= FIX: Pass the SOS item to detail screen =================
+          setSelectedSos(item);
+          setScreen('userSosActive');
+        }}
+      />
+    </AppShell>
+  );
 
       // --------------------------------------------------------
       // USER NOTIFICATIONS
@@ -1215,6 +1244,7 @@ function AppContent() {
           onNotifications={() =>
             setScreen('adminNotifications')
           }
+          notificationCount={adminNotificationCount}
           onProfile={() => setScreen('adminProfile')}
           onLogout={goToLogin}
           activeSosCount={activeSosCount}

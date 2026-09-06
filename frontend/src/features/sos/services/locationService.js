@@ -1,5 +1,5 @@
 import Geolocation from '@react-native-community/geolocation';
-import {Platform} from 'react-native';
+import {Platform, Linking, Alert} from 'react-native';
 import {PERMISSION_STATUS, checkPermission, requestPermission} from '../../../permissions/sosPermissions';
 import {sosLocalStore} from '../storage';
 import {emitSosDiagnostic} from './sosDiagnosticService';
@@ -156,21 +156,111 @@ export function isValidLocation(location) {
   return true;
 }
 
-export async function getCurrentLocation() {
+// ================= ADDED: Check if location services are enabled =================
+export async function checkLocationServicesEnabled() {
+  if (Platform.OS !== 'android') return true;
+  
+  try {
+    const {NativeModules} = require('react-native');
+    const {EmergencyMedia} = NativeModules;
+    
+    if (EmergencyMedia && typeof EmergencyMedia.isLocationEnabled === 'function') {
+      const result = await EmergencyMedia.isLocationEnabled();
+      return result === true;
+    }
+    return true;
+  } catch (error) {
+    if (__DEV__) console.log('[LOCATION] Check location services failed:', error);
+    return true;
+  }
+}
+
+// ================= ADDED: Prompt user to enable location =================
+export async function promptEnableLocationServices() {
+  if (Platform.OS !== 'android') return true;
+  
+  try {
+    const {NativeModules} = require('react-native');
+    const {EmergencyMedia} = NativeModules;
+    
+    if (EmergencyMedia && typeof EmergencyMedia.promptEnableLocation === 'function') {
+      const result = await EmergencyMedia.promptEnableLocation();
+      return result === true;
+    }
+    return false;
+  } catch (error) {
+    if (__DEV__) console.log('[LOCATION] Prompt location services failed:', error);
+    return false;
+  }
+}
+
+// ================= ADDED: Open location settings =================
+export async function openLocationSettings() {
+  if (Platform.OS === 'android') {
+    await Linking.openSettings();
+  } else {
+    await Linking.openURL('app-settings:');
+  }
+}
+
+// ================= FIXED: Get current location with auto-enable and retry =================
+export async function getCurrentLocation({retryCount = 0, maxRetries = 3} = {}) {
   emitSosDiagnostic('SOS DEBUG LOCATION 01: Started');
   if (__DEV__) console.log('[SOS][LOCATION] START');
+
   if (!Geolocation || typeof Geolocation.getCurrentPosition !== 'function') {
     throw buildLocationError('Location provider module is unavailable in the installed app.', 'LOCATION_PROVIDER_MODULE_UNAVAILABLE');
   }
 
+  // Step 1: Check permissions
   await ensureLocationPermission();
   emitSosDiagnostic('SOS DEBUG LOCATION 02: Permission granted');
 
-  // Use Android's fused provider for the first SOS fix. This is the same
-  // provider used by the foreground live-location service and is much more
-  // reliable for a fresh fix than waiting for a React Native geolocation
-  // callback. If the device location switch is off, Android may return null;
-  // in that case the normal JS fallback/retry path remains available.
+  // Step 2: Check if location services are enabled
+  const servicesEnabled = await checkLocationServicesEnabled();
+  if (!servicesEnabled) {
+    emitSosDiagnostic('SOS DEBUG LOCATION 02.5: Location services disabled');
+    
+    // Show prompt to enable location (only on first attempt)
+    if (retryCount === 0) {
+      return new Promise((resolve) => {
+        Alert.alert(
+          'Location Services Required',
+          'SOS needs your location to send accurate coordinates to emergency contacts. Please enable location services.',
+          [
+            {text: 'Cancel', style: 'cancel', onPress: () => {
+              resolve({
+                status: 'PENDING',
+                reason: 'Location services disabled by user.',
+                retryable: true,
+              });
+            }},
+            {
+              text: 'Enable Location',
+              onPress: async () => {
+                const enabled = await promptEnableLocationServices();
+                if (enabled) {
+                  // Retry after enabling
+                  const result = await getCurrentLocation({retryCount: retryCount + 1, maxRetries});
+                  resolve(result);
+                } else {
+                  // Open settings and retry
+                  await openLocationSettings();
+                  setTimeout(async () => {
+                    const result = await getCurrentLocation({retryCount: retryCount + 2, maxRetries});
+                    resolve(result);
+                  }, 1000);
+                }
+              }
+            }
+          ],
+          {cancelable: false}
+        );
+      });
+    }
+  }
+
+  // Step 3: Try native fused location first (Android)
   if (Platform.OS === 'android') {
     try {
       const nativeLocation = await getNativeCurrentLocation();
@@ -192,11 +282,9 @@ export async function getCurrentLocation() {
       if (__DEV__) console.log('[SOS][LOCATION] NATIVE_CURRENT_FAILED', {reason: nativeError?.message || 'unavailable'});
     }
   }
-  if (__DEV__) console.log('[SOS_DEBUG] LOCATION_SERVICES', {providerAvailable: Boolean(Geolocation)});
 
+  // Step 4: Try best-available (network) location
   try {
-    // Prefer a quick network/fused-assisted fix first. It is usually faster on
-    // modern devices and still produces a valid lat/lng for the emergency.
     const quickResult = await attemptLocation({
       enableHighAccuracy: false,
       timeout: 7000,
@@ -207,8 +295,8 @@ export async function getCurrentLocation() {
   } catch (bestAvailableError) {
     if (__DEV__) console.log('[SOS_DEBUG] BEST_AVAILABLE_RESULT', {success: false, message: bestAvailableError?.message || 'unavailable'});
     if (__DEV__) console.log('[SOS][LOCATION] BEST_AVAILABLE_FAILED', {reason: bestAvailableError?.message || 'unavailable'});
-    // A network/location-settings assisted fix can still be valid when GPS
-    // cannot produce a fix immediately, including while offline.
+
+    // Step 5: Try high-accuracy (GPS) location
     try {
       if (__DEV__) console.log('[SOS_DEBUG] HIGH_ACCURACY_RETRY');
       const result = await attemptLocation({
@@ -219,18 +307,28 @@ export async function getCurrentLocation() {
       if (__DEV__) console.log('[SOS_DEBUG] HIGH_ACCURACY_RETRY_RESULT', {success: true});
       return result;
     } catch (highAccuracyError) {
-      const fallbackError = highAccuracyError || bestAvailableError;
+      // Step 6: Fallback to last known location
       const lastKnown = await getLastKnownLocation();
       if (lastKnown) {
         if (__DEV__) console.log('[SOS][LOCATION] LAST_KNOWN_FALLBACK', {location: lastKnown});
         return lastKnown;
       }
 
-      // No current fix is a retryable device condition, not an SOS validation
-      // failure. Keep the SOS alive and let the durable location queue retry.
+      // Step 7: If retry count allows, retry
+      if (retryCount < maxRetries) {
+        if (__DEV__) console.log(`[SOS][LOCATION] RETRY ${retryCount + 1}/${maxRetries}`);
+        emitSosDiagnostic(`SOS DEBUG LOCATION RETRY ${retryCount + 1}/${maxRetries}`);
+        
+        // Wait before retry with exponential backoff
+        const waitTime = 2000 * (retryCount + 1);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+        return getCurrentLocation({retryCount: retryCount + 1, maxRetries});
+      }
+
+      // No location available - mark as PENDING (retryable)
       if (__DEV__) console.log('[SOS][LOCATION] RETRY_QUEUED', {
         bestAvailable: bestAvailableError?.message || null,
-        highAccuracy: fallbackError?.message || null,
+        highAccuracy: highAccuracyError?.message || null,
       });
       return {
         status: 'PENDING',
@@ -243,4 +341,4 @@ export async function getCurrentLocation() {
   }
 }
 
-export default { getCurrentLocation, isValidLocation };
+export default { getCurrentLocation, isValidLocation, checkLocationServicesEnabled, promptEnableLocationServices, openLocationSettings };

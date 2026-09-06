@@ -18,6 +18,11 @@ import {
   SOS_TRIGGER_PERMISSIONS,
   subscribeToPermissionChanges,
 } from '../permissions/sosPermissions';
+import {
+  checkLocationServicesEnabled,
+  promptEnableLocationServices,
+  openLocationSettings,
+} from '../features/sos/services/locationService';
 import {listSos, stopLiveLocation} from '../api/resources';
 import {getHoldSnapshot, SOS_HOLD_DURATION_MS} from '../features/sos/holdState';
 import {stopLiveLocationSharing} from '../features/sos/services/liveLocationService';
@@ -49,8 +54,11 @@ const UserHomeScreen = ({
   const initialPermissionRequestStartedRef = useRef(false);
   const pulseScale = useRef(new Animated.Value(1)).current;
   const smsRequiresUserConfirmation = permissionState.smsDeliveryMode === 'composer';
-  // SMS is intentionally absent: it is a downstream capability and must not
-  // prevent testing or activating the Home SOS flow.
+
+  // ================= ADDED: Location Status State =================
+  const [locationStatus, setLocationStatus] = useState('checking');
+  const [locationError, setLocationError] = useState('');
+
   const isSosButtonDisabled = Boolean(
     permissionState.isChecking ||
     sosLoading
@@ -66,8 +74,6 @@ const UserHomeScreen = ({
       if (!mounted) return;
       setPermissionState(nextState);
 
-      // The first authenticated Home load owns the real Android permission setup.
-      // requestRequiredPermissions awaits each platform dialog before requesting the next.
       if (user && !initialPermissionRequestStartedRef.current && !nextState.allRequiredGranted && nextState.canRequest) {
         initialPermissionRequestStartedRef.current = true;
         setRequestingPermissions(true);
@@ -88,6 +94,37 @@ const UserHomeScreen = ({
       unsubscribe();
     };
   }, [user]);
+
+  // ================= ADDED: Check Location Services =================
+  useEffect(() => {
+    let mounted = true;
+    
+    const checkLocation = async () => {
+      try {
+        const servicesEnabled = await checkLocationServicesEnabled();
+        if (!mounted) return;
+        
+        if (!servicesEnabled) {
+          setLocationStatus('disabled');
+          setLocationError('Location services are off. Please enable GPS for SOS.');
+        } else {
+          setLocationStatus('ready');
+          setLocationError('');
+        }
+      } catch (error) {
+        setLocationStatus('error');
+        setLocationError('Unable to check location services.');
+      }
+    };
+    
+    checkLocation();
+    const timer = setInterval(checkLocation, 5000);
+    
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (!token) {
@@ -431,6 +468,35 @@ const UserHomeScreen = ({
             <Text style={styles.readyText}>
               Ready when you need help
             </Text>
+          </View>
+        ) : null}
+
+        {/* ================= ADDED: LOCATION STATUS ================= */}
+        {locationStatus === 'disabled' ? (
+          <View style={styles.locationWarning}>
+            <View style={styles.locationWarningIconContainer}>
+              <Text style={styles.locationWarningIcon}>📍</Text>
+            </View>
+            <Text style={styles.locationWarningTitle}>Location Services Off</Text>
+            <Text style={styles.locationWarningText}>
+              Enable GPS for accurate SOS location sharing with emergency contacts.
+            </Text>
+            <TouchableOpacity 
+              style={styles.enableLocationButton}
+              onPress={async () => {
+                const enabled = await promptEnableLocationServices();
+                if (!enabled) {
+                  await openLocationSettings();
+                }
+              }}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.enableLocationText}>Enable Location</Text>
+            </TouchableOpacity>
+          </View>
+        ) : locationStatus === 'checking' ? (
+          <View style={styles.locationChecking}>
+            <Text style={styles.locationCheckingText}>Checking location services...</Text>
           </View>
         ) : null}
 
@@ -785,6 +851,7 @@ const styles = StyleSheet.create({
     marginTop: 5,
     textAlign: 'center',
   },
+
   permissionWarning: {
     width: '100%',
     marginTop: 24,
@@ -824,6 +891,75 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '900',
+  },
+
+  /* ================= ADDED: LOCATION WARNING ================= */
+  locationWarning: {
+    width: '100%',
+    marginTop: 20,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: '#FFF8E1',
+    borderWidth: 1,
+    borderColor: '#FFE082',
+    alignItems: 'center',
+  },
+
+  locationWarningIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FFE082',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+
+  locationWarningIcon: {
+    fontSize: 24,
+  },
+
+  locationWarningTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#E65100',
+    marginBottom: 6,
+  },
+
+  locationWarningText: {
+    fontSize: 13,
+    color: '#BF360C',
+    textAlign: 'center',
+    fontWeight: '600',
+    marginBottom: 14,
+    lineHeight: 20,
+  },
+
+  enableLocationButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 25,
+    backgroundColor: '#FF6F00',
+    alignItems: 'center',
+  },
+
+  enableLocationText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+
+  locationChecking: {
+    width: '100%',
+    marginTop: 16,
+    padding: 12,
+    alignItems: 'center',
+  },
+
+  locationCheckingText: {
+    fontSize: 13,
+    color: '#6B7280',
+    fontWeight: '600',
   },
 
   /* ================= BOTTOM SECTION ================= */

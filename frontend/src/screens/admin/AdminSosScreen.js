@@ -41,6 +41,8 @@ const AdminSosScreen = ({
         initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
         collectionName: record.collectionId?.name || 'Assigned collection',
         location: record.location?.latitude != null ? `${record.location.latitude.toFixed(5)}, ${record.location.longitude.toFixed(5)}` : 'Location unavailable',
+        locationStatus: record.location?.status || 'pending',
+        hasLocation: record.location?.latitude != null && record.location?.longitude != null,
         time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
         status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Pending',
         emergencyMessage: record.emergencyMessage || 'Emergency assistance requested.',
@@ -62,6 +64,8 @@ const AdminSosScreen = ({
         initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
         collectionName: record.collectionId?.name || 'Assigned collection',
         location: record.location?.latitude != null ? `${record.location.latitude.toFixed(5)}, ${record.location.longitude.toFixed(5)}` : 'Location unavailable',
+        locationStatus: record.location?.status || 'pending',
+        hasLocation: record.location?.latitude != null && record.location?.longitude != null,
         time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
         status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Pending',
         emergencyMessage: record.emergencyMessage || 'Emergency assistance requested.',
@@ -270,6 +274,27 @@ const AdminSosScreen = ({
                   <Text style={styles.emergencyMessage} numberOfLines={2}>
                     "{alert.emergencyMessage}"
                   </Text>
+                </View>
+
+                {/* ===== LOCATION STATUS ===== */}
+                <View style={styles.locationStatusRow}>
+                  <View style={styles.locationStatusLeft}>
+                    <Text style={styles.locationStatusIcon}>📍</Text>
+                    <Text style={styles.locationStatusLabel}>Location</Text>
+                  </View>
+                  {alert.hasLocation ? (
+                    <View style={styles.locationStatusSuccess}>
+                      <Text style={styles.locationStatusSuccessText}>✓ Captured</Text>
+                    </View>
+                  ) : alert.locationStatus === 'pending' ? (
+                    <View style={styles.locationStatusPending}>
+                      <Text style={styles.locationStatusPendingText}>⏳ Waiting...</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.locationStatusFailed}>
+                      <Text style={styles.locationStatusFailedText}>✗ Failed</Text>
+                    </View>
+                  )}
                 </View>
 
                 {/* ===== LOCATION & TIME ===== */}
@@ -598,7 +623,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    marginBottom: 10,
+    marginBottom: 8,
   },
 
   emergencyMessage: {
@@ -606,6 +631,72 @@ const styles = StyleSheet.create({
     color: '#3A3A3C',
     lineHeight: 18,
     fontWeight: '500',
+  },
+
+  /* ===== LOCATION STATUS ===== */
+  locationStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F1F3',
+  },
+
+  locationStatusLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  locationStatusIcon: {
+    fontSize: 14,
+    marginRight: 6,
+  },
+
+  locationStatusLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#6E6E73',
+  },
+
+  locationStatusSuccess: {
+    backgroundColor: '#E8F8EF',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+
+  locationStatusSuccessText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#178A4B',
+  },
+
+  locationStatusPending: {
+    backgroundColor: '#FFF8E1',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+
+  locationStatusPendingText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#F57F17',
+  },
+
+  locationStatusFailed: {
+    backgroundColor: '#FDECEC',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+
+  locationStatusFailedText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#B42318',
   },
 
   /* ===== LOCATION & TIME ===== */

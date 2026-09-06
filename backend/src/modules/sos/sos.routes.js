@@ -46,8 +46,11 @@ router.patch(
   uploadSingleFile,
   sosController.uploadMedia
 );
+
+// ================= FIX: Add authenticate middleware to media route =================
 router.get(
   '/:id/media/:component/file',
+  authenticate,  // ✅ Added this line
   mediaComponentParamValidation,
   validateRequest,
   sosController.getMediaFile

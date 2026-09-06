@@ -1,4 +1,4 @@
-// AdminSosDetailScreen.js
+// AdminSosDetailScreen.js - COMPLETE FIXED with Audio + Live Location Map
 import React, {useEffect, useRef, useState} from 'react';
 import {
   View,
@@ -12,11 +12,16 @@ import {
   Platform,
   Linking,
   Image,
+  ActivityIndicator,
+  Dimensions,
 } from 'react-native';
 import {deactivateSos, getLiveLocation, getSos, stopLiveLocation} from '../../api/resources';
 import {API_BASE_URL} from '../../api/config';
 import AudioPlayer from '../../components/AudioPlayer';
 import FullscreenImageViewer from '../../components/FullscreenImageViewer';
+import Icon from '../../components/Icon';
+
+const {width: screenWidth} = Dimensions.get('window');
 
 const AdminSosDetailScreen = ({
   sos,
@@ -33,13 +38,139 @@ const AdminSosDetailScreen = ({
   const [selectedImage, setSelectedImage] = useState(null);
   const [detailRecord, setDetailRecord] = useState(null);
   const [hiddenImages, setHiddenImages] = useState({front: false, back: false});
+  const [isLoading, setIsLoading] = useState(true);
+  const [audioError, setAudioError] = useState(null);
+  const [mediaUrls, setMediaUrls] = useState({front: null, back: null, audio: null});
+  const [mediaTypes, setMediaTypes] = useState({front: false, back: false, audio: false});
   const detailRequestRef = useRef(0);
   const actionInFlightRef = useRef(false);
 
   const record = detailRecord || sos || {};
   const recordId = record.id || record._id;
 
+  if (!recordId) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={onBack}>
+            <Text style={styles.backIcon}>‹</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>SOS Details</Text>
+        </View>
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>SOS record not found.</Text>
+          <TouchableOpacity style={styles.errorBackButton} onPress={onBack}>
+            <Text style={styles.errorBackText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   const isActive = record.status === 'Active' || record.status === 'active';
+
+  // ================= Auth Headers =================
+  const authHeaders = { Authorization: `Bearer ${token}` };
+
+  // ================= Fetch Media from Backend =================
+  const fetchMediaFromBackend = async () => {
+    if (!token || !recordId) return;
+    
+    try {
+      setIsLoading(true);
+      
+      const result = await getSos(token, recordId, {forceRefresh: true});
+      if (result?.sos) {
+        const sosData = result.sos;
+        setDetailRecord(sosData);
+        
+        const components = sosData.components || {};
+        
+        const frontComp = components.frontImage;
+        const backComp = components.backImage;
+        const audioComp = components.audio;
+        
+        const frontUrl = frontComp?.storageRef 
+          ? `${API_BASE_URL}/sos/${recordId}/media/frontImage/file`
+          : null;
+        
+        const backUrl = backComp?.storageRef 
+          ? `${API_BASE_URL}/sos/${recordId}/media/backImage/file`
+          : null;
+        
+        const audioUrl = audioComp?.storageRef 
+          ? `${API_BASE_URL}/sos/${recordId}/media/audio/file`
+          : null;
+        
+        setMediaUrls({
+          front: frontUrl,
+          back: backUrl,
+          audio: audioUrl,
+        });
+        
+        setMediaTypes({
+          front: !!frontUrl,
+          back: !!backUrl,
+          audio: !!audioUrl,
+        });
+        
+        if (sosData.liveLocation) {
+          setLiveLocationStatus(sosData.liveLocation.status || null);
+          if (sosData.liveLocation.lastLocation) {
+            setLiveLocation(sosData.liveLocation.lastLocation);
+            setLocationUpdateTime(
+              sosData.liveLocation.lastLocation.capturedAt 
+                ? new Date(sosData.liveLocation.lastLocation.capturedAt).toLocaleString() 
+                : 'Just now'
+            );
+          }
+        }
+      }
+    } catch (error) {
+      console.log('[AdminSosDetail] Fetch error:', error);
+      setActionError(error.message || 'Unable to load SOS details.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ================= Initial Fetch =================
+  useEffect(() => {
+    fetchMediaFromBackend();
+  }, [recordId, token]);
+
+  // ================= Live Location Polling =================
+  useEffect(() => {
+    if (!token || !recordId) return undefined;
+    let mounted = true;
+    
+    const refreshLiveLocation = async () => {
+      try {
+        const result = await getLiveLocation(token, recordId, {limit: 1}, {forceRefresh: true});
+        if (!mounted) return;
+        
+        setLiveLocationStatus(result?.liveLocation?.status || null);
+        const latest = result?.liveLocation?.lastLocation || result?.pings?.[0] || null;
+        if (latest) {
+          setLiveLocation(latest);
+          setLocationUpdateTime(
+            latest.capturedAt ? new Date(latest.capturedAt).toLocaleString() : 'Just now'
+          );
+        }
+      } catch (error) {
+        if (mounted) console.log('[LiveLocation] Refresh error:', error);
+      }
+    };
+
+    refreshLiveLocation();
+    const interval = setInterval(refreshLiveLocation, 5000);
+    
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [recordId, token]);
+
   const handleMarkResolved = () => {
     if (actionInFlightRef.current) return;
     Alert.alert('Mark as Resolved', 'Are you sure this emergency has been resolved?', [
@@ -71,7 +202,6 @@ const AdminSosDetailScreen = ({
     ]);
   };
 
-
   const handleStopSharing = async () => {
     setActionLoading(true);
     setActionError('');
@@ -79,8 +209,6 @@ const AdminSosDetailScreen = ({
       const response = await stopLiveLocation(token, record.id || record._id);
       setLiveLocationStatus(response?.sos?.liveLocation?.status || 'stopped_by_admin');
       onUpdated?.(response.sos);
-    } catch (error) {
-      setActionError(error.message || 'Unable to stop live location.');
     } finally {
       setActionLoading(false);
     }
@@ -95,146 +223,38 @@ const AdminSosDetailScreen = ({
     Linking.openURL(url);
   };
 
-  // ✅ Safe access to location data
   const displayLocation = liveLocation || record.location || null;
   const displayLat = displayLocation?.lat ?? displayLocation?.latitude;
   const displayLng = displayLocation?.lng ?? displayLocation?.longitude;
-  const displayAddress = displayLocation?.address || (displayLat != null ? 'Location captured' : 'Location unavailable');
   const displayAccuracy = displayLocation?.accuracy;
-  const serviceResults = Object.entries(record.components || record.services || {});
+  
   const liveLocationActive = String(liveLocationStatus || record.liveLocation?.status || '').toLowerCase() === 'active';
-  const initialLiveLocationStatus = record.liveLocation?.status || null;
-  const initialLiveLocation = record.liveLocation?.lastLocation || null;
-  const frontImage = record.components?.frontImage;
-  const backImage = record.components?.backImage;
-  const audio = record.components?.audio;
-  const localCamera = record.services?.camera;
-  const localAudio = record.services?.audio;
-  const hasStoredMediaStatus = component => ['success', 'uploaded', 'ready', 'completed'].includes(String(component?.status || '').toLowerCase()) && (Boolean(component?.storageRef) || Boolean(component?.localPath));
-  const getPublicMediaUrl = (emergencyLink, componentName) => {
-    const active = String(record?.status || '').toLowerCase() === 'active';
-    if (!active) return null;
-    const component = record?.components?.[componentName];
-    const version = component?.updatedAt || record?.updatedAt || '';
-    const exact = record?.emergencyMediaUrls?.[componentName];
-    if (exact) return `${exact}?v=${encodeURIComponent(version)}`;
-    const match = String(emergencyLink || '').match(/\/([^/]+)\/?$/);
-    return match?.[1] ? `${API_BASE_URL}/emergency/${encodeURIComponent(match[1])}/media/${componentName}?v=${encodeURIComponent(version)}` : null;
-  };
 
-  // Two different routes can serve the same media:
-  //  - the public, token-gated /emergency/:token/media/:component route
-  //    (no auth header needed, but only serves media while the SOS is
-  //    ACTIVE — the exact same route the working shared token page uses)
-  //  - the authenticated /sos/:id/media/:component/file route (works for
-  //    any status, owner-or-admin, but REQUIRES a Bearer token header)
-  // Every caller of these URLs must know which kind it got, so it knows
-  // whether to attach the Authorization header. Silently guessing wrong
-  // is exactly what was making media disappear once an SOS was resolved.
-  const resolveMediaSource = componentName => {
-    const publicUrl = getPublicMediaUrl(record.emergencyLink, componentName);
-    if (publicUrl) return {url: publicUrl, isPublic: true};
-    const component = componentName === 'frontImage' ? frontImage : componentName === 'backImage' ? backImage : audio;
-    if (recordId && hasStoredMediaStatus(component)) {
-      return {url: `${API_BASE_URL}/sos/${recordId}/media/${componentName}/file`, isPublic: false};
-    }
-    return {url: null, isPublic: false};
-  };
+  const hasFrontImage = !!mediaUrls.front;
+  const hasBackImage = !!mediaUrls.back;
+  const hasAudio = !!mediaUrls.audio;
+  const hasImageData = hasFrontImage || hasBackImage;
 
-  const frontMediaSource = resolveMediaSource('frontImage');
-  const backMediaSource = resolveMediaSource('backImage');
-  const audioMediaSource = resolveMediaSource('audio');
-  const frontMediaUrl = frontMediaSource.url;
-  const backMediaUrl = backMediaSource.url;
-  const audioMediaUrl = audioMediaSource.url;
-  const authenticatedMediaOptions = {headers: {Authorization: `Bearer ${token}`}};
-  const displayFrontImage = frontMediaUrl;
-  const displayBackImage = backMediaUrl;
-
-  useEffect(() => {
-    setHiddenImages({front: false, back: false});
-  }, [frontMediaUrl, backMediaUrl]);
-  useEffect(() => {
-    setLiveLocationStatus(initialLiveLocationStatus);
-    setLiveLocation(initialLiveLocation);
-  }, [initialLiveLocation, initialLiveLocationStatus]);
-
-  useEffect(() => {
-    const id = recordId;
-    if (!token || !id) return undefined;
-
-    const requestId = ++detailRequestRef.current;
-    let mounted = true;
-    getSos(token, id, {forceRefresh: true}).then(result => {
-      if (mounted && requestId === detailRequestRef.current && result?.sos) setDetailRecord(result.sos);
-    }).catch(error => {
-      if (mounted && requestId === detailRequestRef.current) setActionError(error.message || 'Unable to load SOS details.');
-    });
-    return () => { mounted = false; };
-  }, [recordId, token]);
-
-  useEffect(() => {
-    const id = recordId;
-    if (!token || !id) return undefined;
-    let mounted = true;
-    const refreshLiveLocation = async () => {
-      try {
-        const result = await getLiveLocation(token, id, {limit: 1}, {forceRefresh: true});
-        if (!mounted) return;
-        setLiveLocationStatus(result?.liveLocation?.status || null);
-        const latest = result?.liveLocation?.lastLocation || result?.pings?.[0] || null;
-        if (latest) {
-          setLiveLocation(latest);
-          setLocationUpdateTime(latest.capturedAt ? new Date(latest.capturedAt).toLocaleString() : 'Just now');
-        }
-      } catch (error) {
-        if (mounted) setActionError(error.message || 'Unable to refresh live location.');
-      }
-    };
-
-    refreshLiveLocation();
-    const interval = setInterval(async () => {
-      try {
-        const fresh = await getSos(token, id, {forceRefresh: true});
-        if (mounted && fresh?.sos) {
-          setDetailRecord(fresh.sos);
-          setLiveLocationStatus(fresh.sos.liveLocation?.status || null);
-          if (fresh.sos.liveLocation?.lastLocation) setLiveLocation(fresh.sos.liveLocation.lastLocation);
-        }
-        await refreshLiveLocation();
-      } catch (_) { /* keep last known detail */ }
-    }, 5000);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
-  }, [liveLocationActive, recordId, token]);
-
-  const hasLiveLocationData = [liveLocation, record.liveLocation?.lastLocation, record.liveLocation, record.location].some((entry) => {
-    if (!entry || typeof entry !== 'object') return false;
-    const latitude = Number(entry.lat ?? entry.latitude ?? 'NaN');
-    const longitude = Number(entry.lng ?? entry.longitude ?? 'NaN');
-    return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
-  });
-  const hasImageData = Boolean((displayFrontImage && !hiddenImages.front) || (displayBackImage && !hiddenImages.back));
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#E4002B" />
+          <Text style={styles.loadingText}>Loading SOS details...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar
-        barStyle="dark-content"
-        backgroundColor="#F7F7F8"
-        translucent={false}
-      />
+      <StatusBar barStyle="dark-content" backgroundColor="#F7F7F8" translucent={false} />
 
       {/* ================= HEADER ================= */}
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          activeOpacity={0.7}
-          onPress={onBack}>
+        <TouchableOpacity style={styles.backButton} activeOpacity={0.7} onPress={onBack}>
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
-
         <View style={styles.headerContent}>
           <View style={styles.headerTopRow}>
             <View style={styles.userAvatar}>
@@ -252,23 +272,14 @@ const AdminSosDetailScreen = ({
             </View>
           </View>
         </View>
-
-        <View style={[
-          styles.statusBadge,
-          isActive ? styles.statusActive : styles.statusResolved,
-        ]}>
-          <Text style={[
-            styles.statusBadgeText,
-            isActive ? styles.statusActiveText : styles.statusResolvedText,
-          ]}>
+        <View style={[styles.statusBadge, isActive ? styles.statusActive : styles.statusResolved]}>
+          <Text style={[styles.statusBadgeText, isActive ? styles.statusActiveText : styles.statusResolvedText]}>
             {record.status || 'Unknown'}
           </Text>
         </View>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
 
         {/* ================= SOS MESSAGE ================= */}
         <View style={styles.messageCard}>
@@ -281,178 +292,220 @@ const AdminSosDetailScreen = ({
           </Text>
         </View>
 
+        {/* ================= SERVICE RESULTS ================= */}
         <View style={styles.serviceResultsSection}>
           <Text style={styles.serviceResultsLabel}>SOS SERVICE RESULTS</Text>
-          {serviceResults.length === 0 ? (
+          {Object.entries(record.components || record.services || {}).length === 0 ? (
             <Text style={styles.serviceResultEmpty}>No service results recorded.</Text>
-          ) : serviceResults.map(([name, result]) => (
+          ) : Object.entries(record.components || record.services || {}).map(([name, result]) => (
             <View key={name} style={styles.serviceResultRow}>
               <Text style={styles.serviceResultName}>{name}</Text>
-              <Text style={styles.serviceResultStatus}>{String(result?.status || 'unknown').toLowerCase() === 'unknown' && name === 'email' ? 'SENT / PROCESSING' : String(result?.status || 'unknown').toUpperCase()}</Text>
-              {String(result?.status || '').toLowerCase() === 'failed' && result?.error ? <Text style={styles.serviceResultError}>{result.error}</Text> : null}
+              <Text style={styles.serviceResultStatus}>{String(result?.status || 'unknown').toUpperCase()}</Text>
+              {String(result?.status || '').toLowerCase() === 'failed' && result?.error ? (
+                <Text style={styles.serviceResultError}>{result.error}</Text>
+              ) : null}
             </View>
           ))}
         </View>
         {actionError ? <Text style={styles.serviceResultError}>{actionError}</Text> : null}
 
-        {hasLiveLocationData ? (
-          <View style={styles.locationSection}>
-            <View style={styles.locationHeader}>
-              <Text style={styles.locationLabel}>📍 {liveLocationActive ? 'LIVE LOCATION' : 'LOCATION'}</Text>
-              {liveLocationActive && (
-                <View style={styles.liveBadge}>
-                  <View style={styles.liveDot} />
-                  <Text style={styles.liveText}>LIVE</Text>
+        {/* ================= LIVE LOCATION - MAP STYLE ================= */}
+        <View style={styles.locationSection}>
+          <View style={styles.locationHeader}>
+            <Text style={styles.locationLabel}>📍 {liveLocationActive ? 'LIVE LOCATION' : 'LOCATION'}</Text>
+            {liveLocationActive && (
+              <View style={styles.liveBadge}>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveText}>LIVE</Text>
+              </View>
+            )}
+          </View>
+
+          {displayLat != null && displayLng != null ? (
+            <TouchableOpacity 
+              style={styles.mapContainer} 
+              activeOpacity={0.9} 
+              onPress={handleOpenLocation}
+            >
+              {/* Map Grid Background */}
+              <View style={styles.mapGrid}>
+                {/* Street lines */}
+                <View style={[styles.mapStreet, styles.mapStreet1]} />
+                <View style={[styles.mapStreet, styles.mapStreet2]} />
+                <View style={[styles.mapStreet, styles.mapStreet3]} />
+                <View style={[styles.mapStreet, styles.mapStreet4]} />
+                
+                {/* Building blocks */}
+                <View style={[styles.mapBuilding, styles.mapBuilding1]} />
+                <View style={[styles.mapBuilding, styles.mapBuilding2]} />
+                <View style={[styles.mapBuilding, styles.mapBuilding3]} />
+                <View style={[styles.mapBuilding, styles.mapBuilding4]} />
+                
+                {/* Location Marker with Pulse Animation */}
+                <View style={styles.markerContainer}>
+                  <View style={styles.pulseRing1} />
+                  <View style={styles.pulseRing2} />
+                  <View style={styles.markerOuter}>
+                    <View style={styles.markerInner}>
+                      <View style={styles.markerDot} />
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              {/* Location Info Overlay */}
+              <View style={styles.mapOverlay}>
+                <View style={styles.mapOverlayTop}>
+                  <View style={styles.mapOverlayIconContainer}>
+                    <Text style={styles.mapOverlayIcon}>📍</Text>
+                  </View>
+                  <View style={styles.mapOverlayContent}>
+                    <Text style={styles.mapOverlayTitle}>
+                      {liveLocationActive ? 'Live GPS Location' : 'Last Known Location'}
+                    </Text>
+                    <Text style={styles.mapOverlayCoords}>
+                      {Number(displayLat).toFixed(6)}, {Number(displayLng).toFixed(6)}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.mapOverlayBottom}>
+                  <Text style={styles.mapOverlayAccuracy}>
+                    {displayAccuracy != null ? `±${displayAccuracy}m accuracy` : 'Accuracy: Unknown'}
+                  </Text>
+                  <Text style={styles.mapOverlayTime}>
+                    Updated: {locationUpdateTime}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Tap to open hint */}
+              <View style={styles.mapTapHint}>
+                <Text style={styles.mapTapHintText}>Tap to open in Google Maps</Text>
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.locationUnavailable}>
+              <Text style={styles.locationUnavailableIcon}>📍</Text>
+              <Text style={styles.locationUnavailableTitle}>Location not available</Text>
+              <Text style={styles.locationUnavailableText}>Waiting for GPS signal...</Text>
+            </View>
+          )}
+
+          {/* Initial SOS Location */}
+          {record.location?.latitude != null && record.location?.longitude != null && (
+            <View style={styles.initialLocationContainer}>
+              <Text style={styles.initialLocationLabel}>📍 Initial SOS Location</Text>
+              <Text style={styles.initialLocationCoords}>
+                {Number(record.location.latitude).toFixed(5)}, {Number(record.location.longitude).toFixed(5)}
+              </Text>
+            </View>
+          )}
+
+          {/* Stop Sharing Button */}
+          {liveLocationActive && (
+            <TouchableOpacity style={styles.stopSharingButton} onPress={handleStopSharing} disabled={actionLoading}>
+              <Text style={styles.stopSharingText}>{actionLoading ? 'Stopping...' : 'Stop Sharing Live Location'}</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Emergency Link */}
+          {record.emergencyLink && (
+            <TouchableOpacity style={styles.emergencyLinkCard} onPress={() => Linking.openURL(record.emergencyLink)}>
+              <Text style={styles.emergencyLinkLabel}>🔗 EMERGENCY TRACKING LINK</Text>
+              <Text style={styles.emergencyLinkText}>{record.emergencyLink}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* ================= PHOTOS SECTION ================= */}
+        <View style={styles.photosSection}>
+          <Text style={styles.sectionLabel}>📷 CAMERA PHOTOS</Text>
+          
+          {hasImageData ? (
+            <View style={styles.photosGrid}>
+              {hasFrontImage && !hiddenImages.front && (
+                <View style={styles.photoBox}>
+                  <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Front</Text></View>
+                  <TouchableOpacity onPress={() => setSelectedImage(mediaUrls.front)} activeOpacity={0.85}>
+                    <Image
+                      source={{ uri: mediaUrls.front, headers: authHeaders }}
+                      style={styles.photoImage}
+                      onError={() => setHiddenImages(prev => ({...prev, front: true}))}
+                    />
+                  </TouchableOpacity>
+                </View>
+              )}
+              
+              {hasBackImage && !hiddenImages.back && (
+                <View style={styles.photoBox}>
+                  <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Back</Text></View>
+                  <TouchableOpacity onPress={() => setSelectedImage(mediaUrls.back)} activeOpacity={0.85}>
+                    <Image
+                      source={{ uri: mediaUrls.back, headers: authHeaders }}
+                      style={styles.photoImage}
+                      onError={() => setHiddenImages(prev => ({...prev, back: true}))}
+                    />
+                  </TouchableOpacity>
                 </View>
               )}
             </View>
-
-            <TouchableOpacity
-              style={styles.mapContainer}
-              activeOpacity={0.8}
-              onPress={handleOpenLocation}>
-              <View style={styles.realLocationCard}>
-                <View style={styles.realLocationIcon}><Text style={styles.realLocationIconText}>📍</Text></View>
-                <View style={styles.realLocationContent}>
-                  <Text style={styles.realLocationTitle}>{liveLocationActive ? 'Live GPS location' : 'Latest GPS location'}</Text>
-                  <Text style={styles.realLocationCoords}>{displayLat != null && displayLng != null ? `${Number(displayLat).toFixed(6)}, ${Number(displayLng).toFixed(6)}` : 'Location unavailable'}</Text>
-                  <Text style={styles.realLocationHint}>Tap to open this exact location in Google Maps</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-
-            <View style={styles.locationDetails}>
-              <View style={styles.locationRow}>
-                <Text style={styles.locationAddress}>{displayAddress}</Text>
-              </View>
-              <View style={styles.locationRow}>
-                <Text style={styles.locationCoords}>
-                  {displayLat != null && displayLng != null ? `${Number(displayLat).toFixed(4)}°, ${Number(displayLng).toFixed(4)}°` : 'Location unavailable'}
-                </Text>
-                <Text style={styles.locationAccuracy}>
-                  {displayAccuracy != null ? `±${displayAccuracy}m` : 'Accuracy unavailable'}
-                </Text>
-              </View>
-              {displayLat != null && displayLng != null ? (
-                <TouchableOpacity style={styles.trackingLinkCard} onPress={handleOpenLocation}>
-                  <Text style={styles.trackingLinkText}>Open current location in Google Maps</Text>
-                </TouchableOpacity>
-              ) : null}
-              {record.location?.latitude != null && record.location?.longitude != null ? (
-                <View style={{marginTop: 10}}>
-                  <Text style={styles.locationUpdate}>Initial SOS location: {Number(record.location.latitude).toFixed(5)}, {Number(record.location.longitude).toFixed(5)}</Text>
-                </View>
-              ) : null}
-              <View style={styles.locationRow}>
-                <Text style={styles.locationUpdate}>
-                  Updated {locationUpdateTime}
-                </Text>
-                {isActive && (
-                  <View style={styles.locationRefresh}>
-                    <Text style={styles.locationRefreshText}>●</Text>
-                    <Text style={styles.locationRefreshLabel}>Auto-updating</Text>
-                  </View>
-                )}
-              </View>
+          ) : (
+            <View style={styles.noMediaContainer}>
+              <Text style={styles.noMediaText}>No photos available for this SOS.</Text>
             </View>
-          </View>
-        ) : null}
-
-        {record.emergencyLink ? (
-          <View style={styles.locationSection}>
-            <Text style={styles.locationLabel}>🔗 EMERGENCY TRACKING LINK</Text>
-            <TouchableOpacity style={styles.trackingLinkCard} onPress={() => Linking.openURL(record.emergencyLink)} activeOpacity={0.8}>
-              <Text style={styles.trackingLinkText}>{record.emergencyLink}</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
-
-        {hasImageData ? (
-          <View style={styles.photosSection}>
-            <Text style={styles.photosLabel}>📷 CAMERA SNAPS</Text>
-            <View style={styles.photosGrid}>
-              {frontMediaUrl && !hiddenImages.front ? (
-                <View style={styles.photoBox}>
-                  <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Front</Text></View>
-                  <TouchableOpacity onPress={() => setSelectedImage(displayFrontImage)} activeOpacity={0.85}>
-                    <Image
-                      source={frontMediaSource.isPublic ? {uri: displayFrontImage} : {uri: displayFrontImage, headers: authenticatedMediaOptions.headers}}
-                      style={styles.photoImage}
-                      onError={() => setHiddenImages(current => ({...current, front: true}))}
-                    />
-                  </TouchableOpacity>
-                </View>
-              ) : null}
-              {backMediaUrl && !hiddenImages.back ? (
-                <View style={styles.photoBox}>
-                  <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Back</Text></View>
-                  <TouchableOpacity onPress={() => setSelectedImage(displayBackImage)} activeOpacity={0.85}>
-                    <Image
-                      source={backMediaSource.isPublic ? {uri: displayBackImage} : {uri: displayBackImage, headers: authenticatedMediaOptions.headers}}
-                      style={styles.photoImage}
-                      onError={() => setHiddenImages(current => ({...current, back: true}))}
-                    />
-                  </TouchableOpacity>
-                </View>
-              ) : null}
-            </View>
-          </View>
-        ) : null}
-
-        {/* ================= VOICE RECORDING ================= */}
-        <View style={styles.audioSection}>
-          <Text style={styles.audioLabel}>🎙️ VOICE RECORDING</Text>
-          <View style={styles.audioCard}>
-            {audioMediaUrl ? (
-              <AudioPlayer audioUrl={audioMediaUrl} token={token} publicMedia={audioMediaSource.isPublic} style={styles.audioPlayer} />
-            ) : (
-              <>
-                <View style={styles.waveformContainer}>
-                  {audio?.status === 'failed' || localAudio?.status === 'FAILED' ? (
-                    <Text style={styles.noAudioText}>Failed: {audio?.error || localAudio?.error || 'Audio capture failed'}</Text>
-                  ) : audio?.status === 'success' && audio.storageRef ? (
-                    <Text style={styles.noAudioText}>Audio recording available</Text>
-                  ) : (
-                    <Text style={styles.noAudioText}>Status: {audio?.status || localAudio?.status || 'pending'}</Text>
-                  )}
-                </View>
-
-                <Text style={styles.audioDuration}>Playback unavailable</Text>
-              </>
-            )}
-          </View>
+          )}
         </View>
 
+       <View style={styles.audioSection}>
+  <Text style={styles.sectionLabel}>🎙️ VOICE RECORDING</Text>
+  
+  {hasAudio ? (
+    <View style={styles.audioCard}>
+      <AudioPlayer
+        audioUrl={mediaUrls.audio}
+        token={token}
+        publicMedia={false}
+        directFetch={true}  // ================= NEW: Direct fetch mode =================
+        style={styles.audioPlayer}
+        onError={(error) => {
+          console.log('[AdminAudio Error]', error);
+          setAudioError(error?.message || 'Audio playback failed');
+        }}
+      />
+    </View>
+  ) : (
+    <View style={styles.noMediaContainer}>
+      <Text style={styles.noMediaText}>No audio recording available.</Text>
+    </View>
+  )}
+</View>
+
+        {actionError ? <Text style={styles.errorText}>{actionError}</Text> : null}
+
       </ScrollView>
+
+      {/* ================= FULLSCREEN IMAGE VIEWER ================= */}
       <FullscreenImageViewer
         visible={Boolean(selectedImage)}
         uri={selectedImage}
-        headers={{Authorization: `Bearer ${token}`}}
+        headers={authHeaders}
         onClose={() => setSelectedImage(null)}
       />
 
       {/* ================= ACTION BUTTONS ================= */}
       <View style={styles.actionContainer}>
-        {liveLocationActive ? <TouchableOpacity
-          style={styles.callButton}
-          activeOpacity={0.7}
-          onPress={handleStopSharing}
-          disabled={actionLoading}>
-          <Text style={styles.callButtonText}>{actionLoading ? 'Stopping...' : 'Stop Sharing'}</Text>
-        </TouchableOpacity> : null}
+        {liveLocationActive && (
+          <TouchableOpacity style={styles.stopSharingActionButton} onPress={handleStopSharing} disabled={actionLoading}>
+            <Text style={styles.stopSharingActionText}>{actionLoading ? 'Stopping...' : 'Stop Sharing'}</Text>
+          </TouchableOpacity>
+        )}
 
         {isActive && !actionLoading ? (
-          <TouchableOpacity
-            style={styles.resolveButton}
-            activeOpacity={0.7}
-            onPress={handleMarkResolved}>
+          <TouchableOpacity style={styles.resolveButton} onPress={handleMarkResolved}>
             <Text style={styles.resolveButtonText}>✓ Mark Resolved</Text>
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity
-            style={styles.resolvedButton}
-            activeOpacity={0.7}
-            onPress={onBack}>
+          <TouchableOpacity style={styles.resolvedButton} onPress={onBack}>
             <Text style={styles.resolvedButtonText}>✓ Resolved</Text>
           </TouchableOpacity>
         )}
@@ -462,12 +515,22 @@ const AdminSosDetailScreen = ({
 };
 
 const styles = StyleSheet.create({
-  safeArea: {
+  safeArea: { flex: 1, backgroundColor: '#F7F7F8' },
+
+  loadingContainer: {
     flex: 1,
-    backgroundColor: '#F7F7F8',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
-  /* ================= HEADER ================= */
+  loadingText: {
+    marginTop: 16,
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+
+  // ================= HEADER =================
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -495,15 +558,8 @@ const styles = StyleSheet.create({
     marginTop: -2,
   },
 
-  headerContent: {
-    flex: 1,
-    paddingHorizontal: 10,
-  },
-
-  headerTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
+  headerContent: { flex: 1, paddingHorizontal: 10 },
+  headerTopRow: { flexDirection: 'row', alignItems: 'center' },
 
   userAvatar: {
     width: 36,
@@ -515,65 +571,22 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
 
-  userAvatarText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '900',
-  },
+  userAvatarText: { color: '#FFFFFF', fontSize: 14, fontWeight: '900' },
 
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#1A1A1A',
-  },
+  headerTitle: { fontSize: 16, fontWeight: '900', color: '#1A1A1A' },
+  headerTitleActive: { color: '#E4002B' },
+  headerSubtitle: { fontSize: 11, color: '#6E6E73', marginTop: 1, fontWeight: '500' },
 
-  headerTitleActive: {
-    color: '#E4002B',
-  },
+  statusBadge: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, alignSelf: 'flex-start' },
+  statusActive: { backgroundColor: '#FDE7EA' },
+  statusResolved: { backgroundColor: '#E8F8EF' },
+  statusBadgeText: { fontSize: 9, fontWeight: '900' },
+  statusActiveText: { color: '#E4002B' },
+  statusResolvedText: { color: '#178A4B' },
 
-  headerSubtitle: {
-    fontSize: 11,
-    color: '#6E6E73',
-    marginTop: 1,
-    fontWeight: '500',
-  },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 },
 
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-    alignSelf: 'flex-start',
-  },
-
-  statusActive: {
-    backgroundColor: '#FDE7EA',
-  },
-
-  statusResolved: {
-    backgroundColor: '#E8F8EF',
-  },
-
-  statusBadgeText: {
-    fontSize: 9,
-    fontWeight: '900',
-  },
-
-  statusActiveText: {
-    color: '#E4002B',
-  },
-
-  statusResolvedText: {
-    color: '#178A4B',
-  },
-
-  /* ================= SCROLL ================= */
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
-  },
-
-  /* ================= MESSAGE ================= */
+  // ================= MESSAGE CARD =================
   messageCard: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
@@ -588,32 +601,12 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
-  messageHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
+  messageHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  messageLabel: { fontSize: 10, fontWeight: '900', color: '#6E6E73', letterSpacing: 0.8 },
+  messageTime: { fontSize: 10, color: '#A1A1A6', fontWeight: '500' },
+  messageText: { fontSize: 13, color: '#1A1A1A', fontWeight: '500', lineHeight: 20 },
 
-  messageLabel: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#6E6E73',
-    letterSpacing: 0.8,
-  },
-
-  messageTime: {
-    fontSize: 10,
-    color: '#A1A1A6',
-    fontWeight: '500',
-  },
-
-  messageText: {
-    fontSize: 13,
-    color: '#1A1A1A',
-    fontWeight: '500',
-    lineHeight: 20,
-  },
+  // ================= SERVICE RESULTS =================
   serviceResultsSection: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -622,311 +615,259 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 16,
   },
-  serviceResultsLabel: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: '#374151',
-    letterSpacing: 1,
-    marginBottom: 10,
-  },
-  serviceResultRow: {
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#F0F1F3',
-  },
-  serviceResultName: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#111827',
-  },
-  serviceResultStatus: {
-    fontSize: 12,
-    fontWeight: '900',
-    color: '#178A4B',
-    marginTop: 3,
-  },
-  serviceResultError: {
-    fontSize: 12,
-    color: '#B42318',
-    marginTop: 3,
-  },
-  serviceResultEmpty: {
-    fontSize: 13,
-    color: '#68707D',
-  },
 
-  /* ================= LIVE LOCATION ================= */
-  locationSection: {
-    marginBottom: 12,
-  },
+  serviceResultsLabel: { fontSize: 12, fontWeight: '900', color: '#374151', letterSpacing: 1, marginBottom: 10 },
+  serviceResultRow: { paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#F0F1F3' },
+  serviceResultName: { fontSize: 14, fontWeight: '800', color: '#111827' },
+  serviceResultStatus: { fontSize: 12, fontWeight: '900', color: '#178A4B', marginTop: 3 },
+  serviceResultError: { fontSize: 12, color: '#B42318', marginTop: 3 },
+  serviceResultEmpty: { fontSize: 13, color: '#68707D' },
 
-  locationHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
+  // ================= LOCATION SECTION - MAP STYLE =================
+  locationSection: { marginBottom: 16 },
+  locationHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  locationLabel: { fontSize: 12, fontWeight: '900', color: '#6E6E73', letterSpacing: 0.8 },
 
-  locationLabel: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#6E6E73',
-    letterSpacing: 0.8,
-  },
+  liveBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FDE7EA', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#E4002B', marginRight: 5 },
+  liveText: { fontSize: 8, fontWeight: '900', color: '#E4002B', letterSpacing: 0.5 },
 
-  liveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FDE7EA',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-
-  liveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#E4002B',
-    marginRight: 5,
-  },
-
-  liveText: {
-    fontSize: 8,
-    fontWeight: '900',
-    color: '#E4002B',
-    letterSpacing: 0.5,
-  },
-
+  // Map Container
   mapContainer: {
-    height: 140,
+    width: '100%',
+    height: 240,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#EDEDEF',
     overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
-    marginBottom: 10,
+    backgroundColor: '#E8EDF3',
     shadowColor: '#000',
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOffset: {width: 0, height: 4},
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 4,
   },
 
-  realLocationCard: {
-    minHeight: 110,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 14,
-    padding: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  realLocationIcon: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: '#EAF2FF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  realLocationIconText: {fontSize: 22},
-  realLocationContent: {flex: 1},
-  realLocationTitle: {fontSize: 13, fontWeight: '900', color: '#1A73E8'},
-  realLocationCoords: {fontSize: 15, fontWeight: '800', color: '#111827', marginTop: 4},
-  realLocationHint: {fontSize: 11, color: '#6E6E73', marginTop: 5},
-
-  mapPlaceholder: {
-    flex: 1,
-    backgroundColor: '#F0F1F3',
+  mapGrid: {
+    width: '100%',
+    height: '100%',
     position: 'relative',
   },
 
-  mapGridLine1: {
+  // Street lines
+  mapStreet: {
     position: 'absolute',
-    top: 30,
-    left: -40,
-    right: -40,
-    height: 8,
-    backgroundColor: '#E0E1E5',
-    transform: [{rotate: '-10deg'}],
+    backgroundColor: 'rgba(255,255,255,0.3)',
   },
 
-  mapGridLine2: {
-    position: 'absolute',
-    top: 80,
-    left: -40,
-    right: -40,
-    height: 6,
-    backgroundColor: '#E3E4E8',
-    transform: [{rotate: '6deg'}],
+  mapStreet1: {
+    top: '25%',
+    left: '-10%',
+    right: '-10%',
+    height: 3,
+    transform: [{rotate: '-3deg'}],
   },
 
-  mapGridLine3: {
-    position: 'absolute',
-    top: -30,
-    bottom: -30,
-    left: 100,
-    width: 6,
-    backgroundColor: '#E0E1E5',
-    transform: [{rotate: '8deg'}],
+  mapStreet2: {
+    top: '55%',
+    left: '-10%',
+    right: '-10%',
+    height: 3,
+    transform: [{rotate: '2deg'}],
   },
 
-  mapGridLine4: {
-    position: 'absolute',
-    top: -30,
-    bottom: -30,
-    right: 80,
-    width: 6,
-    backgroundColor: '#E3E4E8',
-    transform: [{rotate: '-12deg'}],
+  mapStreet3: {
+    top: '-10%',
+    bottom: '-10%',
+    left: '30%',
+    width: 3,
+    transform: [{rotate: '5deg'}],
   },
 
-  mapPinOuter: {
+  mapStreet4: {
+    top: '-10%',
+    bottom: '-10%',
+    right: '25%',
+    width: 3,
+    transform: [{rotate: '-4deg'}],
+  },
+
+  // Building blocks
+  mapBuilding: {
     position: 'absolute',
-    top: 45,
-    left: '42%',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    backgroundColor: 'rgba(160,180,200,0.25)',
+    borderRadius: 2,
+  },
+
+  mapBuilding1: { top: '10%', left: '15%', width: '18%', height: '12%' },
+  mapBuilding2: { top: '8%', right: '20%', width: '14%', height: '10%' },
+  mapBuilding3: { bottom: '15%', left: '20%', width: '20%', height: '14%' },
+  mapBuilding4: { bottom: '12%', right: '15%', width: '16%', height: '12%' },
+
+  // Marker with Pulse
+  markerContainer: {
+    position: 'absolute',
+    top: '45%',
+    left: '47%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  pulseRing1: {
+    position: 'absolute',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 2,
+    borderColor: 'rgba(228, 0, 43, 0.15)',
+    top: -22,
+    left: -22,
+  },
+
+  pulseRing2: {
+    position: 'absolute',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: 'rgba(228, 0, 43, 0.25)',
+    top: -12,
+    left: -12,
+  },
+
+  markerOuter: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: 'rgba(228, 0, 43, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  mapPinMiddle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+  markerInner: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     backgroundColor: 'rgba(228, 0, 43, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
   },
 
-  mapPinInner: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+  markerDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
     backgroundColor: '#E4002B',
+    shadowColor: '#E4002B',
+    shadowOffset: {width: 0, height: 0},
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    elevation: 6,
   },
 
-  mapPulseRing1: {
+  // Map Overlay
+  mapOverlay: {
     position: 'absolute',
-    top: 35,
-    left: '38%',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 2,
-    borderColor: 'rgba(228, 0, 43, 0.2)',
-  },
-
-  mapPulseRing2: {
-    position: 'absolute',
-    top: 25,
-    left: '33%',
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 2,
-    borderColor: 'rgba(228, 0, 43, 0.1)',
-  },
-
-  locationDetails: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#EDEDEF',
+    bottom: 12,
+    left: 12,
+    right: 12,
+    backgroundColor: 'rgba(255,255,255,0.92)',
     borderRadius: 12,
     padding: 12,
     shadowColor: '#000',
     shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.04,
+    shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 2,
   },
 
-  locationRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 3,
+  mapOverlayTop: { flexDirection: 'row', alignItems: 'center' },
+  mapOverlayIconContainer: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#EAF2FF', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  mapOverlayIcon: { fontSize: 16 },
+  mapOverlayContent: { flex: 1 },
+  mapOverlayTitle: { fontSize: 11, fontWeight: '900', color: '#1A73E8' },
+  mapOverlayCoords: { fontSize: 12, fontWeight: '700', color: '#1A1A1A', marginTop: 1 },
+
+  mapOverlayBottom: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
+  mapOverlayAccuracy: { fontSize: 10, color: '#6E6E73' },
+  mapOverlayTime: { fontSize: 10, color: '#6E6E73' },
+
+  mapTapHint: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
   },
 
-  locationAddress: {
-    fontSize: 13,
-    color: '#1A1A1A',
-    fontWeight: '700',
-  },
+  mapTapHintText: { fontSize: 9, color: '#FFFFFF', fontWeight: '600' },
 
-  locationCoords: {
-    fontSize: 11,
-    color: '#1A73E8',
-    fontWeight: '600',
-  },
-
-  locationAccuracy: {
-    fontSize: 10,
-    color: '#6E6E73',
-    fontWeight: '500',
-  },
-
-  locationUpdate: {
-    fontSize: 10,
-    color: '#A1A1A6',
-    fontWeight: '500',
-  },
-
-  locationRefresh: {
-    flexDirection: 'row',
+  // Location Unavailable
+  locationUnavailable: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#EDEDEF',
+    borderRadius: 14,
+    padding: 30,
     alignItems: 'center',
   },
 
-  locationRefreshText: {
-    fontSize: 8,
-    color: '#22A06B',
-    marginRight: 4,
+  locationUnavailableIcon: { fontSize: 32, marginBottom: 10 },
+  locationUnavailableTitle: { fontSize: 15, fontWeight: '700', color: '#1A1A1A' },
+  locationUnavailableText: { fontSize: 13, color: '#A1A1A6', marginTop: 4 },
+
+  // Initial Location
+  initialLocationContainer: {
+    backgroundColor: '#F5F6F8',
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 10,
   },
 
-  locationRefreshLabel: {
-    fontSize: 9,
-    color: '#22A06B',
-    fontWeight: '600',
+  initialLocationLabel: { fontSize: 10, fontWeight: '900', color: '#6E6E73', letterSpacing: 0.5 },
+  initialLocationCoords: { fontSize: 12, fontWeight: '600', color: '#1A1A1A', marginTop: 2 },
+
+  // Stop Sharing
+  stopSharingButton: {
+    backgroundColor: '#FFF5F6',
+    borderWidth: 1.5,
+    borderColor: '#F3B5BF',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 12,
   },
 
-  /* ================= PHOTOS ================= */
-  trackingLinkCard: {backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E8E8EB', borderRadius: 12, padding: 12, marginTop: 10},
-  trackingLinkText: {color: '#E4002B', fontSize: 13, fontWeight: '700'},
+  stopSharingText: { color: '#D9263A', fontSize: 14, fontWeight: '800' },
 
-  photosSection: {
-    marginBottom: 12,
+  // Emergency Link
+  emergencyLinkCard: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 12,
   },
 
-  photosLabel: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#6E6E73',
-    letterSpacing: 0.8,
-    marginBottom: 8,
-  },
+  emergencyLinkLabel: { fontSize: 10, fontWeight: '900', color: '#6E6E73', letterSpacing: 0.5 },
+  emergencyLinkText: { color: '#E4002B', fontSize: 12, fontWeight: '700', marginTop: 4 },
 
-  photosGrid: {
-    flexDirection: 'row',
-    gap: 10,
-  },
+  // ================= PHOTOS =================
+  photosSection: { marginBottom: 16 },
+  sectionLabel: { fontSize: 12, fontWeight: '900', color: '#6E6E73', letterSpacing: 0.8, marginBottom: 8 },
+
+  photosGrid: { flexDirection: 'row', gap: 10 },
 
   photoBox: {
     flex: 1,
-    aspectRatio: 4/3,
+    aspectRatio: 4 / 3,
     backgroundColor: '#F5F6F8',
     borderWidth: 1,
     borderColor: '#E8E8EB',
     borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
     overflow: 'hidden',
+    position: 'relative',
   },
 
   photoBadge: {
@@ -937,59 +878,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
+    zIndex: 1,
   },
 
-  photoBadgeText: {
-    fontSize: 8,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
-  },
+  photoBadgeText: { fontSize: 8, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.5 },
 
   photoImage: {
     width: '100%',
     height: '100%',
+    resizeMode: 'cover',
   },
 
-  photoIcon: {
-    fontSize: 28,
-  },
-
-  photoLabel: {
-    fontSize: 10,
-    color: '#9A9A9F',
-    marginTop: 4,
-    fontWeight: '600',
-  },
-
-  photoStatus: {
-    fontSize: 9,
-    color: '#C8C8CD',
-    marginTop: 2,
-  },
-
-  /* ================= VOICE ================= */
-  audioSection: {
-    marginBottom: 8,
-  },
-
-  audioLabel: {
-    fontSize: 11,
-    fontWeight: '900',
-    color: '#6E6E73',
-    letterSpacing: 0.8,
-    marginBottom: 8,
-  },
+  // ================= AUDIO =================
+  audioSection: { marginBottom: 16 },
 
   audioCard: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#EDEDEF',
     borderRadius: 14,
-    padding: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+    padding: 8,
     shadowColor: '#000',
     shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.04,
@@ -997,54 +905,28 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
 
-  audioButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#E4002B',
+  audioPlayer: { width: '100%' },
+
+  noMediaContainer: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#EDEDEF',
+    borderRadius: 12,
+    padding: 20,
     alignItems: 'center',
-    justifyContent: 'center',
   },
 
-  audioButtonPlaying: {
-    backgroundColor: '#178A4B',
-  },
+  noMediaText: { fontSize: 13, color: '#A1A1A6' },
 
-  audioButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-  },
+  errorText: { color: '#B42318', fontSize: 13, textAlign: 'center', marginTop: 10 },
 
-  waveformContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 2,
-    height: 36,
-  },
+  // ================= ERROR =================
+  errorContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  errorText2: { fontSize: 16, color: '#B42318', fontWeight: '700', marginBottom: 16 },
+  errorBackButton: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, backgroundColor: '#E4002B' },
+  errorBackText: { color: '#FFFFFF', fontWeight: '700' },
 
-  waveformBar: {
-    width: 3,
-    borderRadius: 2,
-    minHeight: 3,
-  },
-
-  noAudioText: {
-    fontSize: 12,
-    color: '#A1A1A6',
-    textAlign: 'center',
-    width: '100%',
-  },
-
-  audioDuration: {
-    fontSize: 11,
-    color: '#6E6E73',
-    fontWeight: '600',
-    minWidth: 36,
-    textAlign: 'right',
-  },
-
-  /* ================= ACTION BUTTONS ================= */
+  // ================= ACTION BUTTONS =================
   actionContainer: {
     flexDirection: 'row',
     gap: 10,
@@ -1055,7 +937,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#EDEDEF',
   },
 
-  callButton: {
+  stopSharingActionButton: {
     flex: 1,
     paddingVertical: 14,
     borderRadius: 28,
@@ -1065,11 +947,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  callButtonText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#D9263A',
-  },
+  stopSharingActionText: { fontSize: 13, fontWeight: '700', color: '#D9263A' },
 
   resolveButton: {
     flex: 1,
@@ -1084,11 +962,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
 
-  resolveButtonText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
+  resolveButtonText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
 
   resolvedButton: {
     flex: 1,
@@ -1098,11 +972,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
-  resolvedButtonText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
+  resolvedButtonText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
 });
 
 export default AdminSosDetailScreen;

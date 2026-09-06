@@ -1,4 +1,5 @@
-// UserBottomNav.js
+// UserBottomNav.js - ADD HISTORY TAB
+
 import React from 'react';
 import {
   View,
@@ -6,6 +7,7 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
+import Icon from './Icon';
 
 const UserBottomNav = ({
   activeTab = 'Home',
@@ -15,17 +17,22 @@ const UserBottomNav = ({
     {
       key: 'Home',
       label: 'Home',
-      icon: '🏠',
+      icon: 'home-outline',
     },
     {
       key: 'Contacts',
       label: 'Contacts',
-      icon: '👥',
+      icon: 'account-group-outline',
+    },
+    {
+      key: 'History',  // ✅ NEW: History tab added
+      label: 'History',
+      icon: 'clipboard-text-outline',
     },
     {
       key: 'Profile',
       label: 'Profile',
-      icon: '👤',
+      icon: 'account-outline',
     },
   ];
 
@@ -50,13 +57,11 @@ const UserBottomNav = ({
                   styles.iconContainer,
                   isActive && styles.activeIconContainer,
                 ]}>
-                <Text
-                  style={[
-                    styles.icon,
-                    isActive && styles.activeIcon,
-                  ]}>
-                  {tab.icon}
-                </Text>
+                <Icon
+                  name={tab.icon}
+                  size={26}
+                  color={isActive ? '#E4002B' : '#A1A1A6'}
+                />
               </View>
 
               <Text

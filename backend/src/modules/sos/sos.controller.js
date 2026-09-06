@@ -66,10 +66,6 @@ const dispatchSosAfterPersistence = asyncHandler(async (req, res) => {
 
 const listSos = asyncHandler(async (req, res) => {
   const { items, meta } = await sosService.listSos(req.query, req.user);
-  // Same shape as getSos() — the list/card view and the detail view must
-  // carry the same emergencyLink/emergencyMediaUrls so a card tapped open
-  // has working media immediately, before the detail screen's own refetch
-  // resolves (avoids a flash of "no image" while that request is in flight).
   ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'SOS records retrieved', data: { sos: items.map(item => withEmergencyLink(item, req)), meta } });
 });
 
@@ -85,10 +81,6 @@ const cancelSos = asyncHandler(async (req, res) => {
 
 const deactivateSos = asyncHandler(async (req, res) => {
   const sos = await sosService.deactivateSos(req.params.id, req.user);
-  // Kept consistent with getSos()/listSos(): without this, marking an SOS
-  // "Resolved" on the admin detail screen replaced detailRecord with a
-  // payload that had no emergencyMediaUrls, so the photos/audio the admin
-  // was just viewing would disappear the moment they resolved the case.
   ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'SOS deactivated', data: { sos: withEmergencyLink(sos, req) } });
 });
 
@@ -136,9 +128,41 @@ const uploadMedia = asyncHandler(async (req, res) => {
  * GET /api/sos/:id/media/:component/file
  * Streams the stored media file back to an authorized caller (owner or
  * admin) — the same authorization used for the rest of the SOS.
+ * 
+ * ================= FIX: Added query param token support =================
  */
 const getMediaFile = asyncHandler(async (req, res) => {
-  const { stream, mimeType } = await sosService.getMediaFileStream(req.params.id, req.user, req.params.component);
+  // ================= FIX: Use authenticated user from middleware =================
+  // authenticate middleware already adds req.user
+  // If for some reason req.user is not available, try query param token
+  let user = req.user;
+  
+  // ================= FIX: If no user, try query param token =================
+  if (!user && req.query.token) {
+    try {
+      const { verifyToken } = require('../../utils/jwt');
+      const User = require('../users/user.model');
+      const payload = verifyToken(req.query.token);
+      const dbUser = await User.findById(payload.sub);
+      if (dbUser && dbUser.status === 'active') {
+        user = {
+          id: dbUser._id.toString(),
+          _id: dbUser._id.toString(),
+          username: dbUser.username,
+          role: dbUser.role,
+        };
+      }
+    } catch (err) {
+      // Token invalid - will throw below
+    }
+  }
+  
+  // If still no user, throw unauthorized
+  if (!user) {
+    throw ApiError.unauthorized('Authentication required');
+  }
+  
+  const { stream, mimeType } = await sosService.getMediaFileStream(req.params.id, user, req.params.component);
   res.setHeader('Content-Type', mimeType);
   res.setHeader('Cache-Control', 'private, max-age=3600');
   

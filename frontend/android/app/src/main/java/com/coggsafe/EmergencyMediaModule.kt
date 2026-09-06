@@ -18,6 +18,8 @@ import android.telecom.TelecomManager
 import android.telephony.SmsManager
 import android.location.Location
 import android.telephony.SubscriptionManager
+import android.provider.Settings
+import android.location.LocationManager
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -119,6 +121,35 @@ class EmergencyMediaModule(
         smsStatusReceiverRegistered = true
     }
 
+    // ================= NEW: Check if location is enabled =================
+    @ReactMethod
+    fun isLocationEnabled(promise: Promise) {
+        try {
+            val locationManager = reactContext.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val isGpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+            val isNetworkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            promise.resolve(isGpsEnabled || isNetworkEnabled)
+        } catch (e: Exception) {
+            Log.e("EmergencyMedia", "isLocationEnabled error: ${e.message}")
+            promise.resolve(false)
+        }
+    }
+
+    // ================= NEW: Prompt user to enable location =================
+    @ReactMethod
+    fun promptEnableLocation(promise: Promise) {
+        try {
+            val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            reactContext.startActivity(intent)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e("EmergencyMedia", "promptEnableLocation error: ${e.message}")
+            promise.resolve(false)
+        }
+    }
+
+    // ================= EXISTING: Capture Photos =================
     @ReactMethod
     fun capturePhotos(
         sosId: String,
@@ -263,6 +294,7 @@ class EmergencyMediaModule(
         }
     }
 
+    // ================= EXISTING: Send Emergency SMS =================
     @ReactMethod
     fun sendEmergencySms(
         phoneNumber: String,
@@ -353,6 +385,7 @@ class EmergencyMediaModule(
         }
     }
 
+    // ================= EXISTING: Open SMS Composer =================
     @ReactMethod
     fun openSmsComposer(
         phoneNumber: String,
@@ -394,11 +427,7 @@ class EmergencyMediaModule(
         }
     }
 
-    /**
-     * Lists active SIM/subscriptions so the app can offer a SIM picker on
-     * dual-SIM devices. Single-SIM devices never need this — the caller
-     * should skip any selection UI when only one entry is returned.
-     */
+    // ================= EXISTING: Get Available SIMs =================
     @ReactMethod
     fun getAvailableSims(promise: Promise) {
         try {
@@ -428,6 +457,7 @@ class EmergencyMediaModule(
         }
     }
 
+    // ================= EXISTING: Place Call =================
     @ReactMethod
     fun placeCall(
         phoneNumber: String,
@@ -515,6 +545,7 @@ class EmergencyMediaModule(
         }
     }
 
+    // ================= EXISTING: Start Live Location Service =================
     @ReactMethod
     fun startLiveLocationService(
         baseUrl: String,
@@ -549,6 +580,7 @@ class EmergencyMediaModule(
         }
     }
 
+    // ================= EXISTING: Stop Live Location Service =================
     @ReactMethod
     fun stopLiveLocationService(promise: Promise) {
         try {
@@ -559,6 +591,7 @@ class EmergencyMediaModule(
         }
     }
 
+    // ================= EXISTING: Get Current Location =================
     @ReactMethod
     fun getCurrentLocation(promise: Promise) {
         val fine = ContextCompat.checkSelfPermission(reactContext, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -600,9 +633,7 @@ class EmergencyMediaModule(
         }
     }
 
-    /** Downloads a protected SOS audio stream with the current JWT into
-     * app-private durable storage. react-native-sound cannot attach HTTP headers, so it
-     * must never be handed the protected backend URL directly. */
+    // ================= EXISTING: Download Authenticated Media =================
     @ReactMethod
     fun downloadAuthenticatedMedia(
         mediaUrl: String,
@@ -650,6 +681,8 @@ class EmergencyMediaModule(
             }
         }.start()
     }
+
+    // ================= EXISTING: Record Audio =================
     @ReactMethod
     fun recordAudio(
         sosId: String,
@@ -734,12 +767,7 @@ class EmergencyMediaModule(
         promise.resolve(isUsableMediaFile(File(path.removePrefix("file://"))))
     }
 
-    /**
-     * Reports actual SIM/telephony readiness for SMS, independent of which
-     * network interface (Wi-Fi or cellular) is currently carrying internet
-     * traffic. A device on Wi-Fi with a working SIM must still be treated as
-     * cellular-available; a data connection type is not a telephony signal.
-     */
+    // ================= EXISTING: Get Telephony State =================
     @ReactMethod
     fun getTelephonyState(promise: Promise) {
         try {

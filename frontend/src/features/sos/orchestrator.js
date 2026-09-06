@@ -44,9 +44,6 @@ export function createBaseServiceState() {
     backend: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null},
     email: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null},
     notifications: {status: 'PENDING', completedAt: null, error: null},
-    // Canonical emergency-link follow-up SMS. This is a durable queue job
-    // (LINK_SMS), never an in-memory Promise — see enqueueSosJob() call in
-    // activateSosFlow below and the `linkSms` processor in App.js.
     linkSms: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null},
     locationSms: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null, recipients: []},
   };
@@ -138,16 +135,6 @@ export async function activateSosFlow({
     }
   }
 
-  // The canonical-link follow-up SMS is enqueued unconditionally and
-  // immediately, regardless of current connectivity or backend timing.
-  // It is a persistent queue job (survives app close/restart/process
-  // death) rather than an in-memory Promise chain: the `linkSms`
-  // processor (frontend/App.js) checks event.emergencyLink on every
-  // attempt and simply stays PENDING/RETRY_WAITING until the backend
-  // has produced a link AND cellular is available. This call is
-  // idempotent — enqueueSosJob keys on {sosId}:{type}, so repeated
-  // calls (e.g. from recovery.js after a restart) never create a
-  // second job for the same SOS.
   await enqueueSosJob({sosId: event.id, type: 'LINK_SMS', serviceName: 'linkSms'});
 
   const defaultRunners = {
@@ -217,8 +204,6 @@ export async function activateSosFlow({
           event.emergencyLink = result.emergencyLink || null;
           event.activatedAt = result.activatedAt || event.activatedAt || null;
           backendReady = true;
-          // Persist backendId immediately. This makes the Stop Sharing action
-          // usable while the remaining camera/audio jobs are still running.
           await sosLocalStore.upsertSos({...event, backendId: event.backendId, emergencyLink: event.emergencyLink});
         }
       }
@@ -253,12 +238,6 @@ export async function activateSosFlow({
         await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
       }
       
-      // Emit toast for critical services. Each condition here is
-      // independent (not an if/else-if chain) so, for example, the front
-      // camera toast and the back camera toast both fire when both
-      // succeed, and a partial camera result (status 'PENDING', see
-      // cameraService.js) still surfaces whichever lens DID succeed
-      // instead of showing nothing until the retry completes.
       if (resultStatus === 'COMPLETED' && serviceName === 'location') {
         const acc = result?.accuracy;
         if (!silent) emitSosToast(`Location acquired (${acc?.toFixed(1) || 'unknown'}m accuracy)`, 'success', 2000);
@@ -286,9 +265,6 @@ export async function activateSosFlow({
         await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
       }
 
-      // The follow-up SMS jobs are created before their immediate direct
-      // attempt. Remove the durable copy only after that direct attempt has
-      // succeeded; otherwise the queue remains the retry/recovery path.
       if (['linkSms', 'locationSms'].includes(serviceName)
         && ['COMPLETED', 'SENT', 'QUEUED_TO_ANDROID'].includes(resultStatus)) {
         await sosLocalStore.removeQueueItem(`${event.id}:${serviceName === 'linkSms' ? 'LINK_SMS' : 'LOCATION_SMS'}`);
@@ -323,6 +299,43 @@ export async function activateSosFlow({
     error: result.reason?.message || 'Service failed',
   }));
 
+  // ================= FIXED: Location with retry logic =================
+  // Location capture should retry up to 3 times before giving up
+  const locationCapturePromise = (async () => {
+    let locationResult = null;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (retryCount < maxRetries) {
+      try {
+        const result = await runService('location');
+        if (result && result.status !== 'PENDING' && isValidLocation(result.result)) {
+          locationResult = result;
+          break;
+        }
+        
+        // If pending, wait and retry
+        if (result?.status === 'PENDING') {
+          emitSosDiagnostic(`SOS DEBUG LOCATION RETRY ${retryCount + 1}/${maxRetries}`);
+          const waitTime = 2000 * (retryCount + 1);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          retryCount++;
+        } else {
+          break;
+        }
+      } catch (error) {
+        emitSosDiagnostic(`SOS DEBUG LOCATION ERROR: ${error?.message || 'Unknown'}`);
+        retryCount++;
+        if (retryCount < maxRetries) {
+          const waitTime = 2000 * retryCount;
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+      }
+    }
+    
+    return locationResult;
+  })();
+
   // SMS, location, camera, audio and call are independent emergency services:
   // they must start immediately once the SOS is triggered and must never wait
   // for the backend SOS record to be created (backend requires internet; SMS
@@ -331,8 +344,6 @@ export async function activateSosFlow({
   // genuinely needs the backend SOS id, so it still runs after both finish.
   const captureNames = remainingNames.filter(name => ['location', 'camera', 'audio', 'sms', 'call'].includes(name));
   const backendPromise = names.includes('backend') ? runService('backend') : null;
-  // Live location needs the backend SOS id, but once backend creation
-  // finishes it must start immediately and independently of camera/audio.
   const liveLocationPromise = backendPromise && names.includes('liveLocation')
     ? backendPromise.then(() => runService('liveLocation'))
     : Promise.resolve(null);
@@ -345,14 +356,21 @@ export async function activateSosFlow({
         new Promise(resolve => setTimeout(resolve, 6500)),
       ]).then(() => runService('call'))
     : Promise.resolve(null);
+  
+  // ================= FIXED: Location SMS waits for location =================
   const locationSmsPromise = locationCapturePromise
-    ? locationCapturePromise.then(async locationResult => {
-        if (isValidLocation(event.location) && names.includes('locationSms')) {
-          return runService('locationSms');
-        }
-        return null;
-      }).catch(error => ({serviceName: 'locationSms', status: 'FAILED', error: error?.message || 'Location SMS failed'}))
-    : Promise.resolve(null);
+    .then(async locationResult => {
+      if (isValidLocation(event.location) && names.includes('locationSms')) {
+        return runService('locationSms');
+      }
+      return null;
+    })
+    .catch(error => ({
+      serviceName: 'locationSms',
+      status: 'FAILED',
+      error: error?.message || 'Location SMS failed'
+    }));
+  
   const capturePromise = Promise.all([
     mediaCapturePromise,
     delayedCallPromise.then(result => result ? [result] : []),
@@ -373,17 +391,10 @@ export async function activateSosFlow({
   appendSettled(locationResults || []);
   if (locationSmsResult) execution.push(locationSmsResult);
 
-  // The emergency tracking-link SMS is attempted immediately after the
-  // backend returns the canonical link. It is addressed to collection
-  // members, never to the collection's emergency-call number. If backend
-  // creation is offline, the durable LINK_SMS queue job handles it later.
   if (backendReady && names.includes('linkSms')) {
     execution.push(await runService('linkSms'));
   }
 
-  // Location capture and backend creation run concurrently. Deliver the
-  // captured coordinates only after the backend has returned its id; this
-  // avoids losing a successful location when the create request won the race.
   if (backendReady && isValidLocation(event.location)) {
     await enqueueSosJob({sosId: event.id, type: 'LOCATION', serviceName: 'location'});
   }
@@ -442,8 +453,6 @@ export async function activateSosFlow({
   }
   await sosLocalStore.upsertSos(event);
 
-  // Capture completes locally. Queue the existing upload worker only after
-  // the backend record exists, so device paths never become backend URLs.
   if (
     event.services?.camera?.frontImagePath ||
     event.services?.camera?.backImagePath ||
