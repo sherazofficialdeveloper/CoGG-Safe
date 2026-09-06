@@ -24,6 +24,10 @@ function isPlaceholder(value) {
 }
 
 function isConfigured() {
+  const provider = String(env.email.provider || 'smtp').toLowerCase();
+  if (provider === 'resend') {
+    return !isPlaceholder(env.email.resendApiKey) && !isPlaceholder(env.email.from);
+  }
   return !isPlaceholder(env.email.host) && !isPlaceholder(env.email.user) && !isPlaceholder(env.email.password);
 }
 
@@ -33,7 +37,7 @@ function getTransporter() {
     cachedTransporter = nodemailer.createTransport({
       host: env.email.host,
       port: env.email.port,
-      secure: env.email.port === 465, // implicit TLS on 465; STARTTLS otherwise
+      secure: env.email.port === 465,
       auth: { user: env.email.user, pass: env.email.password },
       connectionTimeout: 30000,
       greetingTimeout: 30000,
@@ -43,21 +47,44 @@ function getTransporter() {
   return cachedTransporter;
 }
 
+async function sendViaResend({ to, subject, body }) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(`${String(env.email.resendBaseUrl).replace(/\/$/, '')}/emails`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.email.resendApiKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({ from: env.email.from, to: [to], subject, text: body }),
+      signal: controller.signal,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(payload?.message || payload?.name || `Resend HTTP ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    return { status: 'sent', providerMessageId: payload?.id || null, response: null };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function send({ to, subject, body }) {
   if (!isConfigured()) {
-    logger.warn('Email provider not configured (EMAIL_HOST/EMAIL_USER/EMAIL_PASSWORD)', {
-      to,
-      subject,
-    });
+    logger.warn('Email provider is not configured', { provider: env.email.provider, to, subject });
     return { status: 'unsupported', error: 'Email provider is not configured' };
   }
 
   try {
+    if (String(env.email.provider || 'smtp').toLowerCase() === 'resend') {
+      return await sendViaResend({ to, subject, body });
+    }
+
     const transporter = getTransporter();
-    // sendMail performs the real SMTP connection/authentication/transaction.
-    // Avoid a separate verify() round-trip for every recipient; during an
-    // emergency that extra handshake can itself time out and falsely report
-    // the email as undelivered.
     const info = await transporter.sendMail({
       from: env.email.from,
       to,
@@ -66,7 +93,7 @@ async function send({ to, subject, body }) {
     });
     return { status: 'sent', providerMessageId: info.messageId, response: info.response || null };
   } catch (err) {
-    logger.warn('Email send failed', { to, subject, error: err.message });
+    logger.warn('Email send failed', { provider: env.email.provider, to, subject, error: err.message });
     throw err;
   }
 }

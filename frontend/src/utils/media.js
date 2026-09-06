@@ -14,7 +14,14 @@
 export function buildEmergencyMediaUrl(emergencyLink, component) {
   if (!emergencyLink || !component) return null;
   const base = String(emergencyLink).replace(/\/$/, '');
-  return `${base}/media/${component}`;
+  const token = base.split('/').filter(Boolean).pop();
+  if (!token) return null;
+  try {
+    const url = new URL(base);
+    return `${url.origin}/api/emergency/${encodeURIComponent(token)}/media/${encodeURIComponent(component)}`;
+  } catch (_) {
+    return null;
+  }
 }
 
 export function buildMediaRequestOptions(token) {

@@ -32,13 +32,13 @@ function warnIfProvidersUnconfigured() {
   if (env.nodeEnv === 'test') return;
 
   const unconfigured = [
-    !emailProvider.isConfigured() && 'Email (SMTP)',
+    !emailProvider.isConfigured() && `Email (${env.email.provider})`,
     !pushProvider.isConfigured() && 'Push (FCM)',
   ].filter(Boolean);
 
   if (unconfigured.length > 0) {
     logger.warn(
-      `Running with NODE_ENV=${env.nodeEnv} but one or more dispatch providers are unconfigured — push notifications and/or email will silently report "unsupported" for every SOS until real credentials are set in backend/.env (FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY for push, EMAIL_HOST/EMAIL_USER/EMAIL_PASSWORD for email).`,
+      `Running with NODE_ENV=${env.nodeEnv} but one or more dispatch providers are unconfigured — push notifications and/or email will silently report "unsupported" for every SOS until real credentials are set in backend/.env (FIREBASE_PROJECT_ID/FIREBASE_CLIENT_EMAIL/FIREBASE_PRIVATE_KEY for push, or RESEND_API_KEY+EMAIL_FROM for Resend, or EMAIL_HOST/EMAIL_USER/EMAIL_PASSWORD for SMTP).`,
       { unconfiguredProviders: unconfigured }
     );
   }

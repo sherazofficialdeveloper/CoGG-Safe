@@ -112,6 +112,8 @@ const AdminSosDetailScreen = ({
   const localAudio = record.services?.audio;
   const hasStoredMediaStatus = component => ['success', 'uploaded', 'ready', 'completed'].includes(String(component?.status || '').toLowerCase()) && (Boolean(component?.storageRef) || Boolean(component?.localPath));
   const getPublicMediaUrl = (emergencyLink, componentName) => {
+    const exact = record?.emergencyMediaUrls?.[componentName];
+    if (exact) return exact;
     const match = String(emergencyLink || '').match(/\/([^/]+)\/?$/);
     return match?.[1] ? `${API_BASE_URL}/emergency/${match[1]}/media/${componentName}` : null;
   };
@@ -358,7 +360,7 @@ const AdminSosDetailScreen = ({
                 <View style={styles.photoBox}>
                   <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Front</Text></View>
                   <TouchableOpacity onPress={() => setSelectedImage(displayFrontImage)} activeOpacity={0.85}>
-                    <Image source={{uri: displayFrontImage, ...(getPublicMediaUrl(record.emergencyLink, 'frontImage') ? {} : authenticatedMediaOptions)}} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, front: true}))} />
+                    <Image source={{uri: displayFrontImage, }} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, front: true}))} />
                   </TouchableOpacity>
                 </View>
               ) : null}
@@ -366,7 +368,7 @@ const AdminSosDetailScreen = ({
                 <View style={styles.photoBox}>
                   <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Back</Text></View>
                   <TouchableOpacity onPress={() => setSelectedImage(displayBackImage)} activeOpacity={0.85}>
-                    <Image source={{uri: displayBackImage, ...(getPublicMediaUrl(record.emergencyLink, 'backImage') ? {} : authenticatedMediaOptions)}} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, back: true}))} />
+                    <Image source={{uri: displayBackImage, }} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, back: true}))} />
                   </TouchableOpacity>
                 </View>
               ) : null}

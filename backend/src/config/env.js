@@ -66,14 +66,16 @@ const env = {
   },
 
   email: {
-    provider: process.env.EMAIL_PROVIDER || 'smtp',
+    provider: process.env.EMAIL_PROVIDER || (process.env.RESEND_API_KEY ? 'resend' : 'smtp'),
     host: process.env.EMAIL_HOST || (
       /@gmail\.com$/i.test(process.env.EMAIL_USER || '') ? 'smtp.gmail.com' : undefined
     ),
     port: parseInt(process.env.EMAIL_PORT, 10) || 587,
     user: process.env.EMAIL_USER,
     password: process.env.EMAIL_PASSWORD,
-    from: process.env.EMAIL_FROM || process.env.EMAIL_USER || 'noreply@coggsos.com',
+    from: process.env.EMAIL_FROM || process.env.EMAIL_USER || undefined,
+    resendApiKey: process.env.RESEND_API_KEY,
+    resendBaseUrl: process.env.RESEND_BASE_URL || 'https://api.resend.com',
   },
 
   storage: {

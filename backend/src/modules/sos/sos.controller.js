@@ -11,9 +11,23 @@ const httpStatus = require('../../constants/httpStatus');
  * place authorized callers (the SOS's own owner, or an admin) get the
  * ready-to-use link instead.
  */
-function withEmergencyLink(sos) {
+function withEmergencyLink(sos, req = null) {
   const json = sos.toJSON ? sos.toJSON() : sos;
-  return { ...json, emergencyLink: buildEmergencyLink(sos.emergencyToken) };
+  const emergencyLink = buildEmergencyLink(sos.emergencyToken);
+  const host = req?.get?.('x-forwarded-host') || req?.get?.('host');
+  const forwardedProto = String(req?.get?.('x-forwarded-proto') || '').split(',')[0].trim();
+  const protocol = forwardedProto || req?.protocol || 'https';
+  const apiOrigin = host ? `${protocol}://${host}` : '';
+  const mediaBase = apiOrigin ? `${apiOrigin}/api/emergency/${sos.emergencyToken}/media` : null;
+  return {
+    ...json,
+    emergencyLink,
+    emergencyMediaUrls: mediaBase ? {
+      frontImage: `${mediaBase}/frontImage`,
+      backImage: `${mediaBase}/backImage`,
+      audio: `${mediaBase}/audio`,
+    } : null,
+  };
 }
 
 /**
@@ -40,7 +54,7 @@ const createSos = asyncHandler(async (req, res) => {
   ApiResponse.send(res, {
     statusCode: alreadyExisted ? httpStatus.OK : httpStatus.CREATED,
     message: alreadyExisted ? 'SOS already exists for this idempotency key' : 'SOS created',
-    data: { sos: withEmergencyLink(sos) },
+    data: { sos: withEmergencyLink(sos, req) },
   });
   console.log('[SOS_DEBUG] RESPONSE_SENT', { sosId: String(sos._id) });
 });
@@ -57,7 +71,7 @@ const listSos = asyncHandler(async (req, res) => {
 
 const getSos = asyncHandler(async (req, res) => {
   const sos = await sosService.getSosById(req.params.id, req.user);
-  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'SOS retrieved', data: { sos: withEmergencyLink(sos) } });
+  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'SOS retrieved', data: { sos: withEmergencyLink(sos, req) } });
 });
 
 const cancelSos = asyncHandler(async (req, res) => {

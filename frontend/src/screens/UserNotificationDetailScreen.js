@@ -15,7 +15,9 @@ const hasStoredMedia = component => (
   component.storageRef.trim().length > 0
 );
 
-const getPublicMediaUrl = (emergencyLink, componentName) => {
+const getPublicMediaUrl = (sos, componentName) => {
+  if (sos?.emergencyMediaUrls?.[componentName]) return sos.emergencyMediaUrls[componentName];
+  const emergencyLink = sos?.emergencyLink;
   const match = String(emergencyLink || '').match(/\/([^/]+)\/?$/);
   return match?.[1] ? `${API_BASE_URL}/emergency/${match[1]}/media/${componentName}` : null;
 };
@@ -60,17 +62,17 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
   const liveActive = String(liveLocation?.status || currentSos?.liveLocation?.status || '').toLowerCase() === 'active';
   const currentSosId = currentSos?.id || currentSos?._id || sosId;
   const frontMediaUrl = useMemo(
-    () => currentSosId && (getPublicMediaUrl(currentSos?.emergencyLink, 'frontImage')
+    () => currentSosId && (getPublicMediaUrl(currentSos, 'frontImage')
       || (hasStoredMedia(media.frontImage) ? `${API_BASE_URL}/sos/${currentSosId}/media/frontImage/file` : null)),
     [currentSosId, media.frontImage, currentSos?.emergencyLink],
   );
   const backMediaUrl = useMemo(
-    () => currentSosId && (getPublicMediaUrl(currentSos?.emergencyLink, 'backImage')
+    () => currentSosId && (getPublicMediaUrl(currentSos, 'backImage')
       || (hasStoredMedia(media.backImage) ? `${API_BASE_URL}/sos/${currentSosId}/media/backImage/file` : null)),
     [currentSosId, media.backImage, currentSos?.emergencyLink],
   );
   const audioMediaUrl = useMemo(
-    () => currentSosId && (getPublicMediaUrl(currentSos?.emergencyLink, 'audio')
+    () => currentSosId && (getPublicMediaUrl(currentSos, 'audio')
       || (hasStoredMedia(media.audio) ? `${API_BASE_URL}/sos/${currentSosId}/media/audio/file` : null)),
     [currentSosId, media.audio, currentSos?.emergencyLink],
   );
@@ -128,6 +130,11 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
               {latestLocation?.latitude != null && latestLocation?.longitude != null ? (
                 <TouchableOpacity style={styles.linkCard} onPress={() => require('react-native').Linking.openURL(`https://www.google.com/maps?q=${latestLocation.latitude},${latestLocation.longitude}`)}>
                   <Text style={styles.linkText}>Open current location in Google Maps</Text>
+                </TouchableOpacity>
+              ) : null}
+              {currentSos?.location?.latitude != null && currentSos?.location?.longitude != null ? (
+                <TouchableOpacity style={styles.linkCard} onPress={() => require('react-native').Linking.openURL(`https://maps.google.com/?q=${currentSos.location.latitude},${currentSos.location.longitude}`)}>
+                  <Text style={styles.linkText}>Open initial SOS location in Google Maps</Text>
                 </TouchableOpacity>
               ) : null}
               {liveActive ? <TouchableOpacity style={styles.stopButton} onPress={stopSharing} disabled={stopping}><Text style={styles.buttonText}>{stopping ? 'Stopping...' : 'Stop Sharing'}</Text></TouchableOpacity> : null}
