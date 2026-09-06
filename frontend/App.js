@@ -1138,6 +1138,29 @@ function AppContent() {
         );
 
       // --------------------------------------------------------
+      // USER SOS DETAIL (opened from History) — same detail screen as
+      // the live/active SOS view, since it fetches by id regardless of
+      // status. Previously this screen id had no matching case, so
+      // tapping a history card silently fell through to the default
+      // (Home) branch below with no visible error.
+      // --------------------------------------------------------
+      case 'userSosDetail':
+        return (
+          <AppShell
+            showBack={true}
+            onBack={() => setScreen('userHistory')}
+            hideLogo={true}
+            showNotification={false}
+            showLogout={false}>
+            <UserSosActiveScreen
+              token={token}
+              sos={selectedSos}
+              onBack={() => setScreen('userHistory')}
+            />
+          </AppShell>
+        );
+
+      // --------------------------------------------------------
       // USER DEFAULT
       // --------------------------------------------------------
       default:

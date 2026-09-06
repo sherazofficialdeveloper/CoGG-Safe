@@ -118,15 +118,32 @@ const AdminSosDetailScreen = ({
     return match?.[1] ? `${API_BASE_URL}/emergency/${match[1]}/media/${componentName}` : null;
   };
 
-  const frontMediaUrl = recordId && (getPublicMediaUrl(record.emergencyLink, 'frontImage')
-    || (hasStoredMediaStatus(frontImage) ? `${API_BASE_URL}/sos/${recordId}/media/frontImage/file` : null));
-  const backMediaUrl = recordId && (getPublicMediaUrl(record.emergencyLink, 'backImage')
-    || (hasStoredMediaStatus(backImage) ? `${API_BASE_URL}/sos/${recordId}/media/backImage/file` : null));
-  const audioMediaUrl = recordId && (getPublicMediaUrl(record.emergencyLink, 'audio')
-    || (hasStoredMediaStatus(audio) ? `${API_BASE_URL}/sos/${recordId}/media/audio/file` : null));
+  // Two different routes can serve the same media:
+  //  - the public, token-gated /emergency/:token/media/:component route
+  //    (no auth header needed, but only serves media while the SOS is
+  //    ACTIVE — the exact same route the working shared token page uses)
+  //  - the authenticated /sos/:id/media/:component/file route (works for
+  //    any status, owner-or-admin, but REQUIRES a Bearer token header)
+  // Every caller of these URLs must know which kind it got, so it knows
+  // whether to attach the Authorization header. Silently guessing wrong
+  // is exactly what was making media disappear once an SOS was resolved.
+  const resolveMediaSource = componentName => {
+    const publicUrl = getPublicMediaUrl(record.emergencyLink, componentName);
+    if (publicUrl) return {url: publicUrl, isPublic: true};
+    const component = componentName === 'frontImage' ? frontImage : componentName === 'backImage' ? backImage : audio;
+    if (recordId && hasStoredMediaStatus(component)) {
+      return {url: `${API_BASE_URL}/sos/${recordId}/media/${componentName}/file`, isPublic: false};
+    }
+    return {url: null, isPublic: false};
+  };
+
+  const frontMediaSource = resolveMediaSource('frontImage');
+  const backMediaSource = resolveMediaSource('backImage');
+  const audioMediaSource = resolveMediaSource('audio');
+  const frontMediaUrl = frontMediaSource.url;
+  const backMediaUrl = backMediaSource.url;
+  const audioMediaUrl = audioMediaSource.url;
   const authenticatedMediaOptions = {headers: {Authorization: `Bearer ${token}`}};
-  // Prefer the exact public token-gated media route used by the working
-  // emergency page. Only the non-token fallback requires authenticated headers.
   const displayFrontImage = frontMediaUrl;
   const displayBackImage = backMediaUrl;
 
@@ -360,7 +377,11 @@ const AdminSosDetailScreen = ({
                 <View style={styles.photoBox}>
                   <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Front</Text></View>
                   <TouchableOpacity onPress={() => setSelectedImage(displayFrontImage)} activeOpacity={0.85}>
-                    <Image source={{uri: displayFrontImage, }} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, front: true}))} />
+                    <Image
+                      source={frontMediaSource.isPublic ? {uri: displayFrontImage} : {uri: displayFrontImage, headers: authenticatedMediaOptions.headers}}
+                      style={styles.photoImage}
+                      onError={() => setHiddenImages(current => ({...current, front: true}))}
+                    />
                   </TouchableOpacity>
                 </View>
               ) : null}
@@ -368,7 +389,11 @@ const AdminSosDetailScreen = ({
                 <View style={styles.photoBox}>
                   <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Back</Text></View>
                   <TouchableOpacity onPress={() => setSelectedImage(displayBackImage)} activeOpacity={0.85}>
-                    <Image source={{uri: displayBackImage, }} style={styles.photoImage} onError={() => setHiddenImages(current => ({...current, back: true}))} />
+                    <Image
+                      source={backMediaSource.isPublic ? {uri: displayBackImage} : {uri: displayBackImage, headers: authenticatedMediaOptions.headers}}
+                      style={styles.photoImage}
+                      onError={() => setHiddenImages(current => ({...current, back: true}))}
+                    />
                   </TouchableOpacity>
                 </View>
               ) : null}
@@ -381,7 +406,7 @@ const AdminSosDetailScreen = ({
           <Text style={styles.audioLabel}>🎙️ VOICE RECORDING</Text>
           <View style={styles.audioCard}>
             {audioMediaUrl ? (
-              <AudioPlayer audioUrl={audioMediaUrl} token={token} publicMedia={true} style={styles.audioPlayer} />
+              <AudioPlayer audioUrl={audioMediaUrl} token={token} publicMedia={audioMediaSource.isPublic} style={styles.audioPlayer} />
             ) : (
               <>
                 <View style={styles.waveformContainer}>

@@ -61,12 +61,16 @@ const createSos = asyncHandler(async (req, res) => {
 
 const dispatchSosAfterPersistence = asyncHandler(async (req, res) => {
   const sos = await sosService.dispatchSosAfterPersistence(req.params.id, req.user);
-  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'SOS dispatch started', data: { sos } });
+  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'SOS dispatch started', data: { sos: withEmergencyLink(sos, req) } });
 });
 
 const listSos = asyncHandler(async (req, res) => {
   const { items, meta } = await sosService.listSos(req.query, req.user);
-  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'SOS records retrieved', data: { sos: items, meta } });
+  // Same shape as getSos() — the list/card view and the detail view must
+  // carry the same emergencyLink/emergencyMediaUrls so a card tapped open
+  // has working media immediately, before the detail screen's own refetch
+  // resolves (avoids a flash of "no image" while that request is in flight).
+  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'SOS records retrieved', data: { sos: items.map(item => withEmergencyLink(item, req)), meta } });
 });
 
 const getSos = asyncHandler(async (req, res) => {
@@ -76,12 +80,16 @@ const getSos = asyncHandler(async (req, res) => {
 
 const cancelSos = asyncHandler(async (req, res) => {
   const sos = await sosService.cancelSos(req.params.id, req.user);
-  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'SOS cancelled', data: { sos } });
+  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'SOS cancelled', data: { sos: withEmergencyLink(sos, req) } });
 });
 
 const deactivateSos = asyncHandler(async (req, res) => {
   const sos = await sosService.deactivateSos(req.params.id, req.user);
-  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'SOS deactivated', data: { sos } });
+  // Kept consistent with getSos()/listSos(): without this, marking an SOS
+  // "Resolved" on the admin detail screen replaced detailRecord with a
+  // payload that had no emergencyMediaUrls, so the photos/audio the admin
+  // was just viewing would disappear the moment they resolved the case.
+  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'SOS deactivated', data: { sos: withEmergencyLink(sos, req) } });
 });
 
 const deleteSos = asyncHandler(async (req, res) => {
@@ -150,7 +158,7 @@ const getMediaFile = asyncHandler(async (req, res) => {
 
 const startLiveLocation = asyncHandler(async (req, res) => {
   const sos = await sosService.startLiveLocation(req.params.id, req.user);
-  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Live location started', data: { sos } });
+  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Live location started', data: { sos: withEmergencyLink(sos, req) } });
 });
 
 const pingLiveLocation = asyncHandler(async (req, res) => {
