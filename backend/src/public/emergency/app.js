@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  var REFRESH_INTERVAL_MS = 15000;
+  var REFRESH_INTERVAL_MS = 5000;
 
   var els = {
     banner: document.getElementById('stateBanner'),
@@ -116,7 +116,7 @@
 
   function renderLocation(data) {
     var liveLocation = data.liveLocation || {};
-    var initialLocation = data.location || {};
+    var initialLocation = data.initialLocation || data.location || {};
     var isLiveActive = liveLocation.status === 'active' && liveLocation.lastLocation;
 
     var coords = null;

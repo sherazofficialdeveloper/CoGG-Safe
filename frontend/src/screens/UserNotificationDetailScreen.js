@@ -16,15 +16,13 @@ const hasStoredMedia = component => (
 );
 
 const getPublicMediaUrl = (sos, componentName) => {
-  let url = sos?.emergencyMediaUrls?.[componentName] || null;
-  if (!url) {
-    const emergencyLink = sos?.emergencyLink;
-    const match = String(emergencyLink || '').match(/\/([^/]+)\/?$/);
-    url = match?.[1] ? `${API_BASE_URL}/emergency/${match[1]}/media/${componentName}` : null;
-  }
-  if (!url) return null;
-  const version = sos?.updatedAt || sos?.createdAt || Date.now();
-  return `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(version)}`;
+  const active = ['active', 'Active'].includes(String(sos?.status || ''));
+  if (!active) return null;
+  const updatedAt = sos?.components?.[componentName]?.updatedAt || sos?.updatedAt || '';
+  if (sos?.emergencyMediaUrls?.[componentName]) return `${sos.emergencyMediaUrls[componentName]}?v=${encodeURIComponent(updatedAt)}`;
+  const emergencyLink = sos?.emergencyLink;
+  const match = String(emergencyLink || '').match(/\/([^/]+)\/?$/);
+  return match?.[1] ? `${API_BASE_URL}/emergency/${encodeURIComponent(match[1])}/media/${componentName}?v=${encodeURIComponent(updatedAt)}` : null;
 };
 
 const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) => {
@@ -123,7 +121,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
             </View>
           ) : null}
 
-          {currentSos && (latestLocation || liveActive || currentSos?.location?.status === 'success') ? (
+          {currentSos && latestLocation ? (
             <View style={styles.mediaBlock}>
               <Text style={styles.mediaTitle}>Live Location</Text>
               <Text style={styles.metaValue}>{liveActive ? 'LIVE' : String(liveLocation?.status || currentSos?.liveLocation?.status || 'LOCATION').toUpperCase()}</Text>

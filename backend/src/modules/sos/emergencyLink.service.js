@@ -110,13 +110,11 @@ async function getPublicEmergencyView(token) {
     createdAt: sos.createdAt,
     location:
       sos.location.status === COMPONENT_STATUS.SUCCESS
-        ? { latitude: sos.location.latitude, longitude: sos.location.longitude, accuracy: sos.location.accuracy ?? null, capturedAt: sos.location.capturedAt, source: sos.location.source || null }
+        ? { latitude: sos.location.latitude, longitude: sos.location.longitude, accuracy: sos.location.accuracy, source: sos.location.source, capturedAt: sos.location.capturedAt }
         : { status: sos.location.status, error: sos.location.error || null },
-    // Explicit aliases make it unambiguous for all clients that this is the
-    // first GPS fix captured for the SOS, separate from the moving live fix.
     initialLocation:
       sos.location.status === COMPONENT_STATUS.SUCCESS
-        ? { latitude: sos.location.latitude, longitude: sos.location.longitude, accuracy: sos.location.accuracy ?? null, capturedAt: sos.location.capturedAt, source: sos.location.source || null }
+        ? { latitude: sos.location.latitude, longitude: sos.location.longitude, accuracy: sos.location.accuracy, source: sos.location.source, capturedAt: sos.location.capturedAt }
         : null,
     liveLocation: {
       status: sos.liveLocation.status,

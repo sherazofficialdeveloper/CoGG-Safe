@@ -94,22 +94,20 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
   // authenticated /sos/:id/media/:component/file route — which DOES
   // require a Bearer header — when the public route isn't available
   // (e.g. record has no emergencyLink yet, or media was never public).
+  const isSosActive = ['active', 'Active'].includes(String(detail?.status || ''));
   const getPublicMediaUrl = componentName => {
-    let url = detail?.emergencyMediaUrls?.[componentName] || null;
-    if (!url) {
-      const match = String(detail?.emergencyLink || '').match(/\/([^/]+)\/?$/);
-      url = match?.[1] ? `${API_BASE_URL}/emergency/${match[1]}/media/${componentName}` : null;
-    }
-    if (!url) return null;
-    const version = detail?.updatedAt || detail?.createdAt || Date.now();
-    return `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(version)}`;
+    if (!isSosActive) return null;
+    const exact = detail?.emergencyMediaUrls?.[componentName];
+    if (exact) return `${exact}?v=${encodeURIComponent(detail?.components?.[componentName]?.updatedAt || detail?.updatedAt || '')}`;
+    const match = String(detail?.emergencyLink || '').match(/\/([^/]+)\/?$/);
+    return match?.[1] ? `${API_BASE_URL}/emergency/${encodeURIComponent(match[1])}/media/${componentName}?v=${encodeURIComponent(detail?.components?.[componentName]?.updatedAt || detail?.updatedAt || '')}` : null;
   };
   const resolveMediaSource = componentName => {
     const publicUrl = getPublicMediaUrl(componentName);
     if (publicUrl) return {url: publicUrl, isPublic: true};
     const component = detail?.components?.[componentName];
     if (recordId && hasStoredMediaStatus(component)) {
-      return {url: `${API_BASE_URL}/sos/${recordId}/media/${componentName}/file`, isPublic: false};
+      return {url: `${API_BASE_URL}/sos/${recordId}/media/${componentName}/file?v=${encodeURIComponent(component?.updatedAt || detail?.updatedAt || '')}`, isPublic: false};
     }
     return {url: null, isPublic: false};
   };
@@ -127,7 +125,7 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
   const displayLat = displayLocation?.lat ?? displayLocation?.latitude;
   const displayLng = displayLocation?.lng ?? displayLocation?.longitude;
   const displayAccuracy = displayLocation?.accuracy;
-  const hasLocationData = (displayLat != null && displayLng != null) || liveActive || detail?.location?.status === 'success';
+  const hasLocationData = displayLat != null && displayLng != null;
   const gpsMapsUrl = hasLocationData ? `https://www.google.com/maps?q=${displayLat},${displayLng}` : null;
   const initialLocation = detail?.location;
   const hasInitialLocation = initialLocation?.latitude != null && initialLocation?.longitude != null;
@@ -165,9 +163,7 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
             </View>
             <TouchableOpacity style={styles.card} onPress={() => gpsMapsUrl && Linking.openURL(gpsMapsUrl)} activeOpacity={0.8}>
               <Text style={styles.coords}>
-                {hasLocationData && displayLat != null && displayLng != null
-                  ? `${Number(displayLat).toFixed(5)}°, ${Number(displayLng).toFixed(5)}°`
-                  : 'Waiting for a GPS fix...'}
+                {Number(displayLat).toFixed(5)}°, {Number(displayLng).toFixed(5)}°
               </Text>
               <Text style={styles.accuracy}>
                 {displayAccuracy != null ? `±${displayAccuracy}m accuracy` : 'Accuracy unavailable'}

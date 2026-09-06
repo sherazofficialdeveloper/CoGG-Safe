@@ -112,18 +112,14 @@ const AdminSosDetailScreen = ({
   const localAudio = record.services?.audio;
   const hasStoredMediaStatus = component => ['success', 'uploaded', 'ready', 'completed'].includes(String(component?.status || '').toLowerCase()) && (Boolean(component?.storageRef) || Boolean(component?.localPath));
   const getPublicMediaUrl = (emergencyLink, componentName) => {
+    const active = ['active', 'Active'].includes(String(record?.status || ''));
+    if (!active) return null;
+    const component = record?.components?.[componentName];
+    const version = component?.updatedAt || record?.updatedAt || '';
     const exact = record?.emergencyMediaUrls?.[componentName];
-    let url = exact || null;
-    if (!url) {
-      const match = String(emergencyLink || '').match(/\/([^/]+)\/?$/);
-      url = match?.[1] ? `${API_BASE_URL}/emergency/${match[1]}/media/${componentName}` : null;
-    }
-    if (!url) return null;
-    // The media URL stays stable while the binary is uploaded later.
-    // Cache-busting with the SOS update timestamp prevents React Native
-    // from reusing an earlier 404/empty response for the same image/audio URL.
-    const version = record?.updatedAt || record?.createdAt || Date.now();
-    return `${url}${url.includes('?') ? '&' : '?'}v=${encodeURIComponent(version)}`;
+    if (exact) return `${exact}?v=${encodeURIComponent(version)}`;
+    const match = String(emergencyLink || '').match(/\/([^/]+)\/?$/);
+    return match?.[1] ? `${API_BASE_URL}/emergency/${encodeURIComponent(match[1])}/media/${componentName}?v=${encodeURIComponent(version)}` : null;
   };
 
   // Two different routes can serve the same media:
@@ -214,12 +210,12 @@ const AdminSosDetailScreen = ({
     };
   }, [liveLocationActive, recordId, token]);
 
-  const hasLiveLocationData = [liveLocation, record.liveLocation?.lastLocation, record.location].some((entry) => {
+  const hasLiveLocationData = [liveLocation, record.liveLocation?.lastLocation, record.liveLocation, record.location].some((entry) => {
     if (!entry || typeof entry !== 'object') return false;
     const latitude = Number(entry.lat ?? entry.latitude ?? 'NaN');
     const longitude = Number(entry.lng ?? entry.longitude ?? 'NaN');
     return Number.isFinite(latitude) && Number.isFinite(longitude) && Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180;
-  }) || liveLocationActive || Boolean(record.location?.status && String(record.location.status).toLowerCase() === 'success');
+  });
   const hasImageData = Boolean((displayFrontImage && !hiddenImages.front) || (displayBackImage && !hiddenImages.back));
 
   return (
@@ -315,19 +311,13 @@ const AdminSosDetailScreen = ({
               style={styles.mapContainer}
               activeOpacity={0.8}
               onPress={handleOpenLocation}>
-              <View style={styles.mapPlaceholder}>
-                <View style={styles.mapGridLine1} />
-                <View style={styles.mapGridLine2} />
-                <View style={styles.mapGridLine3} />
-                <View style={styles.mapGridLine4} />
-                <View style={styles.mapPinOuter}>
-                  <View style={styles.mapPinMiddle}>
-                    <View style={styles.mapPinInner} />
-                  </View>
+              <View style={styles.realLocationCard}>
+                <View style={styles.realLocationIcon}><Text style={styles.realLocationIconText}>📍</Text></View>
+                <View style={styles.realLocationContent}>
+                  <Text style={styles.realLocationTitle}>{liveLocationActive ? 'Live GPS location' : 'Latest GPS location'}</Text>
+                  <Text style={styles.realLocationCoords}>{displayLat != null && displayLng != null ? `${Number(displayLat).toFixed(6)}, ${Number(displayLng).toFixed(6)}` : 'Location unavailable'}</Text>
+                  <Text style={styles.realLocationHint}>Tap to open this exact location in Google Maps</Text>
                 </View>
-
-                {isActive && <View style={styles.mapPulseRing1} />}
-                {isActive && <View style={styles.mapPulseRing2} />}
               </View>
             </TouchableOpacity>
 
@@ -722,6 +712,31 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+
+  realLocationCard: {
+    minHeight: 110,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  realLocationIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: '#EAF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  realLocationIconText: {fontSize: 22},
+  realLocationContent: {flex: 1},
+  realLocationTitle: {fontSize: 13, fontWeight: '900', color: '#1A73E8'},
+  realLocationCoords: {fontSize: 15, fontWeight: '800', color: '#111827', marginTop: 4},
+  realLocationHint: {fontSize: 11, color: '#6E6E73', marginTop: 5},
 
   mapPlaceholder: {
     flex: 1,
