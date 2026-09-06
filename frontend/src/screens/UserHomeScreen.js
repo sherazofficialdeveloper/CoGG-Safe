@@ -97,7 +97,7 @@ const UserHomeScreen = ({
     }
 
     let mounted = true;
-    const refresh = () => listSos(token, {status: 'active', limit: 10}, {forceRefresh: true})
+    const refresh = () => listSos(token, {status: 'active', limit: 10})
       .then(result => {
         if (!mounted) return;
         const activeSos = (result.sos || []).find(item => item.status === 'active');

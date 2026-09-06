@@ -23,6 +23,11 @@ function isPlaceholder(value) {
   return !value || /YOUR_|CHANGE_ME|example\.com|placeholder|your_/i.test(String(value));
 }
 
+function isValidRecipientEmail(value) {
+  const email = String(value || '').trim();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && !isPlaceholder(email);
+}
+
 function isConfigured() {
   const provider = String(env.email.provider || 'smtp').toLowerCase();
   if (provider === 'resend') {
@@ -74,6 +79,16 @@ async function sendViaResend({ to, subject, body }) {
 }
 
 async function send({ to, subject, body }) {
+  if (!isValidRecipientEmail(to)) {
+    const error = new Error('Email recipient is missing, malformed, or a placeholder address');
+    error.code = 'EMAIL_INVALID_RECIPIENT';
+    logger.warn('Email send rejected because the recipient is invalid', {
+      provider: env.email.provider,
+      subject,
+    });
+    throw error;
+  }
+
   if (!isConfigured()) {
     logger.warn('Email provider is not configured', { provider: env.email.provider, to, subject });
     return { status: 'unsupported', error: 'Email provider is not configured' };
@@ -98,4 +113,4 @@ async function send({ to, subject, body }) {
   }
 }
 
-module.exports = { send, isConfigured };
+module.exports = { send, isConfigured, isValidRecipientEmail };

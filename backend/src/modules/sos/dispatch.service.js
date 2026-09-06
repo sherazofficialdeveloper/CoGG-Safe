@@ -102,10 +102,10 @@ async function dispatchEmail(sos, recipients, subject, renderedMessage) {
   try {
     // Email is optional — recipients without a configured email are
     // simply excluded, never treated as an error (per spec section 23 / Phase 4 section 16).
-    const emailable = recipients.filter((r) => !!r.email);
+    const emailable = recipients.filter((r) => emailProvider.isValidRecipientEmail(r.email));
     if (emailable.length === 0) {
       await setComponentStatus(sos._id, COMPONENT_NAMES.EMAIL, COMPONENT_STATUS.SKIPPED, {
-        error: 'No recipient has an email configured',
+        error: 'No recipient has a valid email configured',
       });
       return;
     }

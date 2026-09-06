@@ -43,9 +43,14 @@ beforeEach(() => {
   User.findById.mockResolvedValue({ _id: 'user123', username: 'testuser' });
   Collection.findById.mockResolvedValue({ _id: 'collection123', name: 'Test Family' });
   notificationService.getRecipientsForSos.mockResolvedValue([
-    { _id: 'recipient1', email: 'contact@example.com' },
+    { _id: 'recipient1', email: 'contact@coggsafe.test' },
   ]);
   notificationService.createForSos.mockResolvedValue([]);
+  emailProvider.isValidRecipientEmail.mockImplementation((email) =>
+    typeof email === 'string'
+    && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    && !/YOUR_|CHANGE_ME|example\.com|placeholder|your_/i.test(email)
+  );
   emailProvider.send.mockResolvedValue({ status: 'sent', providerMessageId: 'abc' });
 });
 
@@ -94,6 +99,22 @@ describe('dispatch.service email content', () => {
 
     await expect(dispatchSos(buildSos())).resolves.not.toThrow();
     expect(emailProvider.send).not.toHaveBeenCalled();
+  });
+
+  test('a placeholder recipient email is skipped before it can reach the provider', async () => {
+    notificationService.getRecipientsForSos.mockResolvedValue([
+      { _id: 'recipient1', email: 'rai.sheraz@example.com' },
+    ]);
+
+    await expect(dispatchSos(buildSos())).resolves.not.toThrow();
+
+    expect(emailProvider.send).not.toHaveBeenCalled();
+    expect(setComponentStatus).toHaveBeenCalledWith(
+      'sos123',
+      'email',
+      'skipped',
+      { error: 'No recipient has a valid email configured' },
+    );
   });
 
   test('provider pending/processing outcomes become unknown, not a permanent timeout failure', async () => {
