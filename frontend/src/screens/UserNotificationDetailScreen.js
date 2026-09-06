@@ -16,7 +16,7 @@ const hasStoredMedia = component => (
 );
 
 const getPublicMediaUrl = (sos, componentName) => {
-  const active = ['active', 'Active'].includes(String(sos?.status || ''));
+  const active = String(sos?.status || '').toLowerCase() === 'active';
   if (!active) return null;
   const updatedAt = sos?.components?.[componentName]?.updatedAt || sos?.updatedAt || '';
   if (sos?.emergencyMediaUrls?.[componentName]) return `${sos.emergencyMediaUrls[componentName]}?v=${encodeURIComponent(updatedAt)}`;

@@ -24,6 +24,10 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import com.google.android.gms.location.CurrentLocationRequest
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -555,6 +559,47 @@ class EmergencyMediaModule(
         }
     }
 
+    @ReactMethod
+    fun getCurrentLocation(promise: Promise) {
+        val fine = ContextCompat.checkSelfPermission(reactContext, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(reactContext, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!fine && !coarse) {
+            promise.reject("E_LOCATION_PERMISSION", "Location permission is not granted.")
+            return
+        }
+
+        try {
+            val client = LocationServices.getFusedLocationProviderClient(reactContext)
+            val request = CurrentLocationRequest.Builder()
+                .setPriority(if (fine) Priority.PRIORITY_HIGH_ACCURACY else Priority.PRIORITY_BALANCED_POWER_ACCURACY)
+                .setMaxUpdateAgeMillis(15_000L)
+                .setDurationMillis(8_000L)
+                .build()
+            val cancellation = CancellationTokenSource()
+            client.getCurrentLocation(request, cancellation.token)
+                .addOnSuccessListener { location ->
+                    if (location == null) {
+                        promise.resolve(null)
+                        return@addOnSuccessListener
+                    }
+                    promise.resolve(Arguments.createMap().apply {
+                        putDouble("latitude", location.latitude)
+                        putDouble("longitude", location.longitude)
+                        if (location.hasAccuracy()) putDouble("accuracy", location.accuracy.toDouble()) else putNull("accuracy")
+                        putDouble("capturedAt", location.time.toDouble())
+                        putString("source", "fused")
+                    })
+                }
+                .addOnFailureListener { error ->
+                    promise.reject("E_LOCATION_CURRENT", "Unable to obtain current location.", error)
+                }
+        } catch (error: SecurityException) {
+            promise.reject("E_LOCATION_PERMISSION", "Location permission is not granted.", error)
+        } catch (error: Exception) {
+            promise.reject("E_LOCATION_CURRENT", "Unable to obtain current location.", error)
+        }
+    }
+
     /** Downloads a protected SOS audio stream with the current JWT into
      * app-private durable storage. react-native-sound cannot attach HTTP headers, so it
      * must never be handed the protected backend URL directly. */
@@ -564,8 +609,8 @@ class EmergencyMediaModule(
         token: String,
         promise: Promise
     ) {
-        if (mediaUrl.isBlank() || token.isBlank()) {
-            promise.reject("E_MEDIA_AUTH", "A media URL and authentication token are required.")
+        if (mediaUrl.isBlank()) {
+            promise.reject("E_MEDIA_AUTH", "A media URL is required.")
             return
         }
 
@@ -576,7 +621,7 @@ class EmergencyMediaModule(
                     requestMethod = "GET"
                     connectTimeout = 15000
                     readTimeout = 30000
-                    setRequestProperty("Authorization", "Bearer $token")
+                    if (token.isNotBlank()) setRequestProperty("Authorization", "Bearer $token")
                 }
                 val status = connection.responseCode
                 if (status !in 200..299) {

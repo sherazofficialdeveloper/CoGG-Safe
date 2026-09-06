@@ -94,7 +94,7 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
   // authenticated /sos/:id/media/:component/file route — which DOES
   // require a Bearer header — when the public route isn't available
   // (e.g. record has no emergencyLink yet, or media was never public).
-  const isSosActive = ['active', 'Active'].includes(String(detail?.status || ''));
+  const isSosActive = String(detail?.status || '').toLowerCase() === 'active';
   const getPublicMediaUrl = componentName => {
     if (!isSosActive) return null;
     const exact = detail?.emergencyMediaUrls?.[componentName];

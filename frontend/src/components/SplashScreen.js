@@ -22,7 +22,7 @@ export default function SplashScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.glowOuter}><Animated.View style={[styles.brandWrap, {opacity: logoOpacity, transform: [{scale: logoScale}]}]}>
+      <Animated.View style={[styles.brandWrap, {opacity: logoOpacity, transform: [{scale: logoScale}]}]}>
         <View style={styles.logoFrame}>
           <Image source={require('../public/logo.png')} style={styles.logo} resizeMode="contain" />
         </View>
@@ -33,7 +33,7 @@ export default function SplashScreen() {
         <View style={styles.loadingTrack}>
           <Animated.View style={[styles.loadingBar, {width}]} />
         </View>
-      </Animated.View></View>
+      </Animated.View>
       <Text style={styles.footer}>SECURE EMERGENCY PROTECTION</Text>
     </View>
   );
@@ -41,7 +41,6 @@ export default function SplashScreen() {
 
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: '#F7F7F8', alignItems: 'center', justifyContent: 'center', padding: 28},
-  glowOuter: {padding: 30, borderRadius: 48, backgroundColor: '#FFFFFF', shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 28, shadowOffset: {width: 0, height: 14}, elevation: 8},
   brandWrap: {alignItems: 'center', width: 260},
   logoFrame: {width: 126, height: 126, borderRadius: 34, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#ECEEF1'},
   logo: {width: 104, height: 104},

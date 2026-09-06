@@ -336,11 +336,15 @@ export async function activateSosFlow({
   const liveLocationPromise = backendPromise && names.includes('liveLocation')
     ? backendPromise.then(() => runService('liveLocation'))
     : Promise.resolve(null);
-  const locationCapturePromise = captureNames.includes('location')
-    ? runService('location')
-    : null;
-  const otherCaptureNames = captureNames.filter(name => name !== 'location');
-  const otherCapturePromise = Promise.allSettled(otherCaptureNames.map(serviceName => runService(serviceName)));
+  const mediaCaptureNames = captureNames.filter(name => ['sms', 'camera', 'audio'].includes(name));
+  const mediaCaptureJobs = Object.fromEntries(mediaCaptureNames.map(serviceName => [serviceName, runService(serviceName)]));
+  const mediaCapturePromise = Promise.allSettled(Object.values(mediaCaptureJobs));
+  const delayedCallPromise = captureNames.includes('call')
+    ? Promise.race([
+        mediaCaptureJobs.audio?.then(() => undefined) || Promise.resolve(undefined),
+        new Promise(resolve => setTimeout(resolve, 6500)),
+      ]).then(() => runService('call'))
+    : Promise.resolve(null);
   const locationSmsPromise = locationCapturePromise
     ? locationCapturePromise.then(async locationResult => {
         if (isValidLocation(event.location) && names.includes('locationSms')) {
@@ -350,7 +354,8 @@ export async function activateSosFlow({
       }).catch(error => ({serviceName: 'locationSms', status: 'FAILED', error: error?.message || 'Location SMS failed'}))
     : Promise.resolve(null);
   const capturePromise = Promise.all([
-    otherCapturePromise,
+    mediaCapturePromise,
+    delayedCallPromise.then(result => result ? [result] : []),
     locationCapturePromise ? Promise.allSettled([locationCapturePromise]) : Promise.resolve([]),
     locationSmsPromise,
   ]);
@@ -362,8 +367,9 @@ export async function activateSosFlow({
   if (liveLocationResult) {
     execution.push(liveLocationResult);
   }
-  const [otherCaptureResults, locationResults, locationSmsResult] = captureBundle;
-  appendSettled(otherCaptureResults || []);
+  const [mediaResults, callResults, locationResults, locationSmsResult] = captureBundle;
+  appendSettled(mediaResults || []);
+  appendSettled(callResults || []);
   appendSettled(locationResults || []);
   if (locationSmsResult) execution.push(locationSmsResult);
 

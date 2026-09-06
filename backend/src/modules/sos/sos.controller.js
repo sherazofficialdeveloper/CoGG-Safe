@@ -102,13 +102,13 @@ const reportLocation = asyncHandler(async (req, res) => {
   const sos = await sosService.reportLocation(req.params.id, req.user, {
     status, latitude, longitude, accuracy, capturedAt, source, providerTimestamp, error,
   });
-  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Location updated', data: { sos } });
+  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Location updated', data: { sos: withEmergencyLink(sos, req) } });
 });
 
 const reportMedia = asyncHandler(async (req, res) => {
   const { status, storageRef, error } = req.body;
   const sos = await sosService.reportMedia(req.params.id, req.user, req.params.component, { status, storageRef, error });
-  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Media status updated', data: { sos } });
+  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Media status updated', data: { sos: withEmergencyLink(sos, req) } });
 });
 
 const reportServiceResult = asyncHandler(async (req, res) => {
@@ -129,7 +129,7 @@ const uploadMedia = asyncHandler(async (req, res) => {
     throw ApiError.badRequest('No file uploaded — expected multipart field "file"');
   }
   const sos = await sosService.uploadMedia(req.params.id, req.user, req.params.component, req.file);
-  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Media uploaded', data: { sos } });
+  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Media uploaded', data: { sos: withEmergencyLink(sos, req) } });
 });
 
 /**

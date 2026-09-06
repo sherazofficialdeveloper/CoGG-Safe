@@ -112,7 +112,7 @@ const AdminSosDetailScreen = ({
   const localAudio = record.services?.audio;
   const hasStoredMediaStatus = component => ['success', 'uploaded', 'ready', 'completed'].includes(String(component?.status || '').toLowerCase()) && (Boolean(component?.storageRef) || Boolean(component?.localPath));
   const getPublicMediaUrl = (emergencyLink, componentName) => {
-    const active = ['active', 'Active'].includes(String(record?.status || ''));
+    const active = String(record?.status || '').toLowerCase() === 'active';
     if (!active) return null;
     const component = record?.components?.[componentName];
     const version = component?.updatedAt || record?.updatedAt || '';

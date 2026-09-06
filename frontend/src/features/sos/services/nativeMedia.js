@@ -18,6 +18,12 @@ export const validateNativeSosMedia = localPath => {
   if (typeof module.validateMediaFile !== 'function') return true;
   return module.validateMediaFile(localPath);
 };
+export const getNativeCurrentLocation = async () => {
+  const module = requireAndroidModule();
+  if (typeof module.getCurrentLocation !== 'function') return null;
+  return module.getCurrentLocation();
+};
+
 export const downloadAuthenticatedSosMedia = async (url, token) => {
   emitSosDiagnostic('SOS DEBUG MEDIA GET START');
   try {

@@ -44,17 +44,17 @@ const AudioPlayer = ({audioUrl, localPath = null, token, publicMedia = false, on
         // avoids an extra native download/cached-file dependency.
         // LocalPath remains useful for an SOS that has not uploaded yet.
         let playablePath = localPath;
-        if (!playablePath) {
-          if (publicMedia && /^https?:\/\//i.test(String(audioUrl))) {
-            playablePath = String(audioUrl);
-          } else {
-            if (!token) return fail('Audio cannot be loaded because this session has no authentication token.');
-            // Protected authenticated URLs are still supported through the
-            // native downloader when a caller does not use public media.
-            const {downloadAuthenticatedSosMedia} = require('../features/sos/services/nativeMedia');
-            playablePath = await downloadAuthenticatedSosMedia(audioUrl, token);
-          }
+        if (!playablePath && /^https?:\/\//i.test(String(audioUrl || ''))) {
+          // react-native-sound is intentionally given a local file only.
+          // It cannot attach Authorization headers and remote token-gated
+          // endpoints may not expose a filename/extension that its Android
+          // decoder can infer reliably. The native downloader supports both
+          // public token-gated URLs and authenticated SOS URLs, then Sound
+          // receives a real .m4a file.
+          const {downloadAuthenticatedSosMedia} = require('../features/sos/services/nativeMedia');
+          playablePath = await downloadAuthenticatedSosMedia(String(audioUrl), publicMedia ? '' : token);
         }
+        if (!playablePath) return fail('No stored audio is available.');
         if (!isMounted) return;
 
         loadedSound = new Sound(playablePath, '', loadError => {

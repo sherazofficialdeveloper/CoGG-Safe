@@ -3,6 +3,7 @@ import {Platform} from 'react-native';
 import {PERMISSION_STATUS, checkPermission, requestPermission} from '../../../permissions/sosPermissions';
 import {sosLocalStore} from '../storage';
 import {emitSosDiagnostic} from './sosDiagnosticService';
+import {getNativeCurrentLocation} from './nativeMedia';
 
 const LOCATION_SOURCE_SET = new Set(['gps', 'network', 'fused', 'passive', 'cell', 'wifi', 'unknown']);
 
@@ -164,6 +165,33 @@ export async function getCurrentLocation() {
 
   await ensureLocationPermission();
   emitSosDiagnostic('SOS DEBUG LOCATION 02: Permission granted');
+
+  // Use Android's fused provider for the first SOS fix. This is the same
+  // provider used by the foreground live-location service and is much more
+  // reliable for a fresh fix than waiting for a React Native geolocation
+  // callback. If the device location switch is off, Android may return null;
+  // in that case the normal JS fallback/retry path remains available.
+  if (Platform.OS === 'android') {
+    try {
+      const nativeLocation = await getNativeCurrentLocation();
+      if (nativeLocation) {
+        const nativeResult = {
+          latitude: Number(nativeLocation.latitude),
+          longitude: Number(nativeLocation.longitude),
+          accuracy: nativeLocation.accuracy == null ? null : Number(nativeLocation.accuracy),
+          capturedAt: toValidDate(nativeLocation.capturedAt)?.toISOString() || new Date().toISOString(),
+          source: String(nativeLocation.source || 'fused').toLowerCase(),
+          providerTimestamp: nativeLocation.capturedAt ?? null,
+        };
+        if (isValidLocation(nativeResult)) {
+          emitSosDiagnostic('SOS DEBUG LOCATION 03: Native fused fix acquired');
+          return nativeResult;
+        }
+      }
+    } catch (nativeError) {
+      if (__DEV__) console.log('[SOS][LOCATION] NATIVE_CURRENT_FAILED', {reason: nativeError?.message || 'unavailable'});
+    }
+  }
   if (__DEV__) console.log('[SOS_DEBUG] LOCATION_SERVICES', {providerAvailable: Boolean(Geolocation)});
 
   try {
