@@ -8,7 +8,6 @@ import {stopLiveLocationSharing} from '../features/sos/services/liveLocationServ
 import {buildMediaRequestOptions} from '../utils/media';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import FullscreenImageViewer from '../components/FullscreenImageViewer';
-import {downloadAuthenticatedSosMedia} from '../features/sos/services/nativeMedia';
 
 const hasStoredMedia = component => (
   String(component?.status || '').toLowerCase() === 'success' &&
@@ -76,42 +75,11 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
     [currentSosId, media.audio, currentSos?.emergencyLink],
   );
   const imageOptions = buildMediaRequestOptions(token);
-  const [frontLocalMedia, setFrontLocalMedia] = useState(null);
-  const [backLocalMedia, setBackLocalMedia] = useState(null);
-  const [audioLocalMedia, setAudioLocalMedia] = useState(null);
-
   useEffect(() => {
-    let mounted = true;
     setHiddenImages({front: false, back: false});
-    setFrontLocalMedia(null);
-    setBackLocalMedia(null);
-    setAudioLocalMedia(null);
-    const load = async () => {
-      if (!token || !currentSosId) return;
-      if (frontMediaUrl) {
-        try {
-          const path = await downloadAuthenticatedSosMedia(frontMediaUrl, token);
-          if (mounted) setFrontLocalMedia(path);
-        } catch (_) {}
-      }
-      if (backMediaUrl) {
-        try {
-          const path = await downloadAuthenticatedSosMedia(backMediaUrl, token);
-          if (mounted) setBackLocalMedia(path);
-        } catch (_) {}
-      }
-      if (audioMediaUrl) {
-        try {
-          const path = await downloadAuthenticatedSosMedia(audioMediaUrl, token);
-          if (mounted) setAudioLocalMedia(path);
-        } catch (_) {}
-      }
-    };
-    load();
-    return () => { mounted = false; };
-  }, [frontMediaUrl, backMediaUrl, audioMediaUrl, currentSosId, token]);
+  }, [frontMediaUrl, backMediaUrl]);
 
-  const visibleImageCount = Number(Boolean((frontLocalMedia || frontMediaUrl) && !hiddenImages.front)) + Number(Boolean((backLocalMedia || backMediaUrl) && !hiddenImages.back));
+  const visibleImageCount = Number(Boolean(frontMediaUrl && !hiddenImages.front)) + Number(Boolean(backMediaUrl && !hiddenImages.back));
   const latestLocation = liveLocation?.lastLocation || currentSos?.liveLocation?.lastLocation || currentSos?.location;
   const stopSharing = async () => {
     if (!sosId || stopping || !liveActive) return;
@@ -178,8 +146,8 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
           {currentSos ? (
             <View style={styles.mediaBlock}>
               <Text style={styles.mediaTitle}>Photos</Text>
-              {frontMediaUrl && !hiddenImages.front ? <TouchableOpacity onPress={() => setSelectedImage(frontLocalMedia || frontMediaUrl)}><Image source={{uri: frontMediaUrl || frontLocalMedia, ...(getPublicMediaUrl(currentSos?.emergencyLink, 'frontImage') ? {} : imageOptions)}} style={styles.image} onError={() => setHiddenImages(current => ({...current, front: true}))} accessibilityLabel="SOS front photo" /></TouchableOpacity> : null}
-              {backMediaUrl && !hiddenImages.back ? <TouchableOpacity onPress={() => setSelectedImage(backLocalMedia || backMediaUrl)}><Image source={{uri: backMediaUrl || backLocalMedia, ...(getPublicMediaUrl(currentSos?.emergencyLink, 'backImage') ? {} : imageOptions)}} style={styles.image} onError={() => setHiddenImages(current => ({...current, back: true}))} accessibilityLabel="SOS back photo" /></TouchableOpacity> : null}
+              {frontMediaUrl && !hiddenImages.front ? <TouchableOpacity onPress={() => setSelectedImage(frontMediaUrl)}><Image source={{uri: frontMediaUrl}} style={styles.image} onError={() => setHiddenImages(current => ({...current, front: true}))} accessibilityLabel="SOS front photo" /></TouchableOpacity> : null}
+              {backMediaUrl && !hiddenImages.back ? <TouchableOpacity onPress={() => setSelectedImage(backMediaUrl)}><Image source={{uri: backMediaUrl}} style={styles.image} onError={() => setHiddenImages(current => ({...current, back: true}))} accessibilityLabel="SOS back photo" /></TouchableOpacity> : null}
               {visibleImageCount === 0 ? <Text style={styles.emptyMedia}>No successfully stored photos are available.</Text> : null}
             </View>
           ) : null}
@@ -187,7 +155,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
           {currentSos ? (
             <View style={styles.mediaBlock}>
               <Text style={styles.mediaTitle}>Audio</Text>
-              {audioMediaUrl ? <AudioPlayer audioUrl={audioMediaUrl} localPath={audioLocalMedia} token={token} publicMedia={true} /> : <Text style={styles.emptyMedia}>No successfully stored audio is available.</Text>}
+              {audioMediaUrl ? <AudioPlayer audioUrl={audioMediaUrl} token={token} publicMedia={true} /> : <Text style={styles.emptyMedia}>No successfully stored audio is available.</Text>}
             </View>
           ) : null}
 

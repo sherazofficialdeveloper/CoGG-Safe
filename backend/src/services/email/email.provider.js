@@ -35,9 +35,9 @@ function getTransporter() {
       port: env.email.port,
       secure: env.email.port === 465, // implicit TLS on 465; STARTTLS otherwise
       auth: { user: env.email.user, pass: env.email.password },
-      connectionTimeout: 10000,
-      greetingTimeout: 10000,
-      socketTimeout: 60000,
+      connectionTimeout: 30000,
+      greetingTimeout: 30000,
+      socketTimeout: 120000,
     });
   }
   return cachedTransporter;

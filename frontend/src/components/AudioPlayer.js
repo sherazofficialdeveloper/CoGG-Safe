@@ -1,7 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {ActivityIndicator, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import {downloadAuthenticatedSosMedia} from '../features/sos/services/nativeMedia';
 import {emitSosDiagnostic} from '../features/sos/services/sosDiagnosticService';
 
 let Sound = null;
@@ -40,18 +39,20 @@ const AudioPlayer = ({audioUrl, localPath = null, token, publicMedia = false, on
       try {
         setIsLoading(true);
         setError(null);
-        // Pending SOS media already lives in the app-private files directory.
-        // Prefer it so playback works offline and before backend upload.
-        // Protected remote media is downloaded with the JWT because
-        // react-native-sound cannot attach request headers itself.
+        // Public emergency media is deliberately played directly from the
+        // token-gated URL, matching the working emergency-link page. This
+        // avoids an extra native download/cached-file dependency.
+        // LocalPath remains useful for an SOS that has not uploaded yet.
         let playablePath = localPath;
         if (!playablePath) {
           if (publicMedia && /^https?:\/\//i.test(String(audioUrl))) {
             playablePath = String(audioUrl);
           } else {
             if (!token) return fail('Audio cannot be loaded because this session has no authentication token.');
+            // Protected authenticated URLs are still supported through the
+            // native downloader when a caller does not use public media.
+            const {downloadAuthenticatedSosMedia} = require('../features/sos/services/nativeMedia');
             playablePath = await downloadAuthenticatedSosMedia(audioUrl, token);
-            emitSosDiagnostic('SOS DEBUG AUDIO 08: Download completed');
           }
         }
         if (!isMounted) return;

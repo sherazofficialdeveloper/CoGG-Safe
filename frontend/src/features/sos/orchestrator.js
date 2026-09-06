@@ -110,6 +110,7 @@ export async function activateSosFlow({
   serviceRunners = {},
   cancelSignal = null,
   onPending = null,
+  silent = false,
 } = {}) {
   if (__DEV__) console.log('[SOS_DEBUG] ACTIVATE_FLOW_START', {
     timestamp: new Date().toISOString(),
@@ -123,7 +124,7 @@ export async function activateSosFlow({
   const event = await createSosLocalEvent({userId, collectionId});
   emitSosDiagnostic('SOS DEBUG 04: Local SOS created');
   if (__DEV__) console.log('SOS_ACTIVATED', {eventId: event.id, userId, collectionId});
-  emitSosToast('SOS started', 'info', 2000);
+  if (!silent) emitSosToast('SOS started', 'info', 2000);
   
   if (typeof onPending === 'function') {
     await onPending(event);
@@ -260,23 +261,23 @@ export async function activateSosFlow({
       // instead of showing nothing until the retry completes.
       if (resultStatus === 'COMPLETED' && serviceName === 'location') {
         const acc = result?.accuracy;
-        emitSosToast(`Location acquired (${acc?.toFixed(1) || 'unknown'}m accuracy)`, 'success', 2000);
+        if (!silent) emitSosToast(`Location acquired (${acc?.toFixed(1) || 'unknown'}m accuracy)`, 'success', 2000);
       }
       if (serviceName === 'camera' && result?.frontImagePath) {
-        emitSosToast('Front camera captured', 'success', 2000);
+        if (!silent) emitSosToast('Front camera captured', 'success', 2000);
       }
       if (serviceName === 'camera' && result?.backImagePath) {
-        emitSosToast('Back camera captured', 'success', 2000);
+        if (!silent) emitSosToast('Back camera captured', 'success', 2000);
       }
       if (resultStatus === 'COMPLETED' && serviceName === 'audio' && result?.localPath) {
-        emitSosToast('Audio recorded (5 seconds)', 'success', 2000);
+        if (!silent) emitSosToast('Audio recorded (5 seconds)', 'success', 2000);
       }
       if (serviceName === 'sms' && resultStatus === 'COMPLETED') {
         const count = result?.sentCount;
-        emitSosToast(count ? `Emergency SMS sent to ${count} number${count === 1 ? '' : 's'}` : 'Emergency SMS sent', 'success', 2000);
+        if (!silent) emitSosToast(count ? `Emergency SMS sent to ${count} number${count === 1 ? '' : 's'}` : 'Emergency SMS sent', 'success', 2000);
       }
       if (serviceName === 'call' && resultStatus === 'INITIATED') {
-        emitSosToast('Emergency call initiated', 'success', 2000);
+        if (!silent) emitSosToast('Emergency call initiated', 'success', 2000);
       }
       
       if (['PENDING', 'FAILED'].includes(resultStatus)

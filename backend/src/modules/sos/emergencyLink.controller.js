@@ -23,7 +23,7 @@ const getEmergencyView = asyncHandler(async (req, res) => {
 const getEmergencyMedia = asyncHandler(async (req, res) => {
   const { stream, mimeType } = await getPublicMediaStream(req.params.token, req.params.component);
   res.setHeader('Content-Type', mimeType);
-  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.setHeader('Cache-Control', 'private, no-store, max-age=0');
   
   // Handle both Node.js streams (local) and web streams (R2)
   if (stream && typeof stream.pipe === 'function') {

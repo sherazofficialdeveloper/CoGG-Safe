@@ -16,7 +16,6 @@ import {
 import {deactivateSos, getLiveLocation, getSos, stopLiveLocation} from '../../api/resources';
 import {API_BASE_URL} from '../../api/config';
 import AudioPlayer from '../../components/AudioPlayer';
-import {downloadAuthenticatedSosMedia} from '../../features/sos/services/nativeMedia';
 import FullscreenImageViewer from '../../components/FullscreenImageViewer';
 
 const AdminSosDetailScreen = ({
@@ -33,9 +32,6 @@ const AdminSosDetailScreen = ({
   const [actionError, setActionError] = useState('');
   const [selectedImage, setSelectedImage] = useState(null);
   const [detailRecord, setDetailRecord] = useState(null);
-  const [frontLocalMedia, setFrontLocalMedia] = useState(null);
-  const [backLocalMedia, setBackLocalMedia] = useState(null);
-  const [audioLocalMedia, setAudioLocalMedia] = useState(null);
   const [hiddenImages, setHiddenImages] = useState({front: false, back: false});
   const detailRequestRef = useRef(0);
   const actionInFlightRef = useRef(false);
@@ -129,30 +125,12 @@ const AdminSosDetailScreen = ({
   const authenticatedMediaOptions = {headers: {Authorization: `Bearer ${token}`}};
   // Prefer the exact public token-gated media route used by the working
   // emergency page. Only the non-token fallback requires authenticated headers.
-  const displayFrontImage = frontMediaUrl || frontLocalMedia;
-  const displayBackImage = backMediaUrl || backLocalMedia;
+  const displayFrontImage = frontMediaUrl;
+  const displayBackImage = backMediaUrl;
 
   useEffect(() => {
-    let mounted = true;
     setHiddenImages({front: false, back: false});
-    setFrontLocalMedia(null);
-    setBackLocalMedia(null);
-    setAudioLocalMedia(null);
-    const load = async () => {
-      if (!token || !recordId) return;
-      if (frontMediaUrl) {
-        try { const path = await downloadAuthenticatedSosMedia(frontMediaUrl, token); if (mounted) setFrontLocalMedia(path); } catch (_) {}
-      }
-      if (backMediaUrl) {
-        try { const path = await downloadAuthenticatedSosMedia(backMediaUrl, token); if (mounted) setBackLocalMedia(path); } catch (_) {}
-      }
-      if (audioMediaUrl) {
-        try { const path = await downloadAuthenticatedSosMedia(audioMediaUrl, token); if (mounted) setAudioLocalMedia(path); } catch (_) {}
-      }
-    };
-    load();
-    return () => { mounted = false; };
-  }, [frontMediaUrl, backMediaUrl, audioMediaUrl, recordId, token]);
+  }, [frontMediaUrl, backMediaUrl]);
   useEffect(() => {
     setLiveLocationStatus(initialLiveLocationStatus);
     setLiveLocation(initialLiveLocation);
@@ -401,7 +379,7 @@ const AdminSosDetailScreen = ({
           <Text style={styles.audioLabel}>🎙️ VOICE RECORDING</Text>
           <View style={styles.audioCard}>
             {audioMediaUrl ? (
-              <AudioPlayer audioUrl={audioMediaUrl} localPath={audioLocalMedia} token={token} publicMedia={true} style={styles.audioPlayer} />
+              <AudioPlayer audioUrl={audioMediaUrl} token={token} publicMedia={true} style={styles.audioPlayer} />
             ) : (
               <>
                 <View style={styles.waveformContainer}>

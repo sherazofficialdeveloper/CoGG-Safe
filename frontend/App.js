@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Text,
   BackHandler,
+  DeviceEventEmitter,
 } from 'react-native';
 
 import {SafeAreaProvider} from 'react-native-safe-area-context';
@@ -541,6 +542,8 @@ function AppContent() {
     return () => subscription.remove();
   }, [screen, user]);
 
+
+
   // ============================================================
   // NAVIGATION FUNCTIONS
   // ============================================================
@@ -613,7 +616,7 @@ function AppContent() {
 
   const sosActivationInFlightRef = React.useRef(false);
 
-  const handleTriggerSos = async () => {
+  const handleTriggerSos = async ({silent = false} = {}) => {
     if (sosActivationInFlightRef.current) return;
 
 
@@ -656,9 +659,12 @@ function AppContent() {
         userId: user?._id || user?.id,
         collectionId: user?.collectionId,
         cancelSignal: sosCancelSignalRef.current,
+        silent,
         onPending: async event => {
-          setSelectedSos(event);
-          setScreen('userSosActive');
+          if (!silent) {
+            setSelectedSos(event);
+            setScreen('userSosActive');
+          }
           await sosLocalStore.upsertSos({
             ...event,
             meta: {
@@ -866,8 +872,10 @@ function AppContent() {
       if (result?.cancelled) {
         showToast('SOS cancelled before dispatch.', 'info');
       } else if (result?.event) {
-        setSelectedSos(result.event);
-        setScreen('userSosActive');
+        if (!silent) {
+          setSelectedSos(result.event);
+          setScreen('userSosActive');
+        }
 
         // The SOS screen is the authoritative status surface. Individual
       // delivery/capture components retry independently and should not
@@ -889,6 +897,25 @@ function AppContent() {
       sosActivationInFlightRef.current = false;
     }
   };
+
+  // Native 3x power-button SOS trigger. Android delivers this event only
+  // when its activity can observe the hardware event; the handler itself is
+  // deliberately silent and reuses the exact same SOS orchestrator/services
+  // as the normal SOS button.
+  useEffect(() => {
+    if (!token || !user || user.role !== 'user') return undefined;
+    let inFlight = false;
+    const subscription = DeviceEventEmitter.addListener('powerButtonSosTrigger', async () => {
+      if (inFlight) return;
+      inFlight = true;
+      try {
+        await handleTriggerSos({silent: true});
+      } finally {
+        inFlight = false;
+      }
+    });
+    return () => subscription.remove();
+  }, [token, user?.id, user?.role, handleTriggerSos]);
 
   // ============================================================
   // LOADING SCREEN

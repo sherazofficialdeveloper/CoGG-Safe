@@ -111,6 +111,12 @@ class LiveLocationForegroundService : Service() {
 
         try {
             fusedClient.requestLocationUpdates(request, locationCallback, Looper.getMainLooper())
+            // Push an immediately available cached fix as soon as the service
+            // starts. This makes the first live-location value appear quickly
+            // instead of waiting for the next periodic location callback.
+            fusedClient.lastLocation.addOnSuccessListener { cachedLocation ->
+                if (cachedLocation != null) sendLocation(cachedLocation)
+            }
         } catch (_: SecurityException) {
             stopSelf()
         }

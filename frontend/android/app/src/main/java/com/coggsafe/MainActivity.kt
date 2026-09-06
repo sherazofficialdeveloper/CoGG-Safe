@@ -2,6 +2,7 @@ package com.coggsafe
 
 import android.os.SystemClock
 import android.view.KeyEvent
+import android.os.Bundle
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.bridge.Arguments
@@ -10,6 +11,7 @@ import com.facebook.react.defaults.DefaultReactActivityDelegate
 import com.facebook.react.modules.core.DeviceEventManagerModule
 
 class MainActivity : ReactActivity() {
+  private val powerTriggerPrefs by lazy { getSharedPreferences("cogg_power_trigger", MODE_PRIVATE) }
   private val powerPressWindowMs = 5000L
   private val requiredPowerPresses = 3
   private val powerPressTimestamps = ArrayDeque<Long>()
@@ -28,6 +30,11 @@ class MainActivity : ReactActivity() {
    */
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
+
+  override fun onResume() {
+    super.onResume()
+    emitPendingPowerButtonTrigger()
+  }
 
   override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
     if (keyCode == KeyEvent.KEYCODE_POWER) {
@@ -60,8 +67,21 @@ class MainActivity : ReactActivity() {
     return super.onKeyDown(keyCode, event)
   }
 
-  private fun emitPowerButtonTrigger() {
+  private fun emitPendingPowerButtonTrigger() {
+    if (!powerTriggerPrefs.getBoolean("pending", false)) return
     val reactContext = reactInstanceManager.currentReactContext ?: return
+    powerTriggerPrefs.edit().putBoolean("pending", false).apply()
+    reactContext
+      .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+      .emit("powerButtonSosTrigger", Arguments.createMap())
+  }
+
+  private fun emitPowerButtonTrigger() {
+    val reactContext = reactInstanceManager.currentReactContext
+    if (reactContext == null) {
+      powerTriggerPrefs.edit().putBoolean("pending", true).apply()
+      return
+    }
     reactContext
       .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
       .emit("powerButtonSosTrigger", Arguments.createMap())
