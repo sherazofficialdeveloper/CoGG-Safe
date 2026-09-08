@@ -277,31 +277,23 @@ export async function openSmsSettings() {
 // ================= CHECK SMS PERMISSION (Android 13+ compatible) =================
 export async function checkSmsPermission() {
   if (Platform.OS !== 'android') return PERMISSION_STATUS.UNAVAILABLE;
-  
+
   try {
-    if (Platform.Version >= 33) {
-      try {
-        const result = await PermissionsAndroid.check(
-          PermissionsAndroid.PERMISSIONS.SEND_SMS
-        );
-        if (result === true || result === PermissionsAndroid.RESULTS.GRANTED) {
-          return PERMISSION_STATUS.GRANTED;
-        }
-      } catch (_) {}
-      
-      return PERMISSION_STATUS.BLOCKED;
-    }
-    
     const result = await PermissionsAndroid.check(
-      PermissionsAndroid.PERMISSIONS.SEND_SMS
+      PermissionsAndroid.PERMISSIONS.SEND_SMS,
     );
-    
+
     if (result === true || result === PermissionsAndroid.RESULTS.GRANTED) {
       return PERMISSION_STATUS.GRANTED;
-    } else if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN || 
-               result === PermissionsAndroid.RESULTS.BLOCKED) {
+    }
+
+    if (
+      result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN ||
+      result === PermissionsAndroid.RESULTS.BLOCKED
+    ) {
       return PERMISSION_STATUS.BLOCKED;
     }
+
     return PERMISSION_STATUS.DENIED;
   } catch (error) {
     return PERMISSION_STATUS.UNAVAILABLE;
@@ -311,21 +303,38 @@ export async function checkSmsPermission() {
 // ================= REQUEST SMS PERMISSION =================
 export async function requestSmsPermission() {
   if (Platform.OS !== 'android') return PERMISSION_STATUS.UNAVAILABLE;
-  
+
   try {
-    if (Platform.Version >= 33) {
-      const current = await checkSmsPermission();
-      if (current === PERMISSION_STATUS.GRANTED) return PERMISSION_STATUS.GRANTED;
+    const current = await checkSmsPermission();
+    if (current === PERMISSION_STATUS.GRANTED) {
+      return PERMISSION_STATUS.GRANTED;
+    }
+
+    if (current === PERMISSION_STATUS.BLOCKED) {
       return PERMISSION_STATUS.BLOCKED;
     }
-    
+
     const result = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.SEND_SMS
+      PermissionsAndroid.PERMISSIONS.SEND_SMS,
+      {
+        title: 'SMS Permission Required',
+        message: 'CoGG Safe needs SMS permission to send emergency messages to your configured contacts.',
+        buttonPositive: 'Allow',
+        buttonNegative: 'Deny',
+      },
     );
-    
-    if (result === PermissionsAndroid.RESULTS.GRANTED) return PERMISSION_STATUS.GRANTED;
-    if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) return PERMISSION_STATUS.BLOCKED;
-    return PERMISSION_STATUS.DENIED;
+
+    if (result === PermissionsAndroid.RESULTS.GRANTED) {
+      return PERMISSION_STATUS.GRANTED;
+    }
+    if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+      return PERMISSION_STATUS.BLOCKED;
+    }
+    if (result === PermissionsAndroid.RESULTS.DENIED) {
+      return PERMISSION_STATUS.DENIED;
+    }
+
+    return PERMISSION_STATUS.UNAVAILABLE;
   } catch (error) {
     return PERMISSION_STATUS.UNAVAILABLE;
   }

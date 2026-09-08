@@ -12,11 +12,12 @@ import {
   Linking,
   Image,
 } from 'react-native';
-import {getSos, getLiveLocation, stopLiveLocation} from '../api/resources';
+import {getSos, stopLiveLocation} from '../api/resources';
 import {API_BASE_URL} from '../api/config';
 import AudioPlayer from '../components/AudioPlayer';
 import FullscreenImageViewer from '../components/FullscreenImageViewer';
 import Icon from '../components/Icon';
+import LiveLocationMap from '../components/LiveLocationMap';
 
 const UserSosActiveScreen = ({sos, token, onBack}) => {
   const [detail, setDetail] = useState(sos || null);
@@ -116,34 +117,6 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
     return () => { mounted = false; };
   }, [recordId, token]);
 
-  // ================= Live Location Polling =================
-  useEffect(() => {
-    if (!token || !recordId) return undefined;
-    let mounted = true;
-
-    const refreshLiveLocation = async () => {
-      try {
-        const result = await getLiveLocation(token, recordId, {limit: 1}, {forceRefresh: true});
-        if (!mounted) return;
-        setLiveLocationStatus(result?.liveLocation?.status || null);
-        const latest = result?.liveLocation?.lastLocation || result?.pings?.[0] || null;
-        if (latest) {
-          setLiveLocation(latest);
-          setLocationUpdateTime(
-            latest.capturedAt ? new Date(latest.capturedAt).toLocaleString() : 'Just now'
-          );
-        }
-      } catch (_) { /* ignore */ }
-    };
-
-    refreshLiveLocation();
-    const interval = setInterval(refreshLiveLocation, 5000);
-    return () => {
-      mounted = false;
-      clearInterval(interval);
-    };
-  }, [recordId, token]);
-
   const handleStopSharing = async () => {
     if (stopping) return;
     setStopping(true);
@@ -157,20 +130,7 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
     }
   };
 
-  const handleOpenLocation = () => {
-    const loc = liveLocation || detail?.location;
-    if (!loc) return;
-    const lat = loc.lat ?? loc.latitude;
-    const lng = loc.lng ?? loc.longitude;
-    if (lat == null || lng == null) return;
-    Linking.openURL(`https://www.google.com/maps?q=${lat},${lng}`);
-  };
-
   const authHeaders = {Authorization: `Bearer ${token}`};
-  const displayLocation = liveLocation || detail?.location || null;
-  const displayLat = displayLocation?.lat ?? displayLocation?.latitude;
-  const displayLng = displayLocation?.lng ?? displayLocation?.longitude;
-  const displayAccuracy = displayLocation?.accuracy;
   const liveActive = String(liveLocationStatus || detail?.liveLocation?.status || '').toLowerCase() === 'active';
   
   const hasFrontImage = !!mediaUrls.front;
@@ -214,28 +174,25 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
           </Text>
         </View>
 
-        {/* Location Card */}
-        {displayLat != null && displayLng != null && (
-          <TouchableOpacity style={styles.locationCard} onPress={handleOpenLocation} activeOpacity={0.8}>
-            <View style={styles.locationHeader}>
-              <Text style={styles.locationLabel}>📍 {liveActive ? 'LIVE LOCATION' : 'LOCATION'}</Text>
-              {liveActive && (
-                <View style={styles.liveBadge}>
-                  <View style={styles.liveDot} />
-                  <Text style={styles.liveText}>LIVE</Text>
-                </View>
-              )}
-            </View>
-            <Text style={styles.locationCoords}>
-              {Number(displayLat).toFixed(6)}, {Number(displayLng).toFixed(6)}
-            </Text>
-            <Text style={styles.locationAccuracy}>
-              {displayAccuracy != null ? `±${displayAccuracy}m accuracy` : 'Accuracy unknown'}
-            </Text>
-            <Text style={styles.locationUpdated}>Updated: {locationUpdateTime}</Text>
-            <Text style={styles.locationTap}>Tap to open in Google Maps</Text>
-          </TouchableOpacity>
-        )}
+        {/* ================= LIVE LOCATION - Shared Component ================= */}
+        <LiveLocationMap
+          sosId={recordId}
+          token={token}
+          initialLocation={liveLocation || detail?.liveLocation?.lastLocation || detail?.location}
+          initialStatus={liveLocationStatus || detail?.liveLocation?.status}
+          showStopButton={liveActive}
+          isStopping={stopping}
+          onStopSharing={handleStopSharing}
+          onLocationUpdate={(location, status) => {
+            setLiveLocation(location);
+            setLiveLocationStatus(status);
+            setLocationUpdateTime(
+              location?.capturedAt
+                ? new Date(location.capturedAt).toLocaleString()
+                : 'Just now'
+            );
+          }}
+        />
 
         {/* Emergency Link */}
         {detail?.emergencyLink && (

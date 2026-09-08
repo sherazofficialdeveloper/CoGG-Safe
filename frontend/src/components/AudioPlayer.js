@@ -191,15 +191,11 @@ const AudioPlayer = ({
 
         console.log('[AudioPlayer] Final path for Sound:', soundPath);
 
-        // ================= FIX: Use headers with Sound =================
-        const options = {};
-        if (token && soundPath.startsWith('http')) {
-          options.headers = {
-            Authorization: `Bearer ${token}`
-          };
-        }
-
-        loadedSound = new Sound(soundPath, options, (loadError) => {
+        // react-native-sound 0.11.x expects the second constructor
+        // argument to be a base-path string, not an options/headers object.
+        // Private media is already downloaded with RNFS + Authorization above,
+        // so the player only needs the local file path here.
+        loadedSound = new Sound(soundPath, '', (loadError) => {
           if (!isMountedRef.current || isCancelled) return;
 
           if (loadError) {

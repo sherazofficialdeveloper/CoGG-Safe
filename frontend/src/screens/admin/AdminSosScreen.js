@@ -33,7 +33,7 @@ const AdminSosScreen = ({
 
   const refresh = useCallback(async () => {
     try {
-      const response = await listSos(token, {limit: 50});
+      const response = await listSos(token, {limit: 50}, {forceRefresh: true});
       const nextAlerts = (response?.sos || []).map(record => {
         // ================= FIX: Check location status properly =================
         const hasLocation = record.location?.latitude != null && record.location?.longitude != null;

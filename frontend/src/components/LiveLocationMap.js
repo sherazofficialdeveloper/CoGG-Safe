@@ -70,7 +70,7 @@ const LiveLocationMap = ({
           );
           
           // Send new location to WebView
-          if (webViewRef.current && latest.latitude && latest.longitude) {
+          if (webViewRef.current && latest.latitude != null && latest.longitude != null) {
             const locationData = {
               lat: latest.latitude,
               lng: latest.longitude,
@@ -231,10 +231,10 @@ const LiveLocationMap = ({
           function updateLocation(data) {
             if (!data) return;
             
-            var newLat = data.lat || data.latitude;
-            var newLng = data.lng || data.longitude;
+            var newLat = data.lat ?? data.latitude;
+            var newLng = data.lng ?? data.longitude;
             
-            if (!newLat || !newLng) return;
+            if (newLat == null || newLng == null) return;
             
             // Update marker position
             marker.setLatLng([newLat, newLng]);
@@ -323,6 +323,38 @@ const LiveLocationMap = ({
           ref={webViewRef}
           source={{html: getMapHtml()}}
           style={styles.map}
+          onLoadEnd={() => {
+            const latest = liveLocation || initialLocation;
+            const lat = latest?.lat ?? latest?.latitude;
+            const lng = latest?.lng ?? latest?.longitude;
+            if (lat != null && lng != null && webViewRef.current) {
+              webViewRef.current.injectJavaScript(`
+                updateLocation(${JSON.stringify({
+                  lat,
+                  lng,
+                  accuracy: latest?.accuracy ?? null,
+                  time: latest?.capturedAt || new Date().toISOString(),
+                })});
+                true;
+              `);
+            }
+          }}
+          onLoadEnd={() => {
+            const latest = liveLocation || initialLocation;
+            const lat = latest?.lat ?? latest?.latitude;
+            const lng = latest?.lng ?? latest?.longitude;
+            if (lat != null && lng != null && webViewRef.current) {
+              webViewRef.current.injectJavaScript(`
+                updateLocation(${JSON.stringify({
+                  lat,
+                  lng,
+                  accuracy: latest?.accuracy ?? null,
+                  time: latest?.capturedAt || new Date().toISOString(),
+                })});
+                true;
+              `);
+            }
+          }}
           scrollEnabled={false}
           zoomEnabled={false}
           javaScriptEnabled={true}

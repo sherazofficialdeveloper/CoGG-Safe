@@ -454,6 +454,7 @@ async function uploadMedia(id, reqUser, componentName, file) {
       buffer: file.buffer,
       folder: `sos/${id}`,
       originalFilename: file.originalname,
+      contentType: file.mimetype,
     });
     return reportMedia(id, reqUser, componentName, {
       status: COMPONENT_STATUS.SUCCESS,
@@ -571,7 +572,7 @@ async function getMediaFileStream(id, reqUser, componentName) {
 
   return {
     stream: await storageProvider.readStream(component.storageRef),
-    mimeType: component.mimeType || 'application/octet-stream',
+    mimeType: component.mimeType || (componentName === 'audio' ? 'audio/mp4' : 'image/jpeg'),
   };
 }
 

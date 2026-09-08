@@ -54,7 +54,6 @@ const AdminNotificationScreen = ({
       if (initialNotificationsRef.current.length > 0 && existingNotifications.length === 0) {
         setNotifications(initialNotificationsRef.current);
         setLoading(false);
-        return;
       }
       if (existingNotifications.length > 0 && mounted && requestId === requestIdRef.current) {
         setNotifications(existingNotifications);

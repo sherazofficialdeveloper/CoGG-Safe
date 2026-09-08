@@ -85,7 +85,7 @@ async function storeLocal({ buffer, folder, originalFilename }) {
   return storageRef;
 }
 
-async function storeR2({ buffer, folder, originalFilename }) {
+async function storeR2({ buffer, folder, originalFilename, contentType }) {
   if (!S3Client) {
     throw ApiError.internal(
       'AWS SDK not available. Install @aws-sdk/client-s3 to use R2 storage.'
@@ -119,7 +119,7 @@ async function storeR2({ buffer, folder, originalFilename }) {
         Bucket: config.bucketName,
         Key: storageRef,
         Body: buffer,
-        ContentType: 'application/octet-stream',
+        ContentType: contentType || 'application/octet-stream',
       })
     );
 
@@ -137,12 +137,12 @@ async function storeR2({ buffer, folder, originalFilename }) {
  * between SOS records on disk, mirroring the same isolation already
  * enforced at the database level.
  */
-async function store({ buffer, folder, originalFilename }) {
+async function store({ buffer, folder, originalFilename, contentType }) {
   if (env.storage.provider === 'local') {
     return storeLocal({ buffer, folder, originalFilename });
   }
   if (env.storage.provider === 'r2') {
-    return storeR2({ buffer, folder, originalFilename });
+    return storeR2({ buffer, folder, originalFilename, contentType });
   }
   throw ApiError.internal(
     `Storage provider "${env.storage.provider}" is not implemented yet — set STORAGE_PROVIDER=local or r2, or implement this provider in storage.provider.js`

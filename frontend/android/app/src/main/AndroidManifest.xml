@@ -19,10 +19,10 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
     
-    <!-- ================= FIX: SMS Permission with maxSdkVersion ================= -->
-    <!-- Android 13+ SEND_SMS is restricted, user must enable from settings -->
-    <uses-permission android:name="android.permission.SEND_SMS" 
-                     android:maxSdkVersion="32" />
+    <!-- SMS - Required by the existing direct-SMS SOS flow.
+         Keep this declared for all supported Android versions so the
+         runtime permission request can work on Android 13+. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
 
     <!-- Notifications - Required for push notification badges (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
