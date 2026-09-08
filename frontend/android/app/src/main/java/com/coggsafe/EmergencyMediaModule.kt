@@ -149,6 +149,58 @@ class EmergencyMediaModule(
         }
     }
 
+    // ================= NEW: Get Active SIM Count =================
+    @ReactMethod
+    fun getActiveSimCount(promise: Promise) {
+        try {
+            val subscriptionManager = reactContext.getSystemService(SubscriptionManager::class.java)
+            val active = subscriptionManager?.activeSubscriptionInfoList ?: emptyList()
+            val count = active.size
+            promise.resolve(count)
+        } catch (e: Exception) {
+            Log.e("EmergencyMedia", "getActiveSimCount error: ${e.message}")
+            promise.resolve(0)
+        }
+    }
+
+    // ================= NEW: Get Default SIM ID =================
+    @ReactMethod
+    fun getDefaultSimId(promise: Promise) {
+        try {
+            val subscriptionManager = reactContext.getSystemService(SubscriptionManager::class.java)
+            val active = subscriptionManager?.activeSubscriptionInfoList ?: emptyList()
+            
+            if (active.isEmpty()) {
+                promise.resolve(-1)
+                return
+            }
+
+            // Try to get default voice subscription
+            val defaultId = try {
+                SubscriptionManager.getDefaultVoiceSubscriptionId()
+            } catch (e: Exception) {
+                -1
+            }
+
+            // If default is valid and active, return it
+            if (defaultId >= 0 && active.any { it.subscriptionId == defaultId }) {
+                promise.resolve(defaultId)
+                return
+            }
+
+            // Otherwise return first SIM (slot 0)
+            val firstSim = active.firstOrNull()
+            if (firstSim != null) {
+                promise.resolve(firstSim.subscriptionId)
+            } else {
+                promise.resolve(-1)
+            }
+        } catch (e: Exception) {
+            Log.e("EmergencyMedia", "getDefaultSimId error: ${e.message}")
+            promise.resolve(-1)
+        }
+    }
+
     // ================= EXISTING: Capture Photos =================
     @ReactMethod
     fun capturePhotos(
@@ -184,9 +236,6 @@ class EmergencyMediaModule(
                         if (back != null) result.putString("backImagePath", back.absolutePath)
                         else if (captureBack) result.putString("backError", backError ?: "Back camera failed.")
                         result.putString("status", if ((!captureFront || front != null) && (!captureBack || back != null)) "completed" else if (front != null || back != null) "partial" else "failed")
-                        // Always resolve with the per-lens result. A single lens may fail
-                        // transiently; rejecting here used to discard the successful lens
-                        // path and made the missing back image impossible to retry safely.
                         promise.resolve(result)
                     }
 
@@ -245,10 +294,6 @@ class EmergencyMediaModule(
         callback: (File?, String?) -> Unit
     ) {
         try {
-            // Each lens gets a fresh ImageCapture use case. CameraX is explicitly
-            // unbound before switching lenses. A short main-thread settle delay
-            // prevents the previous lens from still holding the camera device on
-            // phones that are slower at closing/reopening Camera2.
             provider.unbindAll()
             Handler(Looper.getMainLooper()).postDelayed({
               try {
@@ -294,7 +339,7 @@ class EmergencyMediaModule(
         }
     }
 
-    // ================= EXISTING: Send Emergency SMS =================
+    // ================= FIXED: Send Emergency SMS with Auto SIM =================
     @ReactMethod
     fun sendEmergencySms(
         phoneNumber: String,
@@ -327,7 +372,42 @@ class EmergencyMediaModule(
         try {
             ensureSmsStatusReceiverRegistered()
 
-            val subscriptionId = resolveSmsSubscriptionId(preferredSubscriptionId)
+            // ================= FIX: Auto-detect SIM =================
+            var subscriptionId = preferredSubscriptionId
+
+            // If no preference, auto-detect
+            if (subscriptionId < 0) {
+                try {
+                    val subscriptionManager = reactContext.getSystemService(SubscriptionManager::class.java)
+                    val active = subscriptionManager?.activeSubscriptionInfoList ?: emptyList()
+                    
+                    if (active.isNotEmpty()) {
+                        // If only 1 SIM, use it
+                        if (active.size == 1) {
+                            subscriptionId = active[0].subscriptionId
+                            Log.i("EmergencyMedia", "[SOS][SMS] Single SIM detected: $subscriptionId")
+                        } else {
+                            // If multiple SIMs, use default voice SIM or first one
+                            val defaultId = try {
+                                SubscriptionManager.getDefaultVoiceSubscriptionId()
+                            } catch (e: Exception) {
+                                -1
+                            }
+                            
+                            if (defaultId >= 0 && active.any { it.subscriptionId == defaultId }) {
+                                subscriptionId = defaultId
+                                Log.i("EmergencyMedia", "[SOS][SMS] Using default voice SIM: $subscriptionId")
+                            } else {
+                                subscriptionId = active[0].subscriptionId
+                                Log.i("EmergencyMedia", "[SOS][SMS] Using first SIM (slot 0): $subscriptionId")
+                            }
+                        }
+                    }
+                } catch (simError: Exception) {
+                    Log.e("EmergencyMedia", "[SOS][SMS] SIM detection error: ${simError.message}")
+                }
+            }
+
             val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (subscriptionId > 0) {
                     android.telephony.SmsManager.getSmsManagerForSubscriptionId(subscriptionId)
@@ -451,8 +531,6 @@ class EmergencyMediaModule(
             }
             promise.resolve(result)
         } catch (error: Exception) {
-            // No visibility into SIMs shouldn't be fatal — callers treat an
-            // empty/failed list the same as "let Android pick automatically".
             promise.resolve(Arguments.createArray())
         }
     }
@@ -496,10 +574,6 @@ class EmergencyMediaModule(
             return
         }
 
-        // Do not guess a PhoneAccountHandle from a subscription id. Android's
-        // Telecom account ids are OEM/carrier specific, and the old substring
-        // matching caused calls to fail on dual-SIM devices. Let Android route
-        // the call through the device's default voice SIM.
         val callIntent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$cleanNumber"))
         Log.i("EmergencyMedia", "[SOS][CALL] ACTION_CALL intent created")
         emitDiagnostic("CALL_NATIVE 03: ACTION_CALL intent created")
@@ -804,9 +878,6 @@ class EmergencyMediaModule(
                 putBoolean("hasActiveSubscription", hasActiveSubscription)
             })
         } catch (error: Exception) {
-            // A failed check must never block emergency SMS. Default to
-            // optimistic availability and let the actual SmsManager attempt
-            // report the true outcome.
             promise.resolve(Arguments.createMap().apply {
                 putString("status", "AVAILABLE")
                 putString("reason", "Telephony state check failed; assuming available.")

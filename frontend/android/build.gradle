@@ -1,11 +1,11 @@
 buildscript {
     ext {
-        buildToolsVersion = "37.0.0"
+        buildToolsVersion = "34.0.0"
         minSdkVersion = 24
         compileSdkVersion = 37
-        targetSdkVersion = 36
-        ndkVersion = "27.1.12297006"
-        kotlinVersion = "2.2.0"
+        targetSdkVersion = 34
+        ndkVersion = "26.1.10909125"
+        kotlinVersion = "1.9.22"
     }
 
     repositories {
@@ -14,7 +14,7 @@ buildscript {
     }
 
     dependencies {
-        classpath("com.android.tools.build:gradle:9.2.1")
+        classpath("com.android.tools.build:gradle:8.3.2")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlinVersion}")
 
         classpath("javax.xml.bind:jaxb-api:2.3.1")
@@ -30,12 +30,80 @@ plugins {
     id("com.facebook.react.rootproject")
 }
 
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://www.jitpack.io' }
+        maven { url "https://maven.google.com" }
+    }
+}
+
 subprojects {
+    if (name == "react-native-keychain") {
+        pluginManager.withPlugin("com.android.library") {
+            pluginManager.apply("org.jetbrains.kotlin.android")
+        }
+    }
+
+    if (name == "react-native-maps") {
+        pluginManager.withPlugin("com.android.library") {
+            android.compileSdkVersion(rootProject.ext.compileSdkVersion)
+        }
+    }
+
     if (name == "react-native-async-storage_async-storage") {
         afterEvaluate {
             android.sourceSets.main.java.exclude("**/next/**")
             tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
                 exclude("**/next/**")
+            }
+        }
+    }
+
+    if (name == "react-native-track-player") {
+        def patchTrackPlayerTurboModule = {
+            def source = project.file("src/main/java/com/doublesymmetry/trackplayer/module/MusicModule.kt")
+            if (!source.exists()) {
+                return
+            }
+
+            def contents = source.getText("UTF-8")
+
+            def patchedLines = []
+            def lambdaDepth = 0
+            def pendingLambda = false
+            contents.readLines().each { line ->
+                if (lambdaDepth == 0 && !pendingLambda && line.trim().startsWith("fun ") && line.contains("= scope.launch {")) {
+                    patchedLines << line.replace("= scope.launch {", "{")
+                    patchedLines << "        scope.launch {"
+                    lambdaDepth = 2
+                } else if (lambdaDepth == 0 && pendingLambda && line.trim().startsWith("scope.launch {")) {
+                    patchedLines << "        scope.launch {"
+                    lambdaDepth = 2
+                    pendingLambda = false
+                } else if (lambdaDepth == 0 && !pendingLambda && line.trim().startsWith("fun ") && line.trim().endsWith("=")) {
+                    patchedLines << line.replaceFirst(/=\s*$/, "{")
+                    pendingLambda = true
+                } else {
+                    patchedLines << line
+                    if (lambdaDepth > 0) {
+                        lambdaDepth += line.count("{")
+                        lambdaDepth -= line.count("}")
+                        if (lambdaDepth == 1) {
+                            patchedLines << "    }"
+                            lambdaDepth = 0
+                        }
+                    }
+                }
+            }
+
+            source.setText(patchedLines.join(System.lineSeparator()) + System.lineSeparator(), "UTF-8")
+        }
+
+        tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+            doFirst {
+                patchTrackPlayerTurboModule()
             }
         }
     }

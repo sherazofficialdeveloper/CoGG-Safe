@@ -8,6 +8,8 @@ import {
   StyleSheet,
   ScrollView,
   Animated,
+  Linking,
+  Alert,
 } from 'react-native';
 import {
   checkSosPermissions,
@@ -17,6 +19,9 @@ import {
   requestSosPermission,
   SOS_TRIGGER_PERMISSIONS,
   subscribeToPermissionChanges,
+  checkSmsPermission,
+  requestSmsPermission,
+  openSmsSettings,
 } from '../permissions/sosPermissions';
 import {
   checkLocationServicesEnabled,
@@ -55,7 +60,11 @@ const UserHomeScreen = ({
   const pulseScale = useRef(new Animated.Value(1)).current;
   const smsRequiresUserConfirmation = permissionState.smsDeliveryMode === 'composer';
 
-  // ================= ADDED: Location Status State =================
+  // ================= ADDED: SMS Permission State =================
+  const [smsPermissionState, setSmsPermissionState] = useState('checking');
+  const [smsPermissionError, setSmsPermissionError] = useState('');
+
+  // ================= Location Status State =================
   const [locationStatus, setLocationStatus] = useState('checking');
   const [locationError, setLocationError] = useState('');
 
@@ -64,6 +73,7 @@ const UserHomeScreen = ({
     sosLoading
   );
 
+  // ================= Permission Check =================
   useEffect(() => {
     let mounted = true;
 
@@ -95,7 +105,44 @@ const UserHomeScreen = ({
     };
   }, [user]);
 
-  // ================= ADDED: Check Location Services =================
+  // ================= ADDED: Check SMS Permission =================
+  useEffect(() => {
+    let mounted = true;
+    
+    const checkSms = async () => {
+      try {
+        const state = await checkSmsPermission();
+        if (!mounted) return;
+        
+        if (state === 'granted') {
+          setSmsPermissionState('granted');
+          setSmsPermissionError('');
+        } else if (state === 'blocked') {
+          setSmsPermissionState('blocked');
+          setSmsPermissionError('SMS permission is blocked. Please enable from settings.');
+        } else if (state === 'denied') {
+          setSmsPermissionState('denied');
+          setSmsPermissionError('SMS permission is required to send emergency messages.');
+        } else {
+          setSmsPermissionState('unavailable');
+          setSmsPermissionError('SMS permission is not available.');
+        }
+      } catch (error) {
+        setSmsPermissionState('error');
+        setSmsPermissionError('Unable to check SMS permission.');
+      }
+    };
+    
+    checkSms();
+    const timer = setInterval(checkSms, 10000);
+    
+    return () => {
+      mounted = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  // ================= Check Location Services =================
   useEffect(() => {
     let mounted = true;
     
@@ -126,6 +173,45 @@ const UserHomeScreen = ({
     };
   }, []);
 
+  // ================= SMS Permission Actions =================
+  const handleEnableSmsPermission = async () => {
+    if (smsPermissionState === 'blocked') {
+      await openSmsSettings();
+      return;
+    }
+    
+    if (smsPermissionState === 'denied') {
+      try {
+        const result = await requestSmsPermission();
+        if (result === 'granted') {
+          setSmsPermissionState('granted');
+          setSmsPermissionError('');
+          Alert.alert('Success', 'SMS permission granted.');
+        } else {
+          Alert.alert(
+            'SMS Permission Required',
+            'To send emergency SMS, please enable SMS permission from settings.',
+            [
+              {text: 'Cancel', style: 'cancel'},
+              {text: 'Open Settings', onPress: () => Linking.openSettings()}
+            ]
+          );
+        }
+      } catch (error) {
+        Alert.alert('Error', 'Unable to request SMS permission. Please enable from settings.');
+      }
+    }
+  };
+
+  // ================= Location Actions =================
+  const handleEnableLocation = async () => {
+    const enabled = await promptEnableLocationServices();
+    if (!enabled) {
+      await openLocationSettings();
+    }
+  };
+
+  // ================= SOS Hold Logic =================
   useEffect(() => {
     if (!token) {
       setActiveSharingSos(null);
@@ -310,7 +396,6 @@ const UserHomeScreen = ({
     resetHoldState();
   };
 
-
   useEffect(() => {
     if (holdPhase !== 'ACTIVATING') return undefined;
 
@@ -471,7 +556,51 @@ const UserHomeScreen = ({
           </View>
         ) : null}
 
-        {/* ================= ADDED: LOCATION STATUS ================= */}
+        {/* ================= ADDED: SMS PERMISSION WARNING ================= */}
+        // UserHomeScreen.js - SMS Permission Warning (Part of existing file)
+
+// ================= SMS PERMISSION WARNING =================
+{smsPermissionState === 'blocked' && (
+  <View style={styles.smsWarning}>
+    <View style={styles.smsWarningIconContainer}>
+      <Text style={styles.smsWarningIcon}>💬</Text>
+    </View>
+    <Text style={styles.smsWarningTitle}>SMS Permission Required</Text>
+    <Text style={styles.smsWarningText}>
+      To send emergency SMS, please enable SMS permission from app settings.
+    </Text>
+    <TouchableOpacity 
+      style={styles.enableSmsButton}
+      onPress={handleEnableSmsPermission}
+      activeOpacity={0.8}
+    >
+      <Text style={styles.enableSmsButtonText}>Open Settings</Text>
+    </TouchableOpacity>
+  </View>
+)}
+
+{smsPermissionState === 'denied' && (
+  <View style={[styles.smsWarning, styles.smsWarningDenied]}>
+    <View style={[styles.smsWarningIconContainer, styles.smsWarningIconDenied]}>
+      <Text style={styles.smsWarningIcon}>💬</Text>
+    </View>
+    <Text style={[styles.smsWarningTitle, styles.smsWarningTitleDenied]}>
+      SMS Permission Required
+    </Text>
+    <Text style={[styles.smsWarningText, styles.smsWarningTextDenied]}>
+      SMS permission is required to send emergency messages. Please allow.
+    </Text>
+    <TouchableOpacity 
+      style={[styles.enableSmsButton, styles.enableSmsButtonDenied]}
+      onPress={handleEnableSmsPermission}
+      activeOpacity={0.8}
+    >
+      <Text style={styles.enableSmsButtonText}>Allow SMS</Text>
+    </TouchableOpacity>
+  </View>
+)}
+
+        {/* ================= LOCATION STATUS ================= */}
         {locationStatus === 'disabled' ? (
           <View style={styles.locationWarning}>
             <View style={styles.locationWarningIconContainer}>
@@ -483,12 +612,7 @@ const UserHomeScreen = ({
             </Text>
             <TouchableOpacity 
               style={styles.enableLocationButton}
-              onPress={async () => {
-                const enabled = await promptEnableLocationServices();
-                if (!enabled) {
-                  await openLocationSettings();
-                }
-              }}
+              onPress={handleEnableLocation}
               activeOpacity={0.8}
             >
               <Text style={styles.enableLocationText}>Enable Location</Text>
@@ -893,10 +1017,87 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
 
-  /* ================= ADDED: LOCATION WARNING ================= */
+  /* ================= SMS WARNING ================= */
+  smsWarning: {
+    width: '100%',
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    alignItems: 'center',
+  },
+
+  smsWarningDenied: {
+    backgroundColor: '#FFFBEB',
+    borderColor: '#FDE68A',
+  },
+
+  smsWarningIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FEE2E2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+
+  smsWarningIconDenied: {
+    backgroundColor: '#FEF3C7',
+  },
+
+  smsWarningIcon: {
+    fontSize: 24,
+  },
+
+  smsWarningTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#991B1B',
+    marginBottom: 6,
+  },
+
+  smsWarningTitleDenied: {
+    color: '#92400E',
+  },
+
+  smsWarningText: {
+    fontSize: 13,
+    color: '#7F1D1D',
+    textAlign: 'center',
+    fontWeight: '600',
+    marginBottom: 14,
+    lineHeight: 20,
+  },
+
+  smsWarningTextDenied: {
+    color: '#78350F',
+  },
+
+  enableSmsButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 25,
+    backgroundColor: '#DC2626',
+    alignItems: 'center',
+  },
+
+  enableSmsButtonDenied: {
+    backgroundColor: '#D97706',
+  },
+
+  enableSmsButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+
+  /* ================= LOCATION WARNING ================= */
   locationWarning: {
     width: '100%',
-    marginTop: 20,
+    marginTop: 16,
     padding: 16,
     borderRadius: 16,
     backgroundColor: '#FFF8E1',

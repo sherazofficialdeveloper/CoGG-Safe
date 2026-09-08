@@ -1,21 +1,10 @@
+// src/permissions/sosPermissions.js
+
 import {AppState, Linking, PermissionsAndroid, Platform} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /**
  * Required Android permissions for SOS emergency functionality.
- * 
- * Phase 4 Requirements:
- * - ACCESS_FINE_LOCATION: Required for GPS coordinates
- * - CAMERA: Required for front/back emergency photos
- * - RECORD_AUDIO: Required for 5-second emergency audio
- * - POST_NOTIFICATIONS: Required for in-app notification badge updates
- * - SEND_SMS: Required for direct emergency SMS delivery.
- * 
- * SERVICE INTERACTION:
- * - All required permissions must be granted before SOS activation
- * - SOS remains disabled if ANY required permission is denied
- * - User can request all permissions at once or individually
- * - If user denies "don't ask again", user must go to Settings
  */
 export const PERMISSION_ONBOARDING_KEY = '@coggsafe/permission-onboarding-complete';
 export const PERMISSION_ONBOARDING_SKIPPED_KEY = '@coggsafe/permission-onboarding-skipped';
@@ -28,11 +17,6 @@ export const REQUIRED_PERMISSIONS = Object.freeze([
   ...(Platform.Version >= 33 && PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS ? [{key: 'notifications', permission: PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS, title: 'Notifications', description: 'Notifications are required to keep you informed about emergency activity.'}] : []),
 ]);
 
-// SEND_SMS is intentionally not part of the blocking permission onboarding.
-// Modern Android treats SEND_SMS as a hard-restricted permission for many
-// installers; when direct sending is unavailable the SOS flow falls back to
-// the system SMS composer instead of leaving the user stuck on a disabled
-// permission dialog.
 export const OPTIONAL_SMS_PERMISSION = PermissionsAndroid.PERMISSIONS.SEND_SMS;
 
 export const SOS_TRIGGER_PERMISSIONS = REQUIRED_PERMISSIONS.filter(item => ['location', 'camera', 'audio', 'notifications'].includes(item.key));
@@ -108,9 +92,6 @@ export async function requestPermission(permission) {
   }
 }
 
-/**
- * Build permission state object from individual permission results
- */
 function buildPermissionState(permissions) {
   const location = permissions[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] || PermissionsAndroid.RESULTS.DENIED;
   const camera = permissions[PermissionsAndroid.PERMISSIONS.CAMERA] || PermissionsAndroid.RESULTS.DENIED;
@@ -131,12 +112,8 @@ function buildPermissionState(permissions) {
   const communicationPermissionsGranted =
     call === PermissionsAndroid.RESULTS.GRANTED;
 
-  // Manual SOS remains available when the trigger protections are granted even if
-  // communications permissions are still pending or denied. Communication failures
-  // are surfaced separately as real SMS/call results instead of blocking the SOS.
   const allRequiredGranted = triggerPermissionsGranted;
 
-  // Can request = none of them are "NEVER_ASK_AGAIN"
   const canRequest =
     location !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
     camera !== PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN &&
@@ -183,8 +160,6 @@ async function checkRequiredAndroidPermissions() {
 
 export function createInitialSosPermissionState() {
   if (Platform.OS !== 'android') {
-    // No iOS permission adapter exists yet. Fail closed rather than
-    // declaring SOS ready without checking the actual device state.
     return {
       location: PermissionsAndroid.RESULTS.DENIED,
       camera: PermissionsAndroid.RESULTS.DENIED,
@@ -205,9 +180,6 @@ export function createInitialSosPermissionState() {
   return {...EMPTY_PERMISSION_STATE};
 }
 
-/**
- * Check all required SOS permissions
- */
 export async function checkSosPermissions() {
   if (Platform.OS !== 'android') {
     return createInitialSosPermissionState();
@@ -225,9 +197,6 @@ export function getPermissionStatus(permissionState, key) {
   return permissionState?.[key] || PermissionsAndroid.RESULTS.DENIED;
 }
 
-/**
- * Request all required SOS permissions at once
- */
 export async function requestRequiredPermissions() {
   if (Platform.OS !== 'android') {
     return createInitialSosPermissionState();
@@ -238,8 +207,6 @@ export async function requestRequiredPermissions() {
     const current = await checkRequiredAndroidPermissions();
     const results = {};
 
-    // Android displays runtime prompts one at a time. Await every response before
-    // moving on so a denial never masks the next permission's real result.
     for (const item of REQUIRED_PERMISSIONS) {
       if (current[item.permission] === PermissionsAndroid.RESULTS.GRANTED) continue;
       const result = await requestPermission(item.permission);
@@ -271,6 +238,7 @@ export async function requestSosPermission(key) {
     return {...buildPermissionState({}), error: error?.message || `Unable to request ${item.title} permission.`};
   }
 }
+
 export async function openSosPermissionSettings() {
   try {
     await Linking.openSettings();
@@ -278,6 +246,127 @@ export async function openSosPermissionSettings() {
     return false;
   }
   return true;
+}
+
+// ================= OPEN SMS PERMISSION DIRECTLY =================
+export async function openSmsPermissionSettings() {
+  if (Platform.OS !== 'android') return false;
+  
+  try {
+    await Linking.openSettings();
+    return true;
+  } catch (error) {
+    console.log('[SMS] Open SMS settings error:', error);
+    return false;
+  }
+}
+
+// ================= ✅ ADDED: OPEN SMS SETTINGS =================
+export async function openSmsSettings() {
+  if (Platform.OS !== 'android') return false;
+  
+  try {
+    await Linking.openSettings();
+    return true;
+  } catch (error) {
+    console.log('[SMS] Open settings error:', error);
+    return false;
+  }
+}
+
+// ================= CHECK SMS PERMISSION (Android 13+ compatible) =================
+export async function checkSmsPermission() {
+  if (Platform.OS !== 'android') return PERMISSION_STATUS.UNAVAILABLE;
+  
+  try {
+    if (Platform.Version >= 33) {
+      try {
+        const result = await PermissionsAndroid.check(
+          PermissionsAndroid.PERMISSIONS.SEND_SMS
+        );
+        if (result === true || result === PermissionsAndroid.RESULTS.GRANTED) {
+          return PERMISSION_STATUS.GRANTED;
+        }
+      } catch (_) {}
+      
+      return PERMISSION_STATUS.BLOCKED;
+    }
+    
+    const result = await PermissionsAndroid.check(
+      PermissionsAndroid.PERMISSIONS.SEND_SMS
+    );
+    
+    if (result === true || result === PermissionsAndroid.RESULTS.GRANTED) {
+      return PERMISSION_STATUS.GRANTED;
+    } else if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN || 
+               result === PermissionsAndroid.RESULTS.BLOCKED) {
+      return PERMISSION_STATUS.BLOCKED;
+    }
+    return PERMISSION_STATUS.DENIED;
+  } catch (error) {
+    return PERMISSION_STATUS.UNAVAILABLE;
+  }
+}
+
+// ================= REQUEST SMS PERMISSION =================
+export async function requestSmsPermission() {
+  if (Platform.OS !== 'android') return PERMISSION_STATUS.UNAVAILABLE;
+  
+  try {
+    if (Platform.Version >= 33) {
+      const current = await checkSmsPermission();
+      if (current === PERMISSION_STATUS.GRANTED) return PERMISSION_STATUS.GRANTED;
+      return PERMISSION_STATUS.BLOCKED;
+    }
+    
+    const result = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.SEND_SMS
+    );
+    
+    if (result === PermissionsAndroid.RESULTS.GRANTED) return PERMISSION_STATUS.GRANTED;
+    if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) return PERMISSION_STATUS.BLOCKED;
+    return PERMISSION_STATUS.DENIED;
+  } catch (error) {
+    return PERMISSION_STATUS.UNAVAILABLE;
+  }
+}
+
+// ================= GET ACTIVE SIM COUNT =================
+export async function getActiveSimCount() {
+  if (Platform.OS !== 'android') return 0;
+  
+  try {
+    const {NativeModules} = require('react-native');
+    const {EmergencyMedia} = NativeModules;
+    
+    if (EmergencyMedia && typeof EmergencyMedia.getAvailableSims === 'function') {
+      const sims = await EmergencyMedia.getAvailableSims();
+      return Array.isArray(sims) ? sims.length : 0;
+    }
+    return 1;
+  } catch (error) {
+    return 1;
+  }
+}
+
+// ================= GET DEFAULT SIM ID =================
+export async function getDefaultSimId() {
+  if (Platform.OS !== 'android') return -1;
+  
+  try {
+    const {NativeModules} = require('react-native');
+    const {EmergencyMedia} = NativeModules;
+    
+    if (EmergencyMedia && typeof EmergencyMedia.getAvailableSims === 'function') {
+      const sims = await EmergencyMedia.getAvailableSims();
+      if (Array.isArray(sims) && sims.length > 0) {
+        return sims[0]?.subscriptionId || -1;
+      }
+    }
+    return -1;
+  } catch (error) {
+    return -1;
+  }
 }
 
 export function subscribeToPermissionChanges(onChange) {

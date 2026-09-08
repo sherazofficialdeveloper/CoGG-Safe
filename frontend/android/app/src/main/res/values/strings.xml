@@ -1,6 +1,21 @@
 <resources>
     <string name="app_name">CoGG Safe</string>
+    
+    <!-- ================= NOTIFICATION CHANNEL STRINGS ================= -->
     <string name="default_notification_channel_id">coggsafe_alerts_v2</string>
     <string name="default_notification_channel_name">CoGGSafe Alerts</string>
     <string name="default_notification_channel_description">Account, safety, and emergency notifications.</string>
+    
+    <!-- ================= ADD: Other Channel Strings ================= -->
+    <string name="sos_notification_channel_id">coggsafe_sos</string>
+    <string name="sos_notification_channel_name">🚨 SOS Alerts</string>
+    <string name="sos_notification_channel_description">Emergency SOS alerts</string>
+    
+    <string name="general_notification_channel_id">coggsafe_general</string>
+    <string name="general_notification_channel_name">📱 General Notifications</string>
+    <string name="general_notification_channel_description">General app notifications</string>
+    
+    <string name="silent_notification_channel_id">coggsafe_silent</string>
+    <string name="silent_notification_channel_name">🔇 Silent Notifications</string>
+    <string name="silent_notification_channel_description">Silent notifications</string>
 </resources>

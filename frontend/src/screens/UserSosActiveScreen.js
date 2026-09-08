@@ -1,5 +1,5 @@
-// UserSosActiveScreen.js - FIXED (Map Style)
-import React, { useEffect, useState } from 'react';
+// UserSosActiveScreen.js - COMPLETE FIXED
+import React, {useEffect, useState} from 'react';
 import {
   View,
   Text,
@@ -11,17 +11,14 @@ import {
   ActivityIndicator,
   Linking,
   Image,
-  Dimensions,
 } from 'react-native';
-import { getSos, getLiveLocation, stopLiveLocation } from '../api/resources';
-import { API_BASE_URL } from '../api/config';
+import {getSos, getLiveLocation, stopLiveLocation} from '../api/resources';
+import {API_BASE_URL} from '../api/config';
 import AudioPlayer from '../components/AudioPlayer';
 import FullscreenImageViewer from '../components/FullscreenImageViewer';
 import Icon from '../components/Icon';
 
-const { width: screenWidth } = Dimensions.get('window');
-
-const UserSosActiveScreen = ({ sos, token, onBack }) => {
+const UserSosActiveScreen = ({sos, token, onBack}) => {
   const [detail, setDetail] = useState(sos || null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -30,8 +27,8 @@ const UserSosActiveScreen = ({ sos, token, onBack }) => {
   const [locationUpdateTime, setLocationUpdateTime] = useState('Just now');
   const [stopping, setStopping] = useState(false);
   const [selectedImage, setSelectedImage] = useState(null);
-  const [hiddenImages, setHiddenImages] = useState({ front: false, back: false });
-  const [mediaUrls, setMediaUrls] = useState({ front: null, back: null, audio: null });
+  const [hiddenImages, setHiddenImages] = useState({front: false, back: false});
+  const [mediaUrls, setMediaUrls] = useState({front: null, back: null, audio: null});
 
   const recordId = detail?.id || detail?._id || sos?.id || sos?._id;
 
@@ -62,18 +59,40 @@ const UserSosActiveScreen = ({ sos, token, onBack }) => {
 
     const fetchDetail = async () => {
       try {
-        const result = await getSos(token, recordId, { forceRefresh: true });
+        const result = await getSos(token, recordId, {forceRefresh: true});
         if (mounted && result?.sos) {
           const sosData = result.sos;
           setDetail(sosData);
 
+          // ================= Extract Media URLs =================
           const components = sosData.components || {};
+          
+          const frontComp = components.frontImage;
+          const backComp = components.backImage;
+          const audioComp = components.audio;
+
+          // ================= FIX: Check storageRef properly =================
+          const frontUrl = frontComp && frontComp.storageRef
+            ? `${API_BASE_URL}/sos/${recordId}/media/frontImage/file`
+            : null;
+
+          const backUrl = backComp && backComp.storageRef
+            ? `${API_BASE_URL}/sos/${recordId}/media/backImage/file`
+            : null;
+
+          const audioUrl = audioComp && audioComp.storageRef
+            ? `${API_BASE_URL}/sos/${recordId}/media/audio/file`
+            : null;
+
+          console.log('[UserSosActive] Media URLs:', {frontUrl: !!frontUrl, backUrl: !!backUrl, audioUrl: !!audioUrl});
+
           setMediaUrls({
-            front: components.frontImage?.storageRef ? `${API_BASE_URL}/sos/${recordId}/media/frontImage/file` : null,
-            back: components.backImage?.storageRef ? `${API_BASE_URL}/sos/${recordId}/media/backImage/file` : null,
-            audio: components.audio?.storageRef ? `${API_BASE_URL}/sos/${recordId}/media/audio/file` : null,
+            front: frontUrl,
+            back: backUrl,
+            audio: audioUrl,
           });
 
+          // ================= Extract Live Location =================
           if (sosData.liveLocation) {
             setLiveLocationStatus(sosData.liveLocation.status || null);
             if (sosData.liveLocation.lastLocation) {
@@ -104,7 +123,7 @@ const UserSosActiveScreen = ({ sos, token, onBack }) => {
 
     const refreshLiveLocation = async () => {
       try {
-        const result = await getLiveLocation(token, recordId, { limit: 1 }, { forceRefresh: true });
+        const result = await getLiveLocation(token, recordId, {limit: 1}, {forceRefresh: true});
         if (!mounted) return;
         setLiveLocationStatus(result?.liveLocation?.status || null);
         const latest = result?.liveLocation?.lastLocation || result?.pings?.[0] || null;
@@ -147,12 +166,13 @@ const UserSosActiveScreen = ({ sos, token, onBack }) => {
     Linking.openURL(`https://www.google.com/maps?q=${lat},${lng}`);
   };
 
-  const authHeaders = { Authorization: `Bearer ${token}` };
+  const authHeaders = {Authorization: `Bearer ${token}`};
   const displayLocation = liveLocation || detail?.location || null;
   const displayLat = displayLocation?.lat ?? displayLocation?.latitude;
   const displayLng = displayLocation?.lng ?? displayLocation?.longitude;
   const displayAccuracy = displayLocation?.accuracy;
   const liveActive = String(liveLocationStatus || detail?.liveLocation?.status || '').toLowerCase() === 'active';
+  
   const hasFrontImage = !!mediaUrls.front;
   const hasBackImage = !!mediaUrls.back;
   const hasAudio = !!mediaUrls.audio;
@@ -194,9 +214,9 @@ const UserSosActiveScreen = ({ sos, token, onBack }) => {
           </Text>
         </View>
 
-        {/* ================= LOCATION - MAP STYLE ================= */}
+        {/* Location Card */}
         {displayLat != null && displayLng != null && (
-          <View style={styles.locationSection}>
+          <TouchableOpacity style={styles.locationCard} onPress={handleOpenLocation} activeOpacity={0.8}>
             <View style={styles.locationHeader}>
               <Text style={styles.locationLabel}>📍 {liveActive ? 'LIVE LOCATION' : 'LOCATION'}</Text>
               {liveActive && (
@@ -206,61 +226,15 @@ const UserSosActiveScreen = ({ sos, token, onBack }) => {
                 </View>
               )}
             </View>
-
-            <TouchableOpacity style={styles.mapContainer} activeOpacity={0.9} onPress={handleOpenLocation}>
-              {/* Map Grid Background */}
-              <View style={styles.mapGrid}>
-                <View style={[styles.mapStreet, styles.mapStreet1]} />
-                <View style={[styles.mapStreet, styles.mapStreet2]} />
-                <View style={[styles.mapStreet, styles.mapStreet3]} />
-                <View style={[styles.mapStreet, styles.mapStreet4]} />
-                <View style={[styles.mapBuilding, styles.mapBuilding1]} />
-                <View style={[styles.mapBuilding, styles.mapBuilding2]} />
-                <View style={[styles.mapBuilding, styles.mapBuilding3]} />
-                <View style={[styles.mapBuilding, styles.mapBuilding4]} />
-
-                {/* Location Marker with Pulse */}
-                <View style={styles.markerContainer}>
-                  <View style={styles.pulseRing1} />
-                  <View style={styles.pulseRing2} />
-                  <View style={styles.markerOuter}>
-                    <View style={styles.markerInner}>
-                      <View style={styles.markerDot} />
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* Location Overlay */}
-              <View style={styles.mapOverlay}>
-                <View style={styles.mapOverlayTop}>
-                  <View style={styles.mapOverlayIconContainer}>
-                    <Text style={styles.mapOverlayIcon}>📍</Text>
-                  </View>
-                  <View style={styles.mapOverlayContent}>
-                    <Text style={styles.mapOverlayTitle}>
-                      {liveActive ? 'Live GPS Location' : 'Last Known Location'}
-                    </Text>
-                    <Text style={styles.mapOverlayCoords}>
-                      {Number(displayLat).toFixed(6)}, {Number(displayLng).toFixed(6)}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.mapOverlayBottom}>
-                  <Text style={styles.mapOverlayAccuracy}>
-                    {displayAccuracy != null ? `±${displayAccuracy}m accuracy` : 'Accuracy: Unknown'}
-                  </Text>
-                  <Text style={styles.mapOverlayTime}>
-                    Updated: {locationUpdateTime}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.mapTapHint}>
-                <Text style={styles.mapTapHintText}>Tap to open in Google Maps</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
+            <Text style={styles.locationCoords}>
+              {Number(displayLat).toFixed(6)}, {Number(displayLng).toFixed(6)}
+            </Text>
+            <Text style={styles.locationAccuracy}>
+              {displayAccuracy != null ? `±${displayAccuracy}m accuracy` : 'Accuracy unknown'}
+            </Text>
+            <Text style={styles.locationUpdated}>Updated: {locationUpdateTime}</Text>
+            <Text style={styles.locationTap}>Tap to open in Google Maps</Text>
+          </TouchableOpacity>
         )}
 
         {/* Emergency Link */}
@@ -271,27 +245,36 @@ const UserSosActiveScreen = ({ sos, token, onBack }) => {
           </TouchableOpacity>
         )}
 
-        {/* Photos */}
+        {/* ================= PHOTOS - FIXED ================= */}
         {(hasFrontImage || hasBackImage) && (
           <View style={styles.mediaSection}>
-  <Text style={styles.mediaLabel}>🎙️ VOICE RECORDING</Text>
-  {hasAudio ? (
-    <View style={styles.audioCard}>
-      <AudioPlayer
-        audioUrl={mediaUrls.audio}
-        token={token}
-        publicMedia={false}
-        directFetch={true}  // ================= NEW: Direct fetch mode =================
-        onError={(err) => console.log('[Audio Error]', err)}
-      />
-    </View>
-  ) : (
-    <Text style={styles.noMediaText}>No audio recording available.</Text>
-  )}
-</View>
+            <Text style={styles.mediaLabel}>📷 PHOTOS</Text>
+            <View style={styles.photosGrid}>
+              {hasFrontImage && !hiddenImages.front && (
+                <TouchableOpacity style={styles.photoBox} onPress={() => setSelectedImage(mediaUrls.front)}>
+                  <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Front</Text></View>
+                  <Image
+                    source={{ uri: mediaUrls.front, headers: authHeaders }}
+                    style={styles.photoImage}
+                    onError={() => setHiddenImages(prev => ({...prev, front: true}))}
+                  />
+                </TouchableOpacity>
+              )}
+              {hasBackImage && !hiddenImages.back && (
+                <TouchableOpacity style={styles.photoBox} onPress={() => setSelectedImage(mediaUrls.back)}>
+                  <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Back</Text></View>
+                  <Image
+                    source={{ uri: mediaUrls.back, headers: authHeaders }}
+                    style={styles.photoImage}
+                    onError={() => setHiddenImages(prev => ({...prev, back: true}))}
+                  />
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
         )}
 
-        {/* Audio */}
+        {/* ================= AUDIO - SINGLE INSTANCE ================= */}
         <View style={styles.mediaSection}>
           <Text style={styles.mediaLabel}>🎙️ VOICE RECORDING</Text>
           {hasAudio ? (
@@ -300,6 +283,7 @@ const UserSosActiveScreen = ({ sos, token, onBack }) => {
                 audioUrl={mediaUrls.audio}
                 token={token}
                 publicMedia={false}
+                directFetch={true}
                 onError={(err) => console.log('[Audio Error]', err)}
               />
             </View>
@@ -368,71 +352,26 @@ const styles = StyleSheet.create({
   statusMessage: { fontSize: 16, fontWeight: '700', color: '#1A1A1A', marginTop: 12, textAlign: 'center' },
   statusTime: { fontSize: 12, color: '#A1A1A6', marginTop: 6 },
 
-  // ================= LOCATION MAP STYLES =================
-  locationSection: { marginBottom: 12 },
-  locationHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  locationLabel: { fontSize: 12, fontWeight: '900', color: '#6E6E73', letterSpacing: 0.8 },
+  locationCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E8E8EB',
+    marginBottom: 12,
+  },
 
-  liveBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FDE7EA', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  locationHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  locationLabel: { fontSize: 12, fontWeight: '900', color: '#6E6E73' },
+
+  liveBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FDE7EA', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 12 },
   liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#E4002B', marginRight: 5 },
-  liveText: { fontSize: 8, fontWeight: '900', color: '#E4002B', letterSpacing: 0.5 },
+  liveText: { fontSize: 8, fontWeight: '900', color: '#E4002B' },
 
-  mapContainer: {
-    width: '100%',
-    height: 220,
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#E8EDF3',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-
-  mapGrid: { width: '100%', height: '100%', position: 'relative' },
-
-  mapStreet: { position: 'absolute', backgroundColor: 'rgba(255,255,255,0.3)' },
-  mapStreet1: { top: '25%', left: '-10%', right: '-10%', height: 3, transform: [{ rotate: '-3deg' }] },
-  mapStreet2: { top: '55%', left: '-10%', right: '-10%', height: 3, transform: [{ rotate: '2deg' }] },
-  mapStreet3: { top: '-10%', bottom: '-10%', left: '30%', width: 3, transform: [{ rotate: '5deg' }] },
-  mapStreet4: { top: '-10%', bottom: '-10%', right: '25%', width: 3, transform: [{ rotate: '-4deg' }] },
-
-  mapBuilding: { position: 'absolute', backgroundColor: 'rgba(160,180,200,0.25)', borderRadius: 2 },
-  mapBuilding1: { top: '10%', left: '15%', width: '18%', height: '12%' },
-  mapBuilding2: { top: '8%', right: '20%', width: '14%', height: '10%' },
-  mapBuilding3: { bottom: '15%', left: '20%', width: '20%', height: '14%' },
-  mapBuilding4: { bottom: '12%', right: '15%', width: '16%', height: '12%' },
-
-  markerContainer: { position: 'absolute', top: '45%', left: '47%', alignItems: 'center', justifyContent: 'center' },
-  pulseRing1: { position: 'absolute', width: 80, height: 80, borderRadius: 40, borderWidth: 2, borderColor: 'rgba(228,0,43,0.15)', top: -22, left: -22 },
-  pulseRing2: { position: 'absolute', width: 60, height: 60, borderRadius: 30, borderWidth: 2, borderColor: 'rgba(228,0,43,0.25)', top: -12, left: -12 },
-  markerOuter: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(228,0,43,0.15)', alignItems: 'center', justifyContent: 'center' },
-  markerInner: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(228,0,43,0.3)', alignItems: 'center', justifyContent: 'center' },
-  markerDot: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#E4002B', shadowColor: '#E4002B', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 6 },
-
-  mapOverlay: {
-    position: 'absolute',
-    bottom: 10,
-    left: 10,
-    right: 10,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderRadius: 12,
-    padding: 10,
-  },
-
-  mapOverlayTop: { flexDirection: 'row', alignItems: 'center' },
-  mapOverlayIconContainer: { width: 30, height: 30, borderRadius: 15, backgroundColor: '#EAF2FF', alignItems: 'center', justifyContent: 'center', marginRight: 8 },
-  mapOverlayIcon: { fontSize: 14 },
-  mapOverlayContent: { flex: 1 },
-  mapOverlayTitle: { fontSize: 11, fontWeight: '900', color: '#1A73E8' },
-  mapOverlayCoords: { fontSize: 12, fontWeight: '700', color: '#1A1A1A', marginTop: 1 },
-  mapOverlayBottom: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
-  mapOverlayAccuracy: { fontSize: 10, color: '#6E6E73' },
-  mapOverlayTime: { fontSize: 10, color: '#6E6E73' },
-
-  mapTapHint: { position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  mapTapHintText: { fontSize: 8, color: '#FFFFFF', fontWeight: '600' },
+  locationCoords: { fontSize: 15, fontWeight: '700', color: '#1A73E8', marginTop: 8 },
+  locationAccuracy: { fontSize: 12, color: '#6E6E73', marginTop: 4 },
+  locationUpdated: { fontSize: 11, color: '#A1A1A6', marginTop: 4 },
+  locationTap: { fontSize: 12, color: '#E4002B', fontWeight: '700', marginTop: 8 },
 
   linkCard: {
     backgroundColor: '#FFFFFF',

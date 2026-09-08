@@ -1,6 +1,5 @@
-// UserNotificationDetailScreen.js - COMPLETE FIXED
-// No duplicate audio, images fixed
-import React, {useEffect, useState, useRef} from 'react';
+// UserNotificationDetailScreen.js - COMPLETE FIXED with LiveLocationMap and Audio
+import React, {useEffect, useState} from 'react';
 import {
   Image,
   SafeAreaView,
@@ -14,16 +13,15 @@ import {
 } from 'react-native';
 import Icon from '../components/Icon';
 import AudioPlayer from '../components/AudioPlayer';
+import LiveLocationMap from '../components/LiveLocationMap';
 import {API_BASE_URL} from '../api/config';
-import {getSos, getLiveLocation} from '../api/resources';
-import {stopLiveLocationSharing} from '../features/sos/services/liveLocationService';
+import {getSos} from '../api/resources';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import FullscreenImageViewer from '../components/FullscreenImageViewer';
 
 const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) => {
   const insets = useSafeAreaInsets();
 
-  // ================= Extract SOS ID =================
   const sosId = notification?.sosId && typeof notification.sosId === 'object'
     ? notification.sosId._id || notification.sosId.id
     : notification?.sosId;
@@ -32,65 +30,37 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
     ? notification.sosId
     : null;
 
-  // ================= State =================
   const [detail, setDetail] = useState(initialSos);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [hiddenImages, setHiddenImages] = useState({front: false, back: false});
   const [selectedImage, setSelectedImage] = useState(null);
-
-  // ================= Live Location States =================
+  const [mediaUrls, setMediaUrls] = useState({front: null, back: null, audio: null});
   const [liveLocation, setLiveLocation] = useState(null);
   const [liveLocationStatus, setLiveLocationStatus] = useState(null);
-  const [locationUpdateTime, setLocationUpdateTime] = useState('Just now');
-  const [stopping, setStopping] = useState(false);
-
-  // ================= Media URLs =================
-  const [mediaUrls, setMediaUrls] = useState({
-    front: null,
-    back: null,
-    audio: null,
-  });
-
-  const intervalRef = useRef(null);
-
-  // ================= Helper: Check if media exists =================
-  const hasStoredMedia = (component) => {
-    if (!component) return false;
-    if (component.storageRef) return true;
-    if (component.localPath) return true;
-    const status = String(component.status || '').toLowerCase();
-    if (['success', 'uploaded', 'completed', 'ready'].includes(status)) return true;
-    return false;
-  };
+  const [audioError, setAudioError] = useState(null);
 
   // ================= Fetch SOS Detail =================
   const fetchSosDetail = async () => {
     if (!token || !sosId) {
-      console.log('[UserNotificationDetail] No token or sosId');
       setLoading(false);
       return;
     }
 
     try {
       setLoading(true);
-      console.log('[UserNotificationDetail] Fetching SOS:', sosId);
       const result = await getSos(token, sosId, {forceRefresh: true});
 
       if (result?.sos) {
         const sosData = result.sos;
-        console.log('[UserNotificationDetail] SOS Data received');
-
         setDetail(sosData);
 
-        // ================= Extract Media URLs =================
         const components = sosData.components || {};
 
         const frontComp = components.frontImage;
         const backComp = components.backImage;
         const audioComp = components.audio;
 
-        // ================= Build Media URLs =================
         const frontUrl = frontComp && frontComp.storageRef
           ? `${API_BASE_URL}/sos/${sosId}/media/frontImage/file`
           : null;
@@ -106,7 +76,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
         console.log('[UserNotificationDetail] Media URLs:', {
           frontUrl: !!frontUrl,
           backUrl: !!backUrl,
-          audioUrl: !!audioUrl,
+          audioUrl: !!audioUrl
         });
 
         setMediaUrls({
@@ -115,16 +85,11 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
           audio: audioUrl,
         });
 
-        // ================= Extract Live Location =================
+        // Extract live location
         if (sosData.liveLocation) {
           setLiveLocationStatus(sosData.liveLocation.status || null);
           if (sosData.liveLocation.lastLocation) {
             setLiveLocation(sosData.liveLocation.lastLocation);
-            setLocationUpdateTime(
-              sosData.liveLocation.lastLocation.capturedAt
-                ? new Date(sosData.liveLocation.lastLocation.capturedAt).toLocaleString()
-                : 'Just now',
-            );
           }
         }
       }
@@ -140,70 +105,8 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
     fetchSosDetail();
   }, [sosId, token]);
 
-  // ================= Live Location Polling =================
-  useEffect(() => {
-    if (!token || !sosId) return undefined;
-    let mounted = true;
-
-    const refreshLiveLocation = async () => {
-      try {
-        const result = await getLiveLocation(token, sosId, {limit: 1}, {forceRefresh: true});
-        if (!mounted) return;
-
-        setLiveLocationStatus(result?.liveLocation?.status || null);
-        const latest = result?.liveLocation?.lastLocation || result?.pings?.[0] || null;
-        if (latest) {
-          setLiveLocation(latest);
-          setLocationUpdateTime(
-            latest.capturedAt ? new Date(latest.capturedAt).toLocaleString() : 'Just now',
-          );
-        }
-      } catch (_) {
-        // ignore
-      }
-    };
-
-    refreshLiveLocation();
-    intervalRef.current = setInterval(refreshLiveLocation, 5000);
-
-    return () => {
-      mounted = false;
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-    };
-  }, [sosId, token]);
-
-  // ================= Handlers =================
-  const handleOpenLocation = () => {
-    const loc = liveLocation || detail?.location || detail?.liveLocation;
-    if (!loc) return;
-
-    const lat = loc.lat ?? loc.latitude ?? loc.coordinates?.lat ?? null;
-    const lng = loc.lng ?? loc.longitude ?? loc.coordinates?.lng ?? null;
-
-    if (lat == null || lng == null) return;
-    Linking.openURL(`https://www.google.com/maps?q=${lat},${lng}`);
-  };
-
-  const stopSharing = async () => {
-    if (!sosId || stopping) return;
-    setStopping(true);
-    try {
-      await stopLiveLocationSharing({token, sosId, backendId: sosId});
-      setLiveLocationStatus('stopped_by_user');
-    } catch (err) {
-      setError(err?.message || 'Unable to stop sharing.');
-    } finally {
-      setStopping(false);
-    }
-  };
-
-  // ================= Data =================
   const currentSos = detail || initialSos;
   const authHeaders = {Authorization: `Bearer ${token}`};
-  const liveActive = String(liveLocationStatus || currentSos?.liveLocation?.status || '').toLowerCase() === 'active';
 
   const frontMediaUrl = mediaUrls.front;
   const backMediaUrl = mediaUrls.back;
@@ -213,27 +116,6 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
   const hasBackImage = !!backMediaUrl;
   const hasAudio = !!audioMediaUrl;
   const hasImageData = hasFrontImage || hasBackImage;
-
-  // ================= Location Data =================
-  const latestLocation = liveLocation || currentSos?.liveLocation?.lastLocation || currentSos?.location || currentSos?.liveLocation;
-
-  const displayLat = latestLocation?.lat
-    ?? latestLocation?.latitude
-    ?? latestLocation?.coordinates?.lat
-    ?? null;
-
-  const displayLng = latestLocation?.lng
-    ?? latestLocation?.longitude
-    ?? latestLocation?.coordinates?.lng
-    ?? null;
-
-  const displayAccuracy = latestLocation?.accuracy
-    ?? latestLocation?.coordinates?.accuracy
-    ?? null;
-
-  const hasLocation = displayLat !== null && displayLng !== null
-    && !isNaN(displayLat) && !isNaN(displayLng)
-    && Math.abs(displayLat) <= 90 && Math.abs(displayLng) <= 180;
 
   if (loading) {
     return (
@@ -248,7 +130,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      {/* ================= HEADER ================= */}
+      {/* Header */}
       <View style={[styles.header, {paddingTop: insets.top + 10}]}>
         <TouchableOpacity onPress={onBack}>
           <Icon name="back" size={22} color="#1A1A1A" />
@@ -260,7 +142,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
       {notification ? (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-          {/* ================= NOTIFICATION HEADER ================= */}
+          {/* Notification Header */}
           <View style={styles.notificationHeader}>
             <View style={styles.notificationIconContainer}>
               <Icon name={notification.sosId ? 'sos' : 'notifications'} size={32} color="#FFFFFF" />
@@ -275,7 +157,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
 
           <Text style={styles.body}>{notification.body || 'No notification message was provided.'}</Text>
 
-          {/* ================= SOS STATUS ================= */}
+          {/* SOS Status */}
           {currentSos && (
             <View style={styles.metaBox}>
               <Text style={styles.metaLabel}>SOS STATUS</Text>
@@ -287,39 +169,21 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
             </View>
           )}
 
-          {/* ================= LIVE LOCATION ================= */}
-          {currentSos && hasLocation && (
-            <View style={styles.locationSection}>
-              <View style={styles.locationHeader}>
-                <Text style={styles.locationLabel}>📍 {liveActive ? 'LIVE LOCATION' : 'LOCATION'}</Text>
-                {liveActive && (
-                  <View style={styles.liveBadge}>
-                    <View style={styles.liveDot} />
-                    <Text style={styles.liveText}>LIVE</Text>
-                  </View>
-                )}
-              </View>
-
-              <TouchableOpacity style={styles.locationCard} onPress={handleOpenLocation} activeOpacity={0.8}>
-                <Text style={styles.locationCoords}>
-                  {Number(displayLat).toFixed(6)}, {Number(displayLng).toFixed(6)}
-                </Text>
-                <Text style={styles.locationAccuracy}>
-                  {displayAccuracy != null ? `±${displayAccuracy}m accuracy` : 'Accuracy: Unknown'}
-                </Text>
-                <Text style={styles.locationUpdated}>Updated: {locationUpdateTime}</Text>
-                <Text style={styles.locationTap}>Tap to open in Google Maps</Text>
-              </TouchableOpacity>
-
-              {liveActive && (
-                <TouchableOpacity style={styles.stopButton} onPress={stopSharing} disabled={stopping}>
-                  <Text style={styles.stopButtonText}>{stopping ? 'Stopping...' : 'Stop Sharing'}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+          {/* ================= LIVE LOCATION MAP ================= */}
+          {currentSos && sosId && (
+            <LiveLocationMap
+              sosId={sosId}
+              token={token}
+              initialLocation={liveLocation || currentSos?.liveLocation?.lastLocation}
+              initialStatus={liveLocationStatus || currentSos?.liveLocation?.status}
+              onLocationUpdate={(location, status) => {
+                setLiveLocation(location);
+                setLiveLocationStatus(status);
+              }}
+            />
           )}
 
-          {/* ================= EMERGENCY LINK ================= */}
+          {/* Emergency Link */}
           {currentSos?.emergencyLink && (
             <View style={styles.linkSection}>
               <Text style={styles.linkLabel}>🔗 EMERGENCY TRACKING LINK</Text>
@@ -336,7 +200,9 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
               <View style={styles.photosGrid}>
                 {hasFrontImage && !hiddenImages.front && (
                   <View style={styles.photoBox}>
-                    <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Front</Text></View>
+                    <View style={styles.photoBadge}>
+                      <Text style={styles.photoBadgeText}>Front</Text>
+                    </View>
                     <TouchableOpacity onPress={() => setSelectedImage(frontMediaUrl)} activeOpacity={0.85}>
                       <Image
                         source={{uri: frontMediaUrl, headers: authHeaders}}
@@ -348,7 +214,9 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
                 )}
                 {hasBackImage && !hiddenImages.back && (
                   <View style={styles.photoBox}>
-                    <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Back</Text></View>
+                    <View style={styles.photoBadge}>
+                      <Text style={styles.photoBadgeText}>Back</Text>
+                    </View>
                     <TouchableOpacity onPress={() => setSelectedImage(backMediaUrl)} activeOpacity={0.85}>
                       <Image
                         source={{uri: backMediaUrl, headers: authHeaders}}
@@ -362,7 +230,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
             </View>
           )}
 
-          {/* ================= AUDIO - SINGLE INSTANCE ================= */}
+          {/* ================= AUDIO ================= */}
           <View style={styles.mediaSection}>
             <Text style={styles.mediaTitle}>🎙️ VOICE RECORDING</Text>
             {hasAudio ? (
@@ -371,9 +239,11 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
                   audioUrl={audioMediaUrl}
                   token={token}
                   publicMedia={false}
-                  directFetch={true}
                   style={styles.audioPlayer}
-                  onError={(err) => console.log('[Audio Error]', err)}
+                  onError={(err) => {
+                    console.log('[Audio Error]', err);
+                    setAudioError(err?.message || 'Audio playback failed');
+                  }}
                 />
               </View>
             ) : (
@@ -381,7 +251,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
             )}
           </View>
 
-          {/* ================= VIEW SOS DETAILS ================= */}
+          {/* View SOS Details */}
           {sosId && (
             <TouchableOpacity style={styles.viewSosButton} onPress={() => onViewSos?.(sosId)}>
               <Text style={styles.viewSosButtonText}>View Full SOS Details</Text>
@@ -457,46 +327,6 @@ const styles = StyleSheet.create({
   metaLabel: {fontSize: 10, fontWeight: '900', color: '#6E6E73', letterSpacing: 0.5, marginTop: 8},
   metaValue: {fontSize: 15, color: '#1A1A1A', fontWeight: '600', marginTop: 4},
   metaValueActive: {color: '#E4002B'},
-
-  locationSection: {marginBottom: 16},
-  locationHeader: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8},
-  locationLabel: {fontSize: 12, fontWeight: '900', color: '#6E6E73', letterSpacing: 0.8},
-
-  liveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FDE7EA',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  liveDot: {width: 6, height: 6, borderRadius: 3, backgroundColor: '#E4002B', marginRight: 5},
-  liveText: {fontSize: 8, fontWeight: '900', color: '#E4002B', letterSpacing: 0.5},
-
-  locationCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E8E8EB',
-  },
-
-  locationCoords: {fontSize: 15, fontWeight: '700', color: '#1A73E8'},
-  locationAccuracy: {fontSize: 12, color: '#6E6E73', marginTop: 4},
-  locationUpdated: {fontSize: 11, color: '#A1A1A6', marginTop: 4},
-  locationTap: {fontSize: 12, color: '#E4002B', fontWeight: '700', marginTop: 8},
-
-  stopButton: {
-    backgroundColor: '#FFF5F6',
-    borderWidth: 1.5,
-    borderColor: '#F3B5BF',
-    borderRadius: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-
-  stopButtonText: {color: '#D9263A', fontSize: 14, fontWeight: '800'},
 
   linkSection: {marginBottom: 16},
   linkLabel: {fontSize: 11, fontWeight: '900', color: '#6E6E73', letterSpacing: 0.5, marginBottom: 6},

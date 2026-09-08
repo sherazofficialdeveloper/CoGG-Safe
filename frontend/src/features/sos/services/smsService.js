@@ -1,6 +1,7 @@
+// src/features/sos/services/smsService.js
+
 import {Alert, NativeModules, Platform} from 'react-native';
-import {PERMISSION_STATUS, checkPermission, requestPermission} from '../../../permissions/sosPermissions';
-import {connectivityService, getConnectivityState} from '../connectivity';
+import {PERMISSION_STATUS, checkPermission, requestPermission, openSmsPermissionSettings, checkSmsPermission, getActiveSimCount, getDefaultSimId} from '../../../permissions/sosPermissions';
 import {sosLocalStore} from '../storage';
 import {emitSosDiagnostic, ensureSosNativeDiagnosticListener} from './sosDiagnosticService';
 
@@ -19,11 +20,6 @@ export async function sendEmergencySms({phoneNumber, message, preferredSubscript
     return {status: 'UNSUPPORTED', reason: 'SMS is only supported on Android devices.'};
   }
 
-  // SMS availability is about the SIM/cellular radio, not about which
-  // interface (Wi-Fi or cellular) currently carries internet traffic, and
-  // it can change between periodic background checks. Refresh right before
-  // this trigger-critical decision; this is a local device check, never a
-  // network call, so it cannot delay the SMS.
   const emergencyMedia = NativeModules?.EmergencyMedia;
   if (!emergencyMedia) {
     return {
@@ -33,33 +29,112 @@ export async function sendEmergencySms({phoneNumber, message, preferredSubscript
   }
 
   try {
-    let permissionState = await checkPermission('android.permission.SEND_SMS');
-    if (permissionState !== PERMISSION_STATUS.GRANTED && permissionState !== PERMISSION_STATUS.BLOCKED) {
+    // ================= FIX: Check SMS permission =================
+    let permissionState = await checkSmsPermission();
+    
+    if (__DEV__) console.log('[SOS_DEBUG] SMS_PERMISSION_STATE', {state: permissionState});
+    
+    // ================= FIX: Android 13+ - Direct settings =================
+    if (permissionState === PERMISSION_STATUS.BLOCKED || 
+        (permissionState === PERMISSION_STATUS.DENIED && Platform.Version >= 33)) {
+      return new Promise((resolve) => {
+        Alert.alert(
+          'SMS Permission Required',
+          '🔒 To send emergency SMS, please enable SMS permission from app settings.\n\n' +
+          '📱 Steps:\n' +
+          '1. Tap "Open Settings"\n' +
+          '2. Tap "Permissions"\n' +
+          '3. Enable "SMS" permission',
+          [
+            {text: 'Cancel', style: 'cancel', onPress: () => {
+              resolve({
+                status: 'PENDING',
+                reason: 'SMS permission required.',
+                useComposer: true,
+              });
+            }},
+            {text: 'Open Settings', onPress: async () => {
+              await openSmsPermissionSettings();
+              resolve({
+                status: 'PENDING',
+                reason: 'Please enable SMS permission from settings.',
+                useComposer: true,
+              });
+            }}
+          ]
+        );
+      });
+    }
+    
+    // ================= FIX: Android 12 and below - Request permission =================
+    if (permissionState === PERMISSION_STATUS.DENIED && Platform.Version < 33) {
       permissionState = await requestPermission('android.permission.SEND_SMS');
     }
-    if (__DEV__) console.log('[SOS_DEBUG] SMS_PERMISSION_STATE', {state: permissionState});
-    if (__DEV__) console.log('[SOS][SMS] SEND_SMS_PERMISSION', {state: permissionState});
+    
     const permissionGranted = permissionState === PERMISSION_STATUS.GRANTED;
     emitSosDiagnostic(permissionGranted ? 'SMS DEBUG — SEND_SMS permission granted' : 'SMS ERROR — SEND_SMS permission denied', permissionGranted ? 'info' : 'error');
+    
     if (!permissionGranted) {
+      // ================= FALLBACK: SMS Composer =================
+      if (emergencyMedia?.openSmsComposer) {
+        await emergencyMedia.openSmsComposer(phoneNumber, message);
+        return {
+          status: 'PENDING',
+          reason: 'SMS composer opened. Please tap send.',
+          useComposer: true,
+        };
+      }
+      
       return {
         status: 'PENDING',
         reason: permissionState === PERMISSION_STATUS.BLOCKED
-          ? 'SMS permission is blocked by Android; retrying after permission is enabled.'
+          ? 'SMS permission is blocked by Android; please enable from settings.'
           : 'SMS permission was not granted yet; retrying after the Android permission flow.',
       };
     }
+    
+    // ================= Continue with SMS sending =================
     if (typeof emergencyMedia.sendEmergencySms === 'function') {
       if (__DEV__) console.log('[SOS][SMS] SERVICE_INVOKED', {nativeMethod: 'EmergencyMedia.sendEmergencySms'});
       emitSosDiagnostic('SMS DEBUG — Native SMS method invoked');
       if (__DEV__) console.log('[SOS][SMS] ATTEMPT_NATIVE', {recipient: `${phoneNumber.slice(0, 3)}***`});
-      let selectedSubscriptionId = preferredSubscriptionId == null ? -1 : Number(preferredSubscriptionId);
-      if (!Number.isInteger(selectedSubscriptionId)) selectedSubscriptionId = -1;
-      if (selectedSubscriptionId < 0) {
+      
+      // ================= Auto-detect SIM =================
+      let selectedSubscriptionId = -1;
+      
+      if (preferredSubscriptionId != null && preferredSubscriptionId >= 0) {
+        selectedSubscriptionId = Number(preferredSubscriptionId);
+      } else {
         try {
           const saved = await sosLocalStore.getEmergencyCallSimPreference();
-          if (saved?.subscriptionId != null) selectedSubscriptionId = Number(saved.subscriptionId);
+          if (saved?.subscriptionId != null) {
+            selectedSubscriptionId = Number(saved.subscriptionId);
+          }
         } catch (_) {}
+      }
+      
+      if (selectedSubscriptionId < 0) {
+        try {
+          const simCount = await getActiveSimCount();
+          
+          if (simCount === 1) {
+            const simId = await getDefaultSimId();
+            if (simId >= 0) {
+              selectedSubscriptionId = simId;
+              await sosLocalStore.setEmergencyCallSimPreference(simId, {source: 'auto-single-sim'});
+              if (__DEV__) console.log('[SOS][SMS] Single SIM detected, auto-selected:', simId);
+            }
+          } else if (simCount >= 2) {
+            const defaultId = await getDefaultSimId();
+            if (defaultId >= 0) {
+              selectedSubscriptionId = defaultId;
+              await sosLocalStore.setEmergencyCallSimPreference(defaultId, {source: 'auto-dual-sim-slot0'});
+              if (__DEV__) console.log('[SOS][SMS] Dual SIM detected, using default SIM:', defaultId);
+            }
+          }
+        } catch (simError) {
+          if (__DEV__) console.log('[SOS][SMS] SIM detection error:', simError);
+        }
       }
 
       const result = await emergencyMedia.sendEmergencySms(
@@ -132,25 +207,8 @@ export async function sendEmergencySms({phoneNumber, message, preferredSubscript
   }
 }
 
-/**
- * Sends the emergency SMS to EVERY valid number belonging to the SOS
- * collection (not just the single collection.emergencyCallNumber). Each
- * recipient is attempted independently via sendEmergencySms — one number
- * failing (bad number, no SIM route, etc.) never stops the others. Duplicate
- * numbers are removed first (e.g. the same number configured as both the
- * collection's primary emergency number and a member's own mobile number).
- *
- * Returns an aggregate status for the existing single-status service
- * contract (event.services.sms.status, used by orchestrator/queueWorker's
- * retry logic and the backend's single `sms` component), plus a per-number
- * `recipients` breakdown for on-device display:
- *  - 'COMPLETED' if at least one number received the SMS.
- *  - 'PENDING' if any number remains retryable (queued, temporarily failed,
- *    or cellular unavailable) — the whole batch gets retried together.
- *  - 'UNSUPPORTED' only if every number came back unsupported (no native
- *    SMS capability at all).
- *  - 'NOT_CONFIGURED' if there were no valid numbers to send to.
- */
+export {openSmsPermissionSettings};
+
 export async function chooseSmsSubscription({forcePrompt = false} = {}) {
   if (Platform.OS !== 'android') return -1;
   const module = NativeModules?.EmergencyMedia;
@@ -158,6 +216,7 @@ export async function chooseSmsSubscription({forcePrompt = false} = {}) {
   try {
     const rawSims = await module.getAvailableSims();
     const sims = Array.isArray(rawSims) ? rawSims : [];
+    
     if (sims.length <= 1) {
       const id = Number(sims[0]?.subscriptionId);
       if (Number.isInteger(id) && id > 0) {
@@ -166,11 +225,22 @@ export async function chooseSmsSubscription({forcePrompt = false} = {}) {
       }
       return -1;
     }
+    
     if (!forcePrompt) {
       const saved = await sosLocalStore.getEmergencyCallSimPreference().catch(() => null);
       const savedId = Number(saved?.subscriptionId);
       if (Number.isInteger(savedId) && sims.some(item => Number(item.subscriptionId) === savedId)) return savedId;
+      
+      const firstSim = sims[0];
+      if (firstSim?.subscriptionId != null) {
+        const id = Number(firstSim.subscriptionId);
+        if (Number.isInteger(id) && id > 0) {
+          await sosLocalStore.setEmergencyCallSimPreference(id, {source: 'sms-auto-dual-sim-slot0'});
+          return id;
+        }
+      }
     }
+    
     return new Promise(resolve => {
       let settled = false;
       const finish = async value => {
@@ -292,4 +362,4 @@ export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId, s
   };
 }
 
-export default {sendEmergencySms, sendEmergencySmsToNumbers};
+export default {sendEmergencySms, sendEmergencySmsToNumbers, openSmsPermissionSettings};

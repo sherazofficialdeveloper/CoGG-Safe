@@ -11,7 +11,7 @@ import {
   DeviceEventEmitter,
 } from 'react-native';
 
-import {SafeAreaProvider} from 'react-native-safe-area-context';
+import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 
 // Context
 import {AuthProvider, useAuth} from './src/context/AuthContext';
@@ -1592,9 +1592,9 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
-        <View style={styles.container}>
+        <SafeAreaView style={styles.container} edges={['bottom']}>
           <AppContent />
-        </View>
+        </SafeAreaView>
       </AuthProvider>
     </SafeAreaProvider>
   );
@@ -1607,7 +1607,7 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F7F8FA',
+    backgroundColor: '#FFFFFF',
   },
 
   adminContainer: {

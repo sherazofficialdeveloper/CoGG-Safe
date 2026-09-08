@@ -28,26 +28,102 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
-    createDefaultNotificationChannel()
+    createNotificationChannels()
     loadReactNative(this)
   }
 
-  private fun createDefaultNotificationChannel() {
+  // ================= CREATE ALL NOTIFICATION CHANNELS =================
+  private fun createNotificationChannels() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
       return
     }
 
-    val channelId = getString(R.string.default_notification_channel_id)
-    val channelName = getString(R.string.default_notification_channel_name)
-    val channelDescription = getString(R.string.default_notification_channel_description)
     val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-    val channel = NotificationChannel(
-      channelId,
-      channelName,
-      NotificationManager.IMPORTANCE_HIGH,
+    // ================= 1. SOS CHANNEL (Highest Priority) =================
+    val sosChannel = NotificationChannel(
+      "coggsafe_sos",
+      "🚨 SOS Alerts",
+      NotificationManager.IMPORTANCE_HIGH
     ).apply {
-      description = channelDescription
+      description = "Emergency SOS alerts - Highest priority"
+      enableVibration(true)
+      vibrationPattern = longArrayOf(0, 500, 300, 400, 300, 500)
+      setShowBadge(true)
+      enableLights(true)
+      lightColor = android.graphics.Color.RED
+      
+      // ✅ Default system sound
+      setSound(
+        RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+        AudioAttributes.Builder()
+          .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+          .build()
+      )
+    }
+
+    // ================= 2. GENERAL CHANNEL (Default) =================
+    val generalChannel = NotificationChannel(
+      "coggsafe_general",
+      "📱 General Notifications",
+      NotificationManager.IMPORTANCE_DEFAULT
+    ).apply {
+      description = "General app notifications"
+      enableVibration(true)
+      vibrationPattern = longArrayOf(0, 200, 100, 200)
+      setShowBadge(true)
+      
+      // ✅ Default system sound
+      setSound(
+        RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+        AudioAttributes.Builder()
+          .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+          .build()
+      )
+    }
+
+    // ================= 3. SILENT CHANNEL (No Sound) =================
+    val silentChannel = NotificationChannel(
+      "coggsafe_silent",
+      "🔇 Silent Notifications",
+      NotificationManager.IMPORTANCE_LOW
+    ).apply {
+      description = "Silent notifications - No sound or vibration"
+      enableVibration(false)
+      setSound(null, null)
+    }
+
+    // ================= 4. FCM FALLBACK CHANNEL =================
+    val fcmChannel = NotificationChannel(
+      "fcm_fallback_notification_channel",
+      "CoGG Safe Alerts",
+      NotificationManager.IMPORTANCE_HIGH
+    ).apply {
+      description = "CoGG Safe emergency alerts"
+      setSound(
+        RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+        AudioAttributes.Builder()
+          .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+          .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+          .build()
+      )
+      enableVibration(true)
+      vibrationPattern = longArrayOf(0, 500, 300, 500)
+    }
+
+    // ================= 5. DEFAULT CHANNEL (From strings) =================
+    val defaultChannelId = getString(R.string.default_notification_channel_id)
+    val defaultChannelName = getString(R.string.default_notification_channel_name)
+    val defaultChannelDescription = getString(R.string.default_notification_channel_description)
+
+    val defaultChannel = NotificationChannel(
+      defaultChannelId,
+      defaultChannelName,
+      NotificationManager.IMPORTANCE_HIGH
+    ).apply {
+      description = defaultChannelDescription
       enableVibration(true)
       vibrationPattern = longArrayOf(0, 250, 150, 250)
       setShowBadge(true)
@@ -60,6 +136,13 @@ class MainApplication : Application(), ReactApplication {
       )
     }
 
-    manager.createNotificationChannel(channel)
+    // ✅ Create all channels
+    manager.createNotificationChannel(sosChannel)
+    manager.createNotificationChannel(generalChannel)
+    manager.createNotificationChannel(silentChannel)
+    manager.createNotificationChannel(fcmChannel)
+    manager.createNotificationChannel(defaultChannel)
+
+    android.util.Log.d("Notification", "✅ All notification channels created")
   }
 }

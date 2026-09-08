@@ -34,19 +34,45 @@ const AdminSosScreen = ({
   const refresh = useCallback(async () => {
     try {
       const response = await listSos(token, {limit: 50});
-      const nextAlerts = (response?.sos || []).map(record => ({
-        ...record,
-        userName: record.userId?.username || 'CoGG Safe user',
-        mobileNumber: record.userId?.mobileNumber || 'Mobile unavailable',
-        initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
-        collectionName: record.collectionId?.name || 'Assigned collection',
-        location: record.location?.latitude != null ? `${record.location.latitude.toFixed(5)}, ${record.location.longitude.toFixed(5)}` : 'Location unavailable',
-        locationStatus: record.location?.status || 'pending',
-        hasLocation: record.location?.latitude != null && record.location?.longitude != null,
-        time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
-        status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Pending',
-        emergencyMessage: record.emergencyMessage || 'Emergency assistance requested.',
-      }));
+      const nextAlerts = (response?.sos || []).map(record => {
+        // ================= FIX: Check location status properly =================
+        const hasLocation = record.location?.latitude != null && record.location?.longitude != null;
+        
+        // Check live location status
+        const isLiveActive = record.liveLocation?.status === 'active';
+        const locationStatus = record.location?.status || 'pending';
+        
+        // Determine display status
+        let displayStatus = 'pending';
+        if (isLiveActive && hasLocation) {
+          displayStatus = 'live';
+        } else if (hasLocation) {
+          displayStatus = 'captured';
+        } else if (locationStatus === 'failed') {
+          displayStatus = 'failed';
+        } else {
+          displayStatus = 'waiting';
+        }
+        
+        return {
+          ...record,
+          id: record._id || record.id,
+          _id: record._id || record.id,
+          userName: record.userId?.username || 'CoGG Safe user',
+          mobileNumber: record.userId?.mobileNumber || 'Mobile unavailable',
+          initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
+          collectionName: record.collectionId?.name || 'Assigned collection',
+          location: hasLocation 
+            ? `${record.location.latitude.toFixed(5)}, ${record.location.longitude.toFixed(5)}` 
+            : 'Location unavailable',
+          hasLocation: hasLocation,
+          locationStatus: displayStatus,
+          isLiveActive: isLiveActive,
+          time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
+          status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Pending',
+          emergencyMessage: record.emergencyMessage || 'Emergency assistance requested.',
+        };
+      });
       sosSnapshots.set(token, nextAlerts);
       setSosAlerts(nextAlerts);
     } catch (requestError) {
@@ -57,19 +83,41 @@ const AdminSosScreen = ({
   useEffect(() => {
     const cached = getCachedApiData('/sos?limit=50', token);
     if (cached?.sos) {
-      setSosAlerts(cached.sos.map(record => ({
-        ...record,
-        userName: record.userId?.username || 'CoGG Safe user',
-        mobileNumber: record.userId?.mobileNumber || 'Mobile unavailable',
-        initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
-        collectionName: record.collectionId?.name || 'Assigned collection',
-        location: record.location?.latitude != null ? `${record.location.latitude.toFixed(5)}, ${record.location.longitude.toFixed(5)}` : 'Location unavailable',
-        locationStatus: record.location?.status || 'pending',
-        hasLocation: record.location?.latitude != null && record.location?.longitude != null,
-        time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
-        status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Pending',
-        emergencyMessage: record.emergencyMessage || 'Emergency assistance requested.',
-      })));
+      setSosAlerts(cached.sos.map(record => {
+        const hasLocation = record.location?.latitude != null && record.location?.longitude != null;
+        const isLiveActive = record.liveLocation?.status === 'active';
+        const locationStatus = record.location?.status || 'pending';
+        
+        let displayStatus = 'pending';
+        if (isLiveActive && hasLocation) {
+          displayStatus = 'live';
+        } else if (hasLocation) {
+          displayStatus = 'captured';
+        } else if (locationStatus === 'failed') {
+          displayStatus = 'failed';
+        } else {
+          displayStatus = 'waiting';
+        }
+        
+        return {
+          ...record,
+          id: record._id || record.id,
+          _id: record._id || record.id,
+          userName: record.userId?.username || 'CoGG Safe user',
+          mobileNumber: record.userId?.mobileNumber || 'Mobile unavailable',
+          initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
+          collectionName: record.collectionId?.name || 'Assigned collection',
+          location: hasLocation 
+            ? `${record.location.latitude.toFixed(5)}, ${record.location.longitude.toFixed(5)}` 
+            : 'Location unavailable',
+          hasLocation: hasLocation,
+          locationStatus: displayStatus,
+          isLiveActive: isLiveActive,
+          time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
+          status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Pending',
+          emergencyMessage: record.emergencyMessage || 'Emergency assistance requested.',
+        };
+      }));
     }
     if (!sosSnapshots.has(token)) refresh().catch(requestError => setError(requestError.message || 'Unable to load SOS alerts.'));
     const subscription = AppState.addEventListener('change', nextState => {
@@ -276,17 +324,22 @@ const AdminSosScreen = ({
                   </Text>
                 </View>
 
-                {/* ===== LOCATION STATUS ===== */}
+                {/* ===== LOCATION STATUS - FIXED ===== */}
                 <View style={styles.locationStatusRow}>
                   <View style={styles.locationStatusLeft}>
                     <Text style={styles.locationStatusIcon}>📍</Text>
                     <Text style={styles.locationStatusLabel}>Location</Text>
                   </View>
-                  {alert.hasLocation ? (
+                  {alert.isLiveActive ? (
+                    <View style={styles.locationStatusLive}>
+                      <View style={styles.locationStatusLiveDot} />
+                      <Text style={styles.locationStatusLiveText}>LIVE</Text>
+                    </View>
+                  ) : alert.locationStatus === 'captured' ? (
                     <View style={styles.locationStatusSuccess}>
                       <Text style={styles.locationStatusSuccessText}>✓ Captured</Text>
                     </View>
-                  ) : alert.locationStatus === 'pending' ? (
+                  ) : alert.locationStatus === 'waiting' ? (
                     <View style={styles.locationStatusPending}>
                       <Text style={styles.locationStatusPendingText}>⏳ Waiting...</Text>
                     </View>
@@ -633,7 +686,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  /* ===== LOCATION STATUS ===== */
+  /* ===== LOCATION STATUS - FIXED ===== */
   locationStatusRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -658,6 +711,30 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: '#6E6E73',
+  },
+
+  locationStatusLive: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FDE7EA',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+
+  locationStatusLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#E4002B',
+    marginRight: 5,
+  },
+
+  locationStatusLiveText: {
+    fontSize: 10,
+    fontWeight: '900',
+    color: '#E4002B',
+    letterSpacing: 0.5,
   },
 
   locationStatusSuccess: {

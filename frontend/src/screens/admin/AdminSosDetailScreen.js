@@ -1,4 +1,4 @@
-// AdminSosDetailScreen.js - COMPLETE FIXED with Audio + Live Location Map
+// AdminSosDetailScreen.js - COMPLETE FIXED with LiveLocationMap Component
 import React, {useEffect, useRef, useState} from 'react';
 import {
   View,
@@ -18,6 +18,7 @@ import {
 import {deactivateSos, getLiveLocation, getSos, stopLiveLocation} from '../../api/resources';
 import {API_BASE_URL} from '../../api/config';
 import AudioPlayer from '../../components/AudioPlayer';
+import LiveLocationMap from '../../components/LiveLocationMap';
 import FullscreenImageViewer from '../../components/FullscreenImageViewer';
 import Icon from '../../components/Icon';
 
@@ -214,15 +215,6 @@ const AdminSosDetailScreen = ({
     }
   };
 
-  const handleOpenLocation = () => {
-    const loc = liveLocation || record.location;
-    if (loc?.latitude == null && loc?.lat == null) return;
-    const latitude = loc.lat ?? loc.latitude;
-    const longitude = loc.lng ?? loc.longitude;
-    const url = `https://www.google.com/maps?q=${latitude},${longitude}`;
-    Linking.openURL(url);
-  };
-
   const displayLocation = liveLocation || record.location || null;
   const displayLat = displayLocation?.lat ?? displayLocation?.latitude;
   const displayLng = displayLocation?.lng ?? displayLocation?.longitude;
@@ -309,113 +301,16 @@ const AdminSosDetailScreen = ({
         </View>
         {actionError ? <Text style={styles.serviceResultError}>{actionError}</Text> : null}
 
-        {/* ================= LIVE LOCATION - MAP STYLE ================= */}
-        <View style={styles.locationSection}>
-          <View style={styles.locationHeader}>
-            <Text style={styles.locationLabel}>📍 {liveLocationActive ? 'LIVE LOCATION' : 'LOCATION'}</Text>
-            {liveLocationActive && (
-              <View style={styles.liveBadge}>
-                <View style={styles.liveDot} />
-                <Text style={styles.liveText}>LIVE</Text>
-              </View>
-            )}
-          </View>
-
-          {displayLat != null && displayLng != null ? (
-            <TouchableOpacity 
-              style={styles.mapContainer} 
-              activeOpacity={0.9} 
-              onPress={handleOpenLocation}
-            >
-              {/* Map Grid Background */}
-              <View style={styles.mapGrid}>
-                {/* Street lines */}
-                <View style={[styles.mapStreet, styles.mapStreet1]} />
-                <View style={[styles.mapStreet, styles.mapStreet2]} />
-                <View style={[styles.mapStreet, styles.mapStreet3]} />
-                <View style={[styles.mapStreet, styles.mapStreet4]} />
-                
-                {/* Building blocks */}
-                <View style={[styles.mapBuilding, styles.mapBuilding1]} />
-                <View style={[styles.mapBuilding, styles.mapBuilding2]} />
-                <View style={[styles.mapBuilding, styles.mapBuilding3]} />
-                <View style={[styles.mapBuilding, styles.mapBuilding4]} />
-                
-                {/* Location Marker with Pulse Animation */}
-                <View style={styles.markerContainer}>
-                  <View style={styles.pulseRing1} />
-                  <View style={styles.pulseRing2} />
-                  <View style={styles.markerOuter}>
-                    <View style={styles.markerInner}>
-                      <View style={styles.markerDot} />
-                    </View>
-                  </View>
-                </View>
-              </View>
-
-              {/* Location Info Overlay */}
-              <View style={styles.mapOverlay}>
-                <View style={styles.mapOverlayTop}>
-                  <View style={styles.mapOverlayIconContainer}>
-                    <Text style={styles.mapOverlayIcon}>📍</Text>
-                  </View>
-                  <View style={styles.mapOverlayContent}>
-                    <Text style={styles.mapOverlayTitle}>
-                      {liveLocationActive ? 'Live GPS Location' : 'Last Known Location'}
-                    </Text>
-                    <Text style={styles.mapOverlayCoords}>
-                      {Number(displayLat).toFixed(6)}, {Number(displayLng).toFixed(6)}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.mapOverlayBottom}>
-                  <Text style={styles.mapOverlayAccuracy}>
-                    {displayAccuracy != null ? `±${displayAccuracy}m accuracy` : 'Accuracy: Unknown'}
-                  </Text>
-                  <Text style={styles.mapOverlayTime}>
-                    Updated: {locationUpdateTime}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Tap to open hint */}
-              <View style={styles.mapTapHint}>
-                <Text style={styles.mapTapHintText}>Tap to open in Google Maps</Text>
-              </View>
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.locationUnavailable}>
-              <Text style={styles.locationUnavailableIcon}>📍</Text>
-              <Text style={styles.locationUnavailableTitle}>Location not available</Text>
-              <Text style={styles.locationUnavailableText}>Waiting for GPS signal...</Text>
-            </View>
-          )}
-
-          {/* Initial SOS Location */}
-          {record.location?.latitude != null && record.location?.longitude != null && (
-            <View style={styles.initialLocationContainer}>
-              <Text style={styles.initialLocationLabel}>📍 Initial SOS Location</Text>
-              <Text style={styles.initialLocationCoords}>
-                {Number(record.location.latitude).toFixed(5)}, {Number(record.location.longitude).toFixed(5)}
-              </Text>
-            </View>
-          )}
-
-          {/* Stop Sharing Button */}
-          {liveLocationActive && (
-            <TouchableOpacity style={styles.stopSharingButton} onPress={handleStopSharing} disabled={actionLoading}>
-              <Text style={styles.stopSharingText}>{actionLoading ? 'Stopping...' : 'Stop Sharing Live Location'}</Text>
-            </TouchableOpacity>
-          )}
-
-          {/* Emergency Link */}
-          {record.emergencyLink && (
-            <TouchableOpacity style={styles.emergencyLinkCard} onPress={() => Linking.openURL(record.emergencyLink)}>
-              <Text style={styles.emergencyLinkLabel}>🔗 EMERGENCY TRACKING LINK</Text>
-              <Text style={styles.emergencyLinkText}>{record.emergencyLink}</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+        {/* ================= LIVE LOCATION - Reusable Component ================= */}
+        <LiveLocationMap
+          sosId={recordId}
+          token={token}
+          initialLocation={liveLocation || record?.liveLocation?.lastLocation || record?.location}
+          initialStatus={liveLocationStatus || record?.liveLocation?.status}
+          showStopButton={liveLocationActive}
+          isStopping={actionLoading}
+          onStopSharing={handleStopSharing}
+        />
 
         {/* ================= PHOTOS SECTION ================= */}
         <View style={styles.photosSection}>
@@ -456,29 +351,30 @@ const AdminSosDetailScreen = ({
           )}
         </View>
 
-       <View style={styles.audioSection}>
-  <Text style={styles.sectionLabel}>🎙️ VOICE RECORDING</Text>
-  
-  {hasAudio ? (
-    <View style={styles.audioCard}>
-      <AudioPlayer
-        audioUrl={mediaUrls.audio}
-        token={token}
-        publicMedia={false}
-        directFetch={true}  // ================= NEW: Direct fetch mode =================
-        style={styles.audioPlayer}
-        onError={(error) => {
-          console.log('[AdminAudio Error]', error);
-          setAudioError(error?.message || 'Audio playback failed');
-        }}
-      />
-    </View>
-  ) : (
-    <View style={styles.noMediaContainer}>
-      <Text style={styles.noMediaText}>No audio recording available.</Text>
-    </View>
-  )}
-</View>
+        {/* ================= AUDIO SECTION ================= */}
+        <View style={styles.audioSection}>
+          <Text style={styles.sectionLabel}>🎙️ VOICE RECORDING</Text>
+          
+          {hasAudio ? (
+            <View style={styles.audioCard}>
+              <AudioPlayer
+                audioUrl={mediaUrls.audio}
+                token={token}
+                publicMedia={false}
+                directFetch={true}
+                style={styles.audioPlayer}
+                onError={(error) => {
+                  console.log('[AdminAudio Error]', error);
+                  setAudioError(error?.message || 'Audio playback failed');
+                }}
+              />
+            </View>
+          ) : (
+            <View style={styles.noMediaContainer}>
+              <Text style={styles.noMediaText}>No audio recording available.</Text>
+            </View>
+          )}
+        </View>
 
         {actionError ? <Text style={styles.errorText}>{actionError}</Text> : null}
 
@@ -622,236 +518,6 @@ const styles = StyleSheet.create({
   serviceResultStatus: { fontSize: 12, fontWeight: '900', color: '#178A4B', marginTop: 3 },
   serviceResultError: { fontSize: 12, color: '#B42318', marginTop: 3 },
   serviceResultEmpty: { fontSize: 13, color: '#68707D' },
-
-  // ================= LOCATION SECTION - MAP STYLE =================
-  locationSection: { marginBottom: 16 },
-  locationHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  locationLabel: { fontSize: 12, fontWeight: '900', color: '#6E6E73', letterSpacing: 0.8 },
-
-  liveBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FDE7EA', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
-  liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#E4002B', marginRight: 5 },
-  liveText: { fontSize: 8, fontWeight: '900', color: '#E4002B', letterSpacing: 0.5 },
-
-  // Map Container
-  mapContainer: {
-    width: '100%',
-    height: 240,
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#E8EDF3',
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 4},
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-
-  mapGrid: {
-    width: '100%',
-    height: '100%',
-    position: 'relative',
-  },
-
-  // Street lines
-  mapStreet: {
-    position: 'absolute',
-    backgroundColor: 'rgba(255,255,255,0.3)',
-  },
-
-  mapStreet1: {
-    top: '25%',
-    left: '-10%',
-    right: '-10%',
-    height: 3,
-    transform: [{rotate: '-3deg'}],
-  },
-
-  mapStreet2: {
-    top: '55%',
-    left: '-10%',
-    right: '-10%',
-    height: 3,
-    transform: [{rotate: '2deg'}],
-  },
-
-  mapStreet3: {
-    top: '-10%',
-    bottom: '-10%',
-    left: '30%',
-    width: 3,
-    transform: [{rotate: '5deg'}],
-  },
-
-  mapStreet4: {
-    top: '-10%',
-    bottom: '-10%',
-    right: '25%',
-    width: 3,
-    transform: [{rotate: '-4deg'}],
-  },
-
-  // Building blocks
-  mapBuilding: {
-    position: 'absolute',
-    backgroundColor: 'rgba(160,180,200,0.25)',
-    borderRadius: 2,
-  },
-
-  mapBuilding1: { top: '10%', left: '15%', width: '18%', height: '12%' },
-  mapBuilding2: { top: '8%', right: '20%', width: '14%', height: '10%' },
-  mapBuilding3: { bottom: '15%', left: '20%', width: '20%', height: '14%' },
-  mapBuilding4: { bottom: '12%', right: '15%', width: '16%', height: '12%' },
-
-  // Marker with Pulse
-  markerContainer: {
-    position: 'absolute',
-    top: '45%',
-    left: '47%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  pulseRing1: {
-    position: 'absolute',
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 2,
-    borderColor: 'rgba(228, 0, 43, 0.15)',
-    top: -22,
-    left: -22,
-  },
-
-  pulseRing2: {
-    position: 'absolute',
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 2,
-    borderColor: 'rgba(228, 0, 43, 0.25)',
-    top: -12,
-    left: -12,
-  },
-
-  markerOuter: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(228, 0, 43, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  markerInner: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(228, 0, 43, 0.3)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  markerDot: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#E4002B',
-    shadowColor: '#E4002B',
-    shadowOffset: {width: 0, height: 0},
-    shadowOpacity: 0.4,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-
-  // Map Overlay
-  mapOverlay: {
-    position: 'absolute',
-    bottom: 12,
-    left: 12,
-    right: 12,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderRadius: 12,
-    padding: 12,
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-
-  mapOverlayTop: { flexDirection: 'row', alignItems: 'center' },
-  mapOverlayIconContainer: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#EAF2FF', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-  mapOverlayIcon: { fontSize: 16 },
-  mapOverlayContent: { flex: 1 },
-  mapOverlayTitle: { fontSize: 11, fontWeight: '900', color: '#1A73E8' },
-  mapOverlayCoords: { fontSize: 12, fontWeight: '700', color: '#1A1A1A', marginTop: 1 },
-
-  mapOverlayBottom: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
-  mapOverlayAccuracy: { fontSize: 10, color: '#6E6E73' },
-  mapOverlayTime: { fontSize: 10, color: '#6E6E73' },
-
-  mapTapHint: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-
-  mapTapHintText: { fontSize: 9, color: '#FFFFFF', fontWeight: '600' },
-
-  // Location Unavailable
-  locationUnavailable: {
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#EDEDEF',
-    borderRadius: 14,
-    padding: 30,
-    alignItems: 'center',
-  },
-
-  locationUnavailableIcon: { fontSize: 32, marginBottom: 10 },
-  locationUnavailableTitle: { fontSize: 15, fontWeight: '700', color: '#1A1A1A' },
-  locationUnavailableText: { fontSize: 13, color: '#A1A1A6', marginTop: 4 },
-
-  // Initial Location
-  initialLocationContainer: {
-    backgroundColor: '#F5F6F8',
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 10,
-  },
-
-  initialLocationLabel: { fontSize: 10, fontWeight: '900', color: '#6E6E73', letterSpacing: 0.5 },
-  initialLocationCoords: { fontSize: 12, fontWeight: '600', color: '#1A1A1A', marginTop: 2 },
-
-  // Stop Sharing
-  stopSharingButton: {
-    backgroundColor: '#FFF5F6',
-    borderWidth: 1.5,
-    borderColor: '#F3B5BF',
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-
-  stopSharingText: { color: '#D9263A', fontSize: 14, fontWeight: '800' },
-
-  // Emergency Link
-  emergencyLinkCard: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
-    padding: 14,
-    marginTop: 12,
-  },
-
-  emergencyLinkLabel: { fontSize: 10, fontWeight: '900', color: '#6E6E73', letterSpacing: 0.5 },
-  emergencyLinkText: { color: '#E4002B', fontSize: 12, fontWeight: '700', marginTop: 4 },
 
   // ================= PHOTOS =================
   photosSection: { marginBottom: 16 },

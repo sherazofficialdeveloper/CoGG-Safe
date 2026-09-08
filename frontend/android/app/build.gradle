@@ -1,82 +1,24 @@
+
 plugins {
     id("com.facebook.react")
 }
+
 apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+
 if (file("google-services.json").exists()) {
     apply plugin: "com.google.gms.google-services"
 } else {
     logger.warn("Firebase Android config missing: add frontend/android/app/google-services.json from your real Firebase project to enable FCM.")
 }
+
 apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
 
-/**
- * This is the configuration block to customize your React Native Android app.
- * By default you don't need to apply any configuration, just uncomment the lines you need.
- */
 react {
-    /* Folders */
-    //   The root of your project, i.e. where "package.json" lives. Default is '../..'
-    // root = file("../../")
-    //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
-    // reactNativeDir = file("../../node_modules/react-native")
-    //   The folder where the react-native Codegen package is. Default is ../../node_modules/@react-native/codegen
-    // codegenDir = file("../../node_modules/@react-native/codegen")
-    //   The cli.js file which is the React Native CLI entrypoint. Default is ../../node_modules/react-native/cli.js
-    // cliFile = file("../../node_modules/react-native/cli.js")
-
-    /* Variants */
-    //   The list of variants to that are debuggable. For those we're going to
-    //   skip the bundling of the JS bundle and the assets. Default is "debug", "debugOptimized".
-    //   If you add flavors like lite, prod, etc. you'll have to list your debuggableVariants.
-    // debuggableVariants = ["liteDebug", "liteDebugOptimized", "prodDebug", "prodDebugOptimized"]
-
-    /* Bundling */
-    //   A list containing the node command and its flags. Default is just 'node'.
-    // nodeExecutableAndArgs = ["node"]
-    //
-    //   The command to run when bundling. By default is 'bundle'
-    // bundleCommand = "ram-bundle"
-    //
-    //   The path to the CLI configuration file. Default is empty.
-    // bundleConfig = file(../rn-cli.config.js)
-    //
-    //   The name of the generated asset file containing your JS bundle
-    // bundleAssetName = "MyApplication.android.bundle"
-    //
-    //   The entry file for bundle generation. Default is 'index.android.js' or 'index.js'
-    // entryFile = file("../js/MyApplication.android.js")
-    //
-    //   A list of extra flags to pass to the 'bundle' commands.
-    //   See https://github.com/react-native-community/cli/blob/main/docs/commands.md#bundle
-    // extraPackagerArgs = []
-
-    /* Hermes Commands */
-    //   The hermes compiler command to run. By default it is 'hermesc'
-    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
-    //
-    //   The list of flags to pass to the Hermes compiler. By default is "-O", "-output-source-map"
-    // hermesFlags = ["-O", "-output-source-map"]
-
-    /* Autolinking */
     autolinkLibrariesWithApp()
 }
 
-/**
- * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
- */
 def enableProguardInReleaseBuilds = false
-
-/**
- * The preferred build flavor of JavaScriptCore (JSC)
- *
- * For example, to use the international variant, you can use:
- * `def jscFlavor = io.github.react-native-community:jsc-android-intl:2026004.+`
- *
- * The international variant includes ICU i18n library and necessary data
- * allowing to use e.g. `Date.toLocaleString` and `String.localeCompare` that
- * give correct results when using with locales other than en-US. Note that
- * this variant is about 6MiB larger per architecture than default.
- */
 def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 
 android {
@@ -85,6 +27,11 @@ android {
     compileSdk rootProject.ext.compileSdkVersion
 
     namespace "com.coggsafe"
+
+    buildFeatures {
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId "com.coggsafe"
         minSdkVersion rootProject.ext.minSdkVersion
@@ -92,41 +39,49 @@ android {
         versionCode 3
         versionName "1.2"
     }
-   signingConfigs {
-    debug {
-        storeFile file('debug.keystore')
-        storePassword 'android'
-        keyAlias 'androiddebugkey'
-        keyPassword 'android'
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
-    release {
-        storeFile file(COGGSAFE_RELEASE_STORE_FILE)
-        storePassword COGGSAFE_RELEASE_STORE_PASSWORD
-        keyAlias COGGSAFE_RELEASE_KEY_ALIAS
-        keyPassword COGGSAFE_RELEASE_KEY_PASSWORD
-    }
-}
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
 
-buildTypes {
-    debug {
-        signingConfig signingConfigs.debug
+        release {
+            storeFile file(COGGSAFE_RELEASE_STORE_FILE)
+            storePassword COGGSAFE_RELEASE_STORE_PASSWORD
+            keyAlias COGGSAFE_RELEASE_KEY_ALIAS
+            keyPassword COGGSAFE_RELEASE_KEY_PASSWORD
+        }
     }
 
-    release {
-        signingConfig signingConfigs.release
-        minifyEnabled enableProguardInReleaseBuilds
-        proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
     }
-}
 }
 
 dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
-    // The version of react-native is set by the React Native Gradle Plugin
     implementation("com.facebook.react:react-android")
-    // CameraX is the Android-supported camera API. It is used only by the
-    // focused SOS media module; no React Native version upgrade is required.
+
+    // Google Play Services for Maps
+    implementation 'com.google.android.gms:play-services-base:18.0.1'
+    implementation 'com.google.android.gms:play-services-maps:18.0.2'
+
     def cameraxVersion = "1.4.2"
     implementation("androidx.camera:camera-core:${cameraxVersion}")
     implementation("androidx.camera:camera-camera2:${cameraxVersion}")
@@ -138,4 +93,45 @@ dependencies {
         implementation jscFlavor
     }
 }
+
 apply from: "./vector-icons.gradle"
+
+def patchReactNativeGraphicsConversions = {
+    fileTree(gradle.gradleUserHomeDir).matching {
+        include("**/react-android-0.87.0-release/prefab/modules/reactnative/include/react/renderer/core/graphicsConversions.h")
+    }.files.each { header ->
+        def contents = header.getText("UTF-8")
+        def patchedContents = contents.replace(
+                'return std::format("{}%", dimension.value);',
+                'return folly::dynamic(std::to_string(dimension.value) + "%");'
+        )
+        if (contents != patchedContents) {
+            header.setText(patchedContents, "UTF-8")
+        }
+    }
+}
+
+def patchReactNativeJsiPrefabHeader = {
+    def source = file("../node_modules/react-native/ReactCommon/jsi/jsi/JSIDynamic.h")
+    if (!source.exists()) {
+        return
+    }
+
+    fileTree(gradle.gradleUserHomeDir).matching {
+        include("**/react-android-0.87.0-release/prefab/modules/jsi/include/jsi/jsi.h")
+    }.files.each { jsiHeader ->
+        def destination = new File(jsiHeader.parentFile, "JSIDynamic.h")
+        if (!destination.exists() || destination.getText("UTF-8") != source.getText("UTF-8")) {
+            destination.setText(source.getText("UTF-8"), "UTF-8")
+        }
+    }
+}
+
+tasks.configureEach { task ->
+    if (task.name.startsWith("configureCMake") || task.name.startsWith("buildCMake")) {
+        task.doFirst {
+            patchReactNativeGraphicsConversions()
+            patchReactNativeJsiPrefabHeader()
+        }
+    }
+}

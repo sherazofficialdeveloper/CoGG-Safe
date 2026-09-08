@@ -45,6 +45,7 @@ const AdminBottomNav = ({
                   onNavigate(tab.key);
                 }
               }}>
+              {isActive ? <View style={styles.activeIndicator} /> : null}
               <View
                 style={[
                   styles.iconContainer,
@@ -89,30 +90,15 @@ const AdminBottomNav = ({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#F7F7F8',
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    paddingTop: 8,
+    backgroundColor: '#FFFFFF',
   },
 
   navBar: {
     height: 76,
     backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#E2E2E6',
-    borderRadius: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
-
-    shadowColor: '#000000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 4,
   },
 
   tab: {
@@ -121,6 +107,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     height: '100%',
     paddingVertical: 4,
+  },
+
+  activeIndicator: {
+    position: 'absolute',
+    top: 0,
+    left: 12,
+    right: 12,
+    height: 3,
+    borderBottomLeftRadius: 2,
+    borderBottomRightRadius: 2,
+    backgroundColor: '#E4002B',
   },
 
   iconContainer: {

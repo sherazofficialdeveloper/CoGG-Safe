@@ -22,7 +22,7 @@ const AdminAddCollectionScreen = ({
   token,
 }) => {
   const insets = useSafeAreaInsets();
-  const [category, setCategory] = useState('Workers');
+  const [category, setCategory] = useState('Employees');
   const [customName, setCustomName] = useState('');
   const [emergencyNumber, setEmergencyNumber] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -87,7 +87,7 @@ const AdminAddCollectionScreen = ({
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Collection Category</Text>
           <View style={styles.categoryGrid}>
-            {['Family', 'Children', 'Workers', 'Other'].map((cat) => (
+            {['Personal', 'Employees', 'Other'].map((cat) => (
               <TouchableOpacity
                 key={cat}
                 style={[

@@ -1,4 +1,14 @@
+// src/services/firebasePush.js
+
 import {request} from '../api/client';
+
+// ================= NOTIFICATION CHANNEL IDS =================
+export const NOTIFICATION_CHANNELS = {
+  SOS: 'coggsafe_sos',
+  GENERAL: 'coggsafe_general',
+  SILENT: 'coggsafe_silent',
+  DEFAULT: 'coggsafe_alerts_v2',
+};
 
 function resolveMessagingModule() {
   try {
@@ -174,6 +184,9 @@ export function observeFirebaseNotifications({
 
   if (typeof messaging.onMessage === 'function') {
     subscriptions.push(messaging.onMessage(async remoteMessage => {
+      // ✅ Check if it's SOS notification
+      const isSos = remoteMessage?.data?.type === 'sos' || remoteMessage?.data?.sos === 'true';
+      
       if (onForegroundMessage) {
         onForegroundMessage(remoteMessage);
       }
@@ -221,3 +234,12 @@ export function observeFirebaseNotifications({
     });
   };
 }
+
+export default {
+  isFirebaseMessagingAvailable,
+  requestFirebasePermission,
+  registerDeviceToken,
+  unregisterDeviceToken,
+  observeFirebaseNotifications,
+  NOTIFICATION_CHANNELS,
+};

@@ -1,4 +1,4 @@
-// AudioPlayer.js - COMPLETE FIX (No backend modification)
+// AudioPlayer.js - COMPLETE FIXED
 import React, {useEffect, useState, useRef} from 'react';
 import {
   ActivityIndicator,
@@ -9,6 +9,7 @@ import {
   Platform,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import RNFS from 'react-native-fs';
 
 let Sound = null;
 if (typeof jest === 'undefined') {
@@ -24,7 +25,6 @@ const AudioPlayer = ({
   localPath = null,
   token,
   publicMedia = false,
-  directFetch = true,
   onError = null,
   style = {},
 }) => {
@@ -34,9 +34,12 @@ const AudioPlayer = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState(null);
+  const [downloadProgress, setDownloadProgress] = useState(0);
   const soundRef = useRef(null);
   const isMountedRef = useRef(true);
   const [reloadKey, setReloadKey] = useState(0);
+  const isDownloadingRef = useRef(false);
+  const hasLoadedRef = useRef(false);
 
   // Cleanup
   useEffect(() => {
@@ -52,12 +55,57 @@ const AudioPlayer = ({
     };
   }, []);
 
-  // ================= MAIN: Initialize Audio =================
+  // ================= Download audio to local file =================
+  const downloadAudioFile = async (url, authToken) => {
+    if (isDownloadingRef.current) {
+      console.log('[AudioPlayer] Download already in progress');
+      return null;
+    }
+
+    try {
+      isDownloadingRef.current = true;
+      setDownloadProgress(0);
+
+      const fileName = `audio_${Date.now()}.m4a`;
+      const filePath = `${RNFS.DocumentDirectoryPath}/${fileName}`;
+      
+      console.log('[AudioPlayer] Downloading to:', filePath);
+
+      const options = {
+        fromUrl: url,
+        toFile: filePath,
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Accept': 'audio/*, */*',
+        },
+        progress: (res) => {
+          const progress = (res.bytesWritten / res.contentLength) * 100;
+          setDownloadProgress(progress);
+        },
+      };
+
+      const result = await RNFS.downloadFile(options).promise;
+
+      if (result.statusCode === 200) {
+        console.log('[AudioPlayer] Download complete:', filePath);
+        return filePath;
+      } else {
+        throw new Error(`Download failed with status: ${result.statusCode}`);
+      }
+    } catch (err) {
+      console.log('[AudioPlayer] Download error:', err);
+      throw err;
+    } finally {
+      isDownloadingRef.current = false;
+    }
+  };
+
+  // ================= Initialize Audio =================
   useEffect(() => {
     const hasUrl = audioUrl && typeof audioUrl === 'string' && audioUrl.trim().length > 0;
     const hasLocalPath = localPath && typeof localPath === 'string' && localPath.trim().length > 0;
 
-    console.log('[AudioPlayer] Init:', { hasUrl, hasLocalPath, publicMedia, directFetch });
+    console.log('[AudioPlayer] Init:', { hasUrl, hasLocalPath, publicMedia });
 
     if (!hasUrl && !hasLocalPath) {
       setError('No audio source');
@@ -79,20 +127,40 @@ const AudioPlayer = ({
         let playablePath = localPath;
 
         if (!playablePath && hasUrl) {
-          let trimmedUrl = audioUrl.trim();
+          const trimmedUrl = audioUrl.trim();
 
           // ================= FIX 1: PUBLIC MEDIA =================
           if (publicMedia) {
             playablePath = trimmedUrl;
             console.log('[AudioPlayer] Public media URL (using directly)');
           }
-          // ================= FIX 2: PRIVATE MEDIA - Add token as query param =================
+          // ================= FIX 2: PRIVATE MEDIA - Download first =================
           else if (token && token.trim().length > 0) {
-            // ================= Backend already supports ?token= query param =================
-            // Check sos.controller.js - getMediaFile has: if (!authToken && req.query.token)
-            const separator = trimmedUrl.includes('?') ? '&' : '?';
-            playablePath = `${trimmedUrl}${separator}token=${encodeURIComponent(token)}`;
-            console.log('[AudioPlayer] Private media URL with token param:', playablePath);
+            try {
+              console.log('[AudioPlayer] Private media - downloading...');
+              // Try direct URL with token first (for react-native-sound)
+              // Some versions support headers in the constructor
+              playablePath = trimmedUrl;
+              
+              // Try to download as fallback
+              try {
+                const downloadedPath = await downloadAudioFile(trimmedUrl, token);
+                if (downloadedPath) {
+                  playablePath = downloadedPath;
+                  console.log('[AudioPlayer] Download complete:', downloadedPath);
+                }
+              } catch (downloadErr) {
+                console.log('[AudioPlayer] Download failed, using direct URL:', downloadErr.message);
+                // Use direct URL with token in query param as fallback
+                const separator = trimmedUrl.includes('?') ? '&' : '?';
+                playablePath = `${trimmedUrl}${separator}token=${encodeURIComponent(token)}`;
+              }
+            } catch (err) {
+              console.log('[AudioPlayer] URL processing error:', err);
+              setError('Could not load audio');
+              setIsLoading(false);
+              return;
+            }
           }
           // ================= FIX 3: NO TOKEN =================
           else {
@@ -123,7 +191,15 @@ const AudioPlayer = ({
 
         console.log('[AudioPlayer] Final path for Sound:', soundPath);
 
-        loadedSound = new Sound(soundPath, '', (loadError) => {
+        // ================= FIX: Use headers with Sound =================
+        const options = {};
+        if (token && soundPath.startsWith('http')) {
+          options.headers = {
+            Authorization: `Bearer ${token}`
+          };
+        }
+
+        loadedSound = new Sound(soundPath, options, (loadError) => {
           if (!isMountedRef.current || isCancelled) return;
 
           if (loadError) {
@@ -146,6 +222,29 @@ const AudioPlayer = ({
                   soundRef.current = retrySound;
                   setDuration(retrySound.getDuration() || 0);
                   setIsLoading(false);
+                  hasLoadedRef.current = true;
+                }
+              });
+              return;
+            }
+
+            // ================= Try without headers =================
+            if (token && soundPath.startsWith('http')) {
+              console.log('[AudioPlayer] Retry without headers');
+              const retrySound = new Sound(soundPath, '', (retryError2) => {
+                if (!isMountedRef.current || isCancelled) return;
+                if (retryError2) {
+                  console.log('[AudioPlayer] All retries failed');
+                  setError('Could not load audio');
+                  setIsLoading(false);
+                  if (onError) onError(retryError2);
+                } else {
+                  console.log('[AudioPlayer] Retry without headers success!');
+                  setSound(retrySound);
+                  soundRef.current = retrySound;
+                  setDuration(retrySound.getDuration() || 0);
+                  setIsLoading(false);
+                  hasLoadedRef.current = true;
                 }
               });
               return;
@@ -162,6 +261,7 @@ const AudioPlayer = ({
           soundRef.current = loadedSound;
           setDuration(loadedSound.getDuration() || 0);
           setIsLoading(false);
+          hasLoadedRef.current = true;
         });
       } catch (err) {
         console.log('[AudioPlayer] Init error:', err);
@@ -179,9 +279,9 @@ const AudioPlayer = ({
         try { loadedSound.release(); } catch (_) {}
       }
     };
-  }, [audioUrl, localPath, token, publicMedia, directFetch, reloadKey]);
+  }, [audioUrl, localPath, token, publicMedia, reloadKey]);
 
-  // ================= Play/Pause =================
+  // ================= FIX 4: Play/Pause (No auto-play) =================
   const handlePlayPause = () => {
     if (!soundRef.current) {
       setError('Audio not available');
@@ -190,26 +290,33 @@ const AudioPlayer = ({
 
     try {
       if (isPlaying) {
+        // Pause
         soundRef.current.pause();
         setIsPlaying(false);
         return;
       }
 
+      // Play - Only when user clicks play button
       soundRef.current.play((success) => {
         setIsPlaying(false);
         if (success) {
           setCurrentTime(0);
-          if (soundRef.current) soundRef.current.setCurrentTime(0);
+          if (soundRef.current) {
+            soundRef.current.setCurrentTime(0);
+          }
+        } else {
+          setError('Playback could not complete.');
         }
       });
       setIsPlaying(true);
-    } catch (err) {
-      setError('Could not play');
-      if (onError) onError(err);
+    } catch (playError) {
+      console.log('[AudioPlayer] Play error:', playError);
+      setError('Could not play audio');
+      if (onError) onError(playError);
     }
   };
 
-  // ================= Stop =================
+  // ================= FIX 5: Stop =================
   const handleStop = () => {
     if (!soundRef.current) return;
     try {
@@ -217,26 +324,32 @@ const AudioPlayer = ({
       soundRef.current.setCurrentTime(0);
       setIsPlaying(false);
       setCurrentTime(0);
-    } catch (_) {}
+    } catch (stopError) {
+      console.log('[AudioPlayer] Stop error:', stopError);
+    }
   };
 
-  // ================= Update Time =================
+  // ================= Update current time =================
   useEffect(() => {
-    if (!isPlaying || !soundRef.current) return;
+    if (!isPlaying || !soundRef.current) return undefined;
+
     const interval = setInterval(() => {
       if (soundRef.current) {
-        soundRef.current.getCurrentTime((secs) => setCurrentTime(secs || 0));
+        soundRef.current.getCurrentTime((seconds) => {
+          setCurrentTime(seconds || 0);
+        });
       }
     }, 250);
+
     return () => clearInterval(interval);
   }, [isPlaying]);
 
-  // ================= Format Time =================
-  const formatTime = (secs) => {
-    const s = Number.isFinite(secs) ? Math.max(0, secs) : 0;
-    const m = Math.floor(s / 60);
-    const sec = Math.floor(s % 60);
-    return `${m}:${sec < 10 ? '0' : ''}${sec}`;
+  // ================= Format time =================
+  const formatTime = (seconds) => {
+    const safeSeconds = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+    const mins = Math.floor(safeSeconds / 60);
+    const secs = Math.floor(safeSeconds % 60);
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
   // ================= Retry =================
@@ -253,10 +366,12 @@ const AudioPlayer = ({
     setIsLoading(true);
     setCurrentTime(0);
     setDuration(0);
+    setDownloadProgress(0);
+    hasLoadedRef.current = false;
     setReloadKey(prev => prev + 1);
   };
 
-  // ================= Error State =================
+  // ================= Error state =================
   if (error) {
     return (
       <View style={[styles.container, style]}>
@@ -271,13 +386,15 @@ const AudioPlayer = ({
     );
   }
 
-  // ================= Loading State =================
+  // ================= Loading state =================
   if (isLoading) {
     return (
       <View style={[styles.container, style]}>
         <View style={styles.loadingBox}>
-          <ActivityIndicator size="large" color="#E4002B" />
-          <Text style={styles.loadingText}>Loading audio...</Text>
+          <ActivityIndicator size="small" color="#E4002B" />
+          <Text style={styles.loadingText}>
+            {downloadProgress > 0 ? `Loading ${Math.round(downloadProgress)}%` : 'Loading audio...'}
+          </Text>
         </View>
       </View>
     );
@@ -289,61 +406,203 @@ const AudioPlayer = ({
     <View style={[styles.container, style]}>
       <View style={[styles.playerBox, !hasSound && styles.playerBoxDisabled]}>
         <View style={styles.controlsRow}>
+          
+          {/* ================= FIX 6: Play/Pause Button (Smaller) ================= */}
           <TouchableOpacity
             onPress={handlePlayPause}
             style={[styles.playButton, !hasSound && styles.playButtonDisabled]}
             disabled={!hasSound}
             activeOpacity={0.7}
           >
-            <Icon name={isPlaying ? 'pause' : 'play'} size={32} color={hasSound ? '#FFFFFF' : '#999999'} />
+            <Icon
+              name={isPlaying ? 'pause' : 'play'}
+              size={20}
+              color={hasSound ? '#FFFFFF' : '#999999'}
+            />
           </TouchableOpacity>
 
+          {/* ================= Time Info ================= */}
           <View style={styles.timeInfo}>
             <Text style={styles.timeText}>
               {formatTime(currentTime)} / {formatTime(duration)}
             </Text>
           </View>
 
+          {/* ================= FIX 7: Stop Button (Smaller) ================= */}
           {isPlaying && hasSound && (
             <TouchableOpacity onPress={handleStop} style={styles.stopButton} activeOpacity={0.7}>
-              <Icon name="stop" size={24} color="#FF6B6B" />
+              <Icon name="stop" size={18} color="#FF6B6B" />
             </TouchableOpacity>
           )}
         </View>
 
+        {/* ================= Progress Bar ================= */}
         <View style={styles.progressContainer}>
           <View style={styles.progressBar}>
-            <View style={[styles.progressFill, { width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%` }]} />
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%`,
+                },
+              ]}
+            />
           </View>
         </View>
 
-        {!hasSound && <Text style={styles.noSoundText}>Audio not available</Text>}
+        {!hasSound && (
+          <Text style={styles.noSoundText}>Audio not available</Text>
+        )}
       </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { width: '100%', paddingVertical: 8, paddingHorizontal: 4 },
-  playerBox: { backgroundColor: '#F5F6F8', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#E5E7EB' },
-  playerBoxDisabled: { opacity: 0.6 },
-  controlsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  playButton: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#E4002B', alignItems: 'center', justifyContent: 'center', shadowColor: '#E4002B', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 },
-  playButtonDisabled: { backgroundColor: '#D1D5DB', shadowOpacity: 0, elevation: 0 },
-  timeInfo: { flex: 1, alignItems: 'center', paddingHorizontal: 12 },
-  timeText: { fontSize: 14, color: '#4B5563', fontWeight: '600' },
-  stopButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#FFF5F6', borderWidth: 1, borderColor: '#F3B5BF', alignItems: 'center', justifyContent: 'center' },
-  progressContainer: { marginTop: 12, width: '100%' },
-  progressBar: { height: 4, backgroundColor: '#E5E7EB', borderRadius: 2, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: '#E4002B', borderRadius: 2 },
-  noSoundText: { textAlign: 'center', fontSize: 12, color: '#9CA3AF', marginTop: 8 },
-  loadingBox: { padding: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F5F6F8', borderRadius: 12, borderWidth: 1, borderColor: '#E5E7EB' },
-  loadingText: { marginTop: 12, fontSize: 14, color: '#6B7280', fontWeight: '600' },
-  errorBox: { padding: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FEF2F2', borderRadius: 12, borderWidth: 1, borderColor: '#FECACA' },
-  errorIcon: { fontSize: 24, marginBottom: 8 },
-  errorText: { fontSize: 13, color: '#B42318', textAlign: 'center', marginBottom: 12, fontWeight: '500' },
-  retryButton: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 20, backgroundColor: '#E4002B' },
-  retryButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  container: {
+    width: '100%',
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+  },
+
+  playerBox: {
+    backgroundColor: '#F5F6F8',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+
+  playerBoxDisabled: {
+    opacity: 0.6,
+  },
+
+  controlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  playButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E4002B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#E4002B',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+
+  playButtonDisabled: {
+    backgroundColor: '#D1D5DB',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+
+  timeInfo: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+
+  timeText: {
+    fontSize: 12,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+
+  stopButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#FFF5F6',
+    borderWidth: 1,
+    borderColor: '#F3B5BF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  progressContainer: {
+    marginTop: 8,
+    width: '100%',
+  },
+
+  progressBar: {
+    height: 3,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#E4002B',
+    borderRadius: 2,
+  },
+
+  noSoundText: {
+    textAlign: 'center',
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 4,
+  },
+
+  loadingBox: {
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F5F6F8',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+
+  loadingText: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+
+  errorBox: {
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+
+  errorIcon: {
+    fontSize: 20,
+    marginBottom: 4,
+  },
+
+  errorText: {
+    fontSize: 12,
+    color: '#B42318',
+    textAlign: 'center',
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+
+  retryButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#E4002B',
+  },
+
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
 });
 
 export default AudioPlayer;

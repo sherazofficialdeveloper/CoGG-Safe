@@ -18,15 +18,26 @@
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
-    <uses-permission android:name="android.permission.SEND_SMS" />
+    
+    <!-- ================= FIX: SMS Permission with maxSdkVersion ================= -->
+    <!-- Android 13+ SEND_SMS is restricted, user must enable from settings -->
+    <uses-permission android:name="android.permission.SEND_SMS" 
+                     android:maxSdkVersion="32" />
 
     <!-- Notifications - Required for push notification badges (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Live Location Service - Required for location updates in background (if using foreground service) -->
-    <!-- Note: This is a foreground service, not true background -->
+    <!-- Live Location Service -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- ================= SMS Composer Fallback ================= -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SENDTO" />
+            <data android:scheme="smsto" />
+        </intent>
+    </queries>
 
     <application
       android:name=".MainApplication"
@@ -37,10 +48,12 @@
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
+      
       <meta-data
           android:name="com.google.firebase.messaging.default_notification_channel_id"
           android:value="@string/default_notification_channel_id"
           tools:replace="android:value" />
+          
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"
@@ -53,10 +66,13 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
-        <service
-            android:name=".LiveLocationForegroundService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="location" />
+      
+      <!-- Foreground service for live location -->
+      <service
+          android:name=".LiveLocationForegroundService"
+          android:enabled="true"
+          android:exported="false"
+          android:foregroundServiceType="location" />
+          
     </application>
 </manifest>
