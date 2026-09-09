@@ -58,7 +58,6 @@ const UserHomeScreen = ({
   const loggedCountdownRef = useRef(null);
   const initialPermissionRequestStartedRef = useRef(false);
   const pulseScale = useRef(new Animated.Value(1)).current;
-  const smsRequiresUserConfirmation = permissionState.smsDeliveryMode === 'composer';
 
   // ================= ADDED: SMS Permission State =================
   const [smsPermissionState, setSmsPermissionState] = useState('checking');
@@ -179,26 +178,44 @@ const UserHomeScreen = ({
       await openSmsSettings();
       return;
     }
-    
-    if (smsPermissionState === 'denied') {
+
+    if (smsPermissionState === 'denied' || smsPermissionState === 'unavailable') {
       try {
         const result = await requestSmsPermission();
-        if (result === 'granted') {
+        const verified = await checkSmsPermission();
+
+        if (verified === 'granted' || result === 'granted') {
           setSmsPermissionState('granted');
           setSmsPermissionError('');
           Alert.alert('Success', 'SMS permission granted.');
-        } else {
+          return;
+        }
+
+        if (verified === 'blocked' || result === 'blocked') {
+          setSmsPermissionState('blocked');
+          setSmsPermissionError('Android is currently blocking SMS permission for this installation. If this is a development/sideloaded build, test the production-approved Play installation instead.');
           Alert.alert(
-            'SMS Permission Required',
-            'To send emergency SMS, please enable SMS permission from settings.',
+            'SMS Permission Restricted',
+            'Android is blocking direct SMS for this installation. Do not use a fake toggle or bypass. For production, install the Google Play release after the SEND_SMS use case has been approved by Google Play.',
             [
               {text: 'Cancel', style: 'cancel'},
-              {text: 'Open Settings', onPress: () => Linking.openSettings()}
-            ]
+              {text: 'Open Settings', onPress: () => Linking.openSettings()},
+            ],
           );
+          return;
         }
+
+        // On current Android versions SEND_SMS can be hard-restricted for the
+        // current installer. The system may return DENIED without exposing a
+        // grantable runtime toggle. Send the user to this app's settings so
+        // they have the supported Android path available, but never pretend
+        // the permission is granted.
+        setSmsPermissionState(verified);
+        setSmsPermissionError('Android did not grant SMS permission for this installation.');
+        await openSmsSettings();
       } catch (error) {
-        Alert.alert('Error', 'Unable to request SMS permission. Please enable from settings.');
+        Alert.alert('SMS Permission', 'Android did not grant SMS permission. The app settings page will be opened so you can review the available permission controls.');
+        await openSmsSettings();
       }
     }
   };
@@ -621,15 +638,6 @@ const UserHomeScreen = ({
         ) : locationStatus === 'checking' ? (
           <View style={styles.locationChecking}>
             <Text style={styles.locationCheckingText}>Checking location services...</Text>
-          </View>
-        ) : null}
-
-        {smsRequiresUserConfirmation ? (
-          <View style={styles.smsComposerNotice}>
-            <Text style={styles.smsComposerNoticeTitle}>SMS requires your confirmation</Text>
-            <Text style={styles.smsComposerNoticeText}>
-              Your selected SIM will be used for emergency SMS. If Android does not allow direct SMS on this device, the system SMS composer will be used instead.
-            </Text>
           </View>
         ) : null}
 

@@ -17,9 +17,8 @@ import {
 } from 'react-native';
 import {deactivateSos, getLiveLocation, getSos, stopLiveLocation} from '../../api/resources';
 import {API_BASE_URL} from '../../api/config';
-import AudioPlayer from '../../components/AudioPlayer';
-import LiveLocationMap from '../../components/LiveLocationMap';
-import FullscreenImageViewer from '../../components/FullscreenImageViewer';
+import {buildMediaUrl} from '../../utils/media';
+import SosMediaSection from '../../components/SosMediaSection';
 import Icon from '../../components/Icon';
 
 const {width: screenWidth} = Dimensions.get('window');
@@ -92,15 +91,15 @@ const AdminSosDetailScreen = ({
         const audioComp = components.audio;
         
         const frontUrl = frontComp?.storageRef 
-          ? `${API_BASE_URL}/sos/${recordId}/media/frontImage/file`
+          ? buildMediaUrl(API_BASE_URL, recordId, 'frontImage')
           : null;
         
         const backUrl = backComp?.storageRef 
-          ? `${API_BASE_URL}/sos/${recordId}/media/backImage/file`
+          ? buildMediaUrl(API_BASE_URL, recordId, 'backImage')
           : null;
         
         const audioUrl = audioComp?.storageRef 
-          ? `${API_BASE_URL}/sos/${recordId}/media/audio/file`
+          ? buildMediaUrl(API_BASE_URL, recordId, 'audio')
           : null;
         
         setMediaUrls({
@@ -301,92 +300,27 @@ const AdminSosDetailScreen = ({
         </View>
         {actionError ? <Text style={styles.serviceResultError}>{actionError}</Text> : null}
 
-        {/* ================= LIVE LOCATION - Reusable Component ================= */}
-        <LiveLocationMap
+        <SosMediaSection
           sosId={recordId}
           token={token}
+          sos={record}
+          mediaUrls={mediaUrls}
           initialLocation={liveLocation || record?.liveLocation?.lastLocation || record?.location}
           initialStatus={liveLocationStatus || record?.liveLocation?.status}
           showStopButton={liveLocationActive}
           isStopping={actionLoading}
           onStopSharing={handleStopSharing}
+          onLocationUpdate={(location, status) => {
+            setLiveLocation(location);
+            setLiveLocationStatus(status);
+          }}
         />
-
-        {/* ================= PHOTOS SECTION ================= */}
-        <View style={styles.photosSection}>
-          <Text style={styles.sectionLabel}>📷 CAMERA PHOTOS</Text>
-          
-          {hasImageData ? (
-            <View style={styles.photosGrid}>
-              {hasFrontImage && !hiddenImages.front && (
-                <View style={styles.photoBox}>
-                  <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Front</Text></View>
-                  <TouchableOpacity onPress={() => setSelectedImage(mediaUrls.front)} activeOpacity={0.85}>
-                    <Image
-                      source={{ uri: mediaUrls.front, headers: authHeaders }}
-                      style={styles.photoImage}
-                      onError={() => setHiddenImages(prev => ({...prev, front: true}))}
-                    />
-                  </TouchableOpacity>
-                </View>
-              )}
-              
-              {hasBackImage && !hiddenImages.back && (
-                <View style={styles.photoBox}>
-                  <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Back</Text></View>
-                  <TouchableOpacity onPress={() => setSelectedImage(mediaUrls.back)} activeOpacity={0.85}>
-                    <Image
-                      source={{ uri: mediaUrls.back, headers: authHeaders }}
-                      style={styles.photoImage}
-                      onError={() => setHiddenImages(prev => ({...prev, back: true}))}
-                    />
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-          ) : (
-            <View style={styles.noMediaContainer}>
-              <Text style={styles.noMediaText}>No photos available for this SOS.</Text>
-            </View>
-          )}
-        </View>
-
-        {/* ================= AUDIO SECTION ================= */}
-        <View style={styles.audioSection}>
-          <Text style={styles.sectionLabel}>🎙️ VOICE RECORDING</Text>
-          
-          {hasAudio ? (
-            <View style={styles.audioCard}>
-              <AudioPlayer
-                audioUrl={mediaUrls.audio}
-                token={token}
-                publicMedia={false}
-                directFetch={true}
-                style={styles.audioPlayer}
-                onError={(error) => {
-                  console.log('[AdminAudio Error]', error);
-                  setAudioError(error?.message || 'Audio playback failed');
-                }}
-              />
-            </View>
-          ) : (
-            <View style={styles.noMediaContainer}>
-              <Text style={styles.noMediaText}>No audio recording available.</Text>
-            </View>
-          )}
-        </View>
 
         {actionError ? <Text style={styles.errorText}>{actionError}</Text> : null}
 
       </ScrollView>
 
       {/* ================= FULLSCREEN IMAGE VIEWER ================= */}
-      <FullscreenImageViewer
-        visible={Boolean(selectedImage)}
-        uri={selectedImage}
-        headers={authHeaders}
-        onClose={() => setSelectedImage(null)}
-      />
 
       {/* ================= ACTION BUTTONS ================= */}
       <View style={styles.actionContainer}>

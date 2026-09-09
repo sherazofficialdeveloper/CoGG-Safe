@@ -12,12 +12,11 @@ import {
   Linking,
 } from 'react-native';
 import Icon from '../components/Icon';
-import AudioPlayer from '../components/AudioPlayer';
-import LiveLocationMap from '../components/LiveLocationMap';
+import SosMediaSection from '../components/SosMediaSection';
 import {API_BASE_URL} from '../api/config';
+import {buildMediaUrl} from '../utils/media';
 import {getSos} from '../api/resources';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import FullscreenImageViewer from '../components/FullscreenImageViewer';
 
 const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) => {
   const insets = useSafeAreaInsets();
@@ -62,15 +61,15 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
         const audioComp = components.audio;
 
         const frontUrl = frontComp && frontComp.storageRef
-          ? `${API_BASE_URL}/sos/${sosId}/media/frontImage/file`
+          ? buildMediaUrl(API_BASE_URL, sosId, 'frontImage')
           : null;
 
         const backUrl = backComp && backComp.storageRef
-          ? `${API_BASE_URL}/sos/${sosId}/media/backImage/file`
+          ? buildMediaUrl(API_BASE_URL, sosId, 'backImage')
           : null;
 
         const audioUrl = audioComp && audioComp.storageRef
-          ? `${API_BASE_URL}/sos/${sosId}/media/audio/file`
+          ? buildMediaUrl(API_BASE_URL, sosId, 'audio')
           : null;
 
         console.log('[UserNotificationDetail] Media URLs:', {
@@ -169,87 +168,18 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
             </View>
           )}
 
-          {/* ================= LIVE LOCATION MAP ================= */}
-          {currentSos && sosId && (
-            <LiveLocationMap
-              sosId={sosId}
-              token={token}
-              initialLocation={liveLocation || currentSos?.liveLocation?.lastLocation}
-              initialStatus={liveLocationStatus || currentSos?.liveLocation?.status}
-              onLocationUpdate={(location, status) => {
-                setLiveLocation(location);
-                setLiveLocationStatus(status);
-              }}
-            />
-          )}
-
-          {/* Emergency Link */}
-          {currentSos?.emergencyLink && (
-            <View style={styles.linkSection}>
-              <Text style={styles.linkLabel}>🔗 EMERGENCY TRACKING LINK</Text>
-              <TouchableOpacity style={styles.linkCard} onPress={() => Linking.openURL(currentSos.emergencyLink)}>
-                <Text style={styles.linkText}>{currentSos.emergencyLink}</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* ================= PHOTOS ================= */}
-          {hasImageData && (
-            <View style={styles.mediaSection}>
-              <Text style={styles.mediaTitle}>📷 PHOTOS</Text>
-              <View style={styles.photosGrid}>
-                {hasFrontImage && !hiddenImages.front && (
-                  <View style={styles.photoBox}>
-                    <View style={styles.photoBadge}>
-                      <Text style={styles.photoBadgeText}>Front</Text>
-                    </View>
-                    <TouchableOpacity onPress={() => setSelectedImage(frontMediaUrl)} activeOpacity={0.85}>
-                      <Image
-                        source={{uri: frontMediaUrl, headers: authHeaders}}
-                        style={styles.photoImage}
-                        onError={() => setHiddenImages(prev => ({...prev, front: true}))}
-                      />
-                    </TouchableOpacity>
-                  </View>
-                )}
-                {hasBackImage && !hiddenImages.back && (
-                  <View style={styles.photoBox}>
-                    <View style={styles.photoBadge}>
-                      <Text style={styles.photoBadgeText}>Back</Text>
-                    </View>
-                    <TouchableOpacity onPress={() => setSelectedImage(backMediaUrl)} activeOpacity={0.85}>
-                      <Image
-                        source={{uri: backMediaUrl, headers: authHeaders}}
-                        style={styles.photoImage}
-                        onError={() => setHiddenImages(prev => ({...prev, back: true}))}
-                      />
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            </View>
-          )}
-
-          {/* ================= AUDIO ================= */}
-          <View style={styles.mediaSection}>
-            <Text style={styles.mediaTitle}>🎙️ VOICE RECORDING</Text>
-            {hasAudio ? (
-              <View style={styles.audioCard}>
-                <AudioPlayer
-                  audioUrl={audioMediaUrl}
-                  token={token}
-                  publicMedia={false}
-                  style={styles.audioPlayer}
-                  onError={(err) => {
-                    console.log('[Audio Error]', err);
-                    setAudioError(err?.message || 'Audio playback failed');
-                  }}
-                />
-              </View>
-            ) : (
-              <Text style={styles.noMediaText}>No audio recording available.</Text>
-            )}
-          </View>
+          <SosMediaSection
+            sosId={sosId}
+            token={token}
+            sos={currentSos}
+            mediaUrls={mediaUrls}
+            initialLocation={liveLocation || currentSos?.liveLocation?.lastLocation}
+            initialStatus={liveLocationStatus || currentSos?.liveLocation?.status}
+            onLocationUpdate={(location, status) => {
+              setLiveLocation(location);
+              setLiveLocationStatus(status);
+            }}
+          />
 
           {/* View SOS Details */}
           {sosId && (
@@ -267,13 +197,6 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
           <Text style={styles.body}>This notification record is no longer available.</Text>
         </View>
       )}
-
-      <FullscreenImageViewer
-        visible={Boolean(selectedImage)}
-        uri={selectedImage}
-        headers={authHeaders}
-        onClose={() => setSelectedImage(null)}
-      />
     </SafeAreaView>
   );
 };

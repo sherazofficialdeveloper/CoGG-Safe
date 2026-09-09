@@ -111,20 +111,10 @@ export async function initiateEmergencyCall({emergencyNumber}) {
     return {status: 'FAILED', reason: 'Native Android emergency call module is unavailable.'};
   }
 
-  // On a single-SIM device there's nothing to choose, so no preference is
-  // ever saved and this stays -1 ("let Android pick"). On dual-SIM devices
-  // this is the subscription the user chose in Profile settings; if it has
-  // since disappeared, the native layer falls back gracefully rather than
-  // failing the call.
-  let preferredSubscriptionId = -1;
-  try {
-    const saved = await sosLocalStore.getEmergencyCallSimPreference();
-    if (saved?.subscriptionId != null) {
-      preferredSubscriptionId = saved.subscriptionId;
-    }
-  } catch (error) {
-    // A storage read failure must never block the emergency call.
-  }
+  // SOS communication is automatic: native Android selects physical SIM 1
+  // (slot 0), or SIM 2 (slot 1) when SIM 1 is unavailable. Do not load a
+  // previously saved SIM preference and do not open a SIM chooser.
+  const preferredSubscriptionId = -1;
 
   try {
     if (__DEV__) console.log('[SOS][CALL] SERVICE_INVOKED', {

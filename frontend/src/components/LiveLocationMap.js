@@ -1,18 +1,16 @@
-// LiveLocationMap.js - WebView Version (No compilation issues)
+// LiveLocationMap.js - Fixed Version
 import React, {useEffect, useState, useRef} from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
-  Linking,
   Dimensions,
   ActivityIndicator,
   Platform,
 } from 'react-native';
 import {WebView} from 'react-native-webview';
-import Icon from './Icon';
-import {API_BASE_URL} from '../api/config';
+import Icon from 'react-native-vector-icons/MaterialIcons';
 import {getLiveLocation} from '../api/resources';
 
 const {width: screenWidth} = Dimensions.get('window');
@@ -40,10 +38,9 @@ const LiveLocationMap = ({
 
   const liveActive = String(liveLocationStatus || '').toLowerCase() === 'active';
 
-  const latestLocation = liveLocation || initialLocation || null;
-  const displayLat = latestLocation?.lat ?? latestLocation?.latitude ?? null;
-  const displayLng = latestLocation?.lng ?? latestLocation?.longitude ?? null;
-  const displayAccuracy = latestLocation?.accuracy ?? null;
+  const displayLat = liveLocation?.lat ?? liveLocation?.latitude ?? initialLocation?.lat ?? initialLocation?.latitude ?? null;
+  const displayLng = liveLocation?.lng ?? liveLocation?.longitude ?? initialLocation?.lng ?? initialLocation?.longitude ?? null;
+  const displayAccuracy = liveLocation?.accuracy ?? initialLocation?.accuracy ?? null;
 
   const hasLocation = displayLat !== null && displayLng !== null
     && !isNaN(displayLat) && !isNaN(displayLng)
@@ -121,12 +118,6 @@ const LiveLocationMap = ({
     };
   }, [sosId, token]);
 
-  // ================= Open Location =================
-  const handleOpenLocation = () => {
-    if (!hasLocation) return;
-    Linking.openURL(`https://www.google.com/maps?q=${displayLat},${displayLng}`);
-  };
-
   // ================= Get Speed =================
   const getSpeedDisplay = () => {
     if (currentSpeed > 0) {
@@ -164,22 +155,22 @@ const LiveLocationMap = ({
           .marker-pulse {
             width: 20px;
             height: 20px;
-            background: #E4002B;
+            background: #1A73E8;
             border-radius: 50%;
             border: 3px solid white;
-            box-shadow: 0 0 20px rgba(228, 0, 43, 0.6);
+            box-shadow: 0 0 20px rgba(26, 115, 232, 0.6);
             animation: pulse 1.5s ease-in-out infinite;
           }
           @keyframes pulse {
-            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(228, 0, 43, 0.6); }
-            50% { transform: scale(1.3); box-shadow: 0 0 0 20px rgba(228, 0, 43, 0); }
-            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(228, 0, 43, 0); }
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(26, 115, 232, 0.6); }
+            50% { transform: scale(1.3); box-shadow: 0 0 0 20px rgba(26, 115, 232, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(26, 115, 232, 0); }
           }
           .accuracy-circle {
             position: absolute;
             border-radius: 50%;
-            border: 2px solid rgba(228, 0, 43, 0.3);
-            background: rgba(228, 0, 43, 0.05);
+            border: 2px solid rgba(26, 115, 232, 0.3);
+            background: rgba(26, 115, 232, 0.05);
             pointer-events: none;
           }
         </style>
@@ -194,27 +185,23 @@ const LiveLocationMap = ({
             zoom: 16
           });
 
-          // ================= TILE LAYER =================
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '© OpenStreetMap'
           }).addTo(map);
 
-          // ================= ZOOM CONTROLS =================
           L.control.zoom({
             position: 'topright'
           }).addTo(map);
 
-          // ================= ACCURACY CIRCLE =================
           var accuracyCircle = L.circle([${lat}, ${lng}], {
             radius: ${displayAccuracy || 50},
-            color: 'rgba(228, 0, 43, 0.3)',
-            fillColor: 'rgba(228, 0, 43, 0.08)',
+            color: '#1A73E8',
+            fillColor: '#DCEBFF',
             fillOpacity: 1,
             weight: 1
           }).addTo(map);
 
-          // ================= CUSTOM MARKER =================
           var customIcon = L.divIcon({
             html: '<div class="marker-pulse"></div>',
             className: 'custom-marker',
@@ -227,7 +214,6 @@ const LiveLocationMap = ({
             title: 'Emergency Location'
           }).addTo(map);
 
-          // ================= UPDATE LOCATION =================
           function updateLocation(data) {
             if (!data) return;
             
@@ -236,22 +222,18 @@ const LiveLocationMap = ({
             
             if (newLat == null || newLng == null) return;
             
-            // Update marker position
             marker.setLatLng([newLat, newLng]);
             
-            // Update accuracy circle
             var radius = data.accuracy || 50;
             accuracyCircle.setLatLng([newLat, newLng]);
             accuracyCircle.setRadius(radius);
             
-            // Smooth pan to new location
             map.panTo([newLat, newLng], {
               duration: 0.5,
               animate: true
             });
           }
 
-          // ================= WINDOW RESIZE =================
           window.addEventListener('resize', function() {
             map.invalidateSize();
           });
@@ -314,31 +296,11 @@ const LiveLocationMap = ({
       </View>
 
       {/* ================= MAP - WebView ================= */}
-      <TouchableOpacity
-        style={styles.mapWrapper}
-        activeOpacity={0.95}
-        onPress={handleOpenLocation}
-      >
+      <View style={styles.mapWrapper}>
         <WebView
           ref={webViewRef}
           source={{html: getMapHtml()}}
           style={styles.map}
-          onLoadEnd={() => {
-            const latest = liveLocation || initialLocation;
-            const lat = latest?.lat ?? latest?.latitude;
-            const lng = latest?.lng ?? latest?.longitude;
-            if (lat != null && lng != null && webViewRef.current) {
-              webViewRef.current.injectJavaScript(`
-                updateLocation(${JSON.stringify({
-                  lat,
-                  lng,
-                  accuracy: latest?.accuracy ?? null,
-                  time: latest?.capturedAt || new Date().toISOString(),
-                })});
-                true;
-              `);
-            }
-          }}
           onLoadEnd={() => {
             const latest = liveLocation || initialLocation;
             const lat = latest?.lat ?? latest?.latitude;
@@ -404,7 +366,7 @@ const LiveLocationMap = ({
         <View style={styles.tapHint}>
           <Text style={styles.tapHintText}>👆 Tap to open in Google Maps</Text>
         </View>
-      </TouchableOpacity>
+      </View>
 
       {/* ================= LOCATION STATS ================= */}
       <View style={styles.statsContainer}>
@@ -428,7 +390,11 @@ const LiveLocationMap = ({
 
       {/* ================= STOP SHARING BUTTON ================= */}
       {showStopButton && liveActive && (
-        <TouchableOpacity style={styles.stopButton} onPress={onStopSharing} disabled={isStopping}>
+        <TouchableOpacity 
+          style={styles.stopButton} 
+          onPress={onStopSharing} 
+          disabled={isStopping}
+        >
           <Icon name="stop-circle" size={20} color="#D9263A" />
           <Text style={styles.stopButtonText}>
             {isStopping ? 'Stopping...' : 'Stop Sharing Live Location'}
@@ -689,10 +655,10 @@ const styles = StyleSheet.create({
     borderColor: '#F3B5BF',
     borderRadius: 12,
     paddingVertical: 14,
+    paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 8,
     marginTop: 10,
   },
 
@@ -700,6 +666,7 @@ const styles = StyleSheet.create({
     color: '#D9263A',
     fontSize: 14,
     fontWeight: '800',
+    marginLeft: 8,
   },
 
   // ================= UNAVAILABLE =================

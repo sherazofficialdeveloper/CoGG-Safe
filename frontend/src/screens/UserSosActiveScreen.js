@@ -14,10 +14,9 @@ import {
 } from 'react-native';
 import {getSos, stopLiveLocation} from '../api/resources';
 import {API_BASE_URL} from '../api/config';
-import AudioPlayer from '../components/AudioPlayer';
-import FullscreenImageViewer from '../components/FullscreenImageViewer';
+import {buildMediaUrl} from '../utils/media';
 import Icon from '../components/Icon';
-import LiveLocationMap from '../components/LiveLocationMap';
+import SosMediaSection from '../components/SosMediaSection';
 
 const UserSosActiveScreen = ({sos, token, onBack}) => {
   const [detail, setDetail] = useState(sos || null);
@@ -74,15 +73,15 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
 
           // ================= FIX: Check storageRef properly =================
           const frontUrl = frontComp && frontComp.storageRef
-            ? `${API_BASE_URL}/sos/${recordId}/media/frontImage/file`
+            ? buildMediaUrl(API_BASE_URL, recordId, 'frontImage')
             : null;
 
           const backUrl = backComp && backComp.storageRef
-            ? `${API_BASE_URL}/sos/${recordId}/media/backImage/file`
+            ? buildMediaUrl(API_BASE_URL, recordId, 'backImage')
             : null;
 
           const audioUrl = audioComp && audioComp.storageRef
-            ? `${API_BASE_URL}/sos/${recordId}/media/audio/file`
+            ? buildMediaUrl(API_BASE_URL, recordId, 'audio')
             : null;
 
           console.log('[UserSosActive] Media URLs:', {frontUrl: !!frontUrl, backUrl: !!backUrl, audioUrl: !!audioUrl});
@@ -174,10 +173,11 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
           </Text>
         </View>
 
-        {/* ================= LIVE LOCATION - Shared Component ================= */}
-        <LiveLocationMap
+        <SosMediaSection
           sosId={recordId}
           token={token}
+          sos={detail}
+          mediaUrls={mediaUrls}
           initialLocation={liveLocation || detail?.liveLocation?.lastLocation || detail?.location}
           initialStatus={liveLocationStatus || detail?.liveLocation?.status}
           showStopButton={liveActive}
@@ -186,86 +186,12 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
           onLocationUpdate={(location, status) => {
             setLiveLocation(location);
             setLiveLocationStatus(status);
-            setLocationUpdateTime(
-              location?.capturedAt
-                ? new Date(location.capturedAt).toLocaleString()
-                : 'Just now'
-            );
           }}
         />
-
-        {/* Emergency Link */}
-        {detail?.emergencyLink && (
-          <TouchableOpacity style={styles.linkCard} onPress={() => Linking.openURL(detail.emergencyLink)}>
-            <Text style={styles.linkLabel}>🔗 EMERGENCY TRACKING LINK</Text>
-            <Text style={styles.linkText}>{detail.emergencyLink}</Text>
-          </TouchableOpacity>
-        )}
-
-        {/* ================= PHOTOS - FIXED ================= */}
-        {(hasFrontImage || hasBackImage) && (
-          <View style={styles.mediaSection}>
-            <Text style={styles.mediaLabel}>📷 PHOTOS</Text>
-            <View style={styles.photosGrid}>
-              {hasFrontImage && !hiddenImages.front && (
-                <TouchableOpacity style={styles.photoBox} onPress={() => setSelectedImage(mediaUrls.front)}>
-                  <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Front</Text></View>
-                  <Image
-                    source={{ uri: mediaUrls.front, headers: authHeaders }}
-                    style={styles.photoImage}
-                    onError={() => setHiddenImages(prev => ({...prev, front: true}))}
-                  />
-                </TouchableOpacity>
-              )}
-              {hasBackImage && !hiddenImages.back && (
-                <TouchableOpacity style={styles.photoBox} onPress={() => setSelectedImage(mediaUrls.back)}>
-                  <View style={styles.photoBadge}><Text style={styles.photoBadgeText}>Back</Text></View>
-                  <Image
-                    source={{ uri: mediaUrls.back, headers: authHeaders }}
-                    style={styles.photoImage}
-                    onError={() => setHiddenImages(prev => ({...prev, back: true}))}
-                  />
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
-        )}
-
-        {/* ================= AUDIO - SINGLE INSTANCE ================= */}
-        <View style={styles.mediaSection}>
-          <Text style={styles.mediaLabel}>🎙️ VOICE RECORDING</Text>
-          {hasAudio ? (
-            <View style={styles.audioCard}>
-              <AudioPlayer
-                audioUrl={mediaUrls.audio}
-                token={token}
-                publicMedia={false}
-                directFetch={true}
-                onError={(err) => console.log('[Audio Error]', err)}
-              />
-            </View>
-          ) : (
-            <Text style={styles.noMediaText}>No audio recording available.</Text>
-          )}
-        </View>
-
-        {/* Stop Sharing */}
-        {liveActive && (
-          <TouchableOpacity style={styles.stopButton} onPress={handleStopSharing} disabled={stopping}>
-            <Text style={styles.stopButtonText}>{stopping ? 'Stopping...' : 'Stop Sharing'}</Text>
-          </TouchableOpacity>
-        )}
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
       </ScrollView>
-
-      <FullscreenImageViewer
-        visible={Boolean(selectedImage)}
-        uri={selectedImage}
-        headers={authHeaders}
-        onClose={() => setSelectedImage(null)}
-      />
     </SafeAreaView>
   );
 };

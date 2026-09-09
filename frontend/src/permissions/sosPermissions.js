@@ -30,8 +30,8 @@ const EMPTY_PERMISSION_STATE = Object.freeze({
   location: PermissionsAndroid.RESULTS.DENIED,
   camera: PermissionsAndroid.RESULTS.DENIED,
   audio: PermissionsAndroid.RESULTS.DENIED,
-  sms: 'composer_required',
-  smsDeliveryMode: 'composer',
+  sms: PermissionsAndroid.RESULTS.DENIED,
+  smsDeliveryMode: 'direct',
   smsAutomaticSendAvailable: false,
   call: PermissionsAndroid.RESULTS.DENIED,
   notifications: PermissionsAndroid.RESULTS.DENIED,
@@ -164,8 +164,8 @@ export function createInitialSosPermissionState() {
       location: PermissionsAndroid.RESULTS.DENIED,
       camera: PermissionsAndroid.RESULTS.DENIED,
       audio: PermissionsAndroid.RESULTS.DENIED,
-      sms: 'composer_required',
-      smsDeliveryMode: 'composer',
+      sms: PermissionsAndroid.RESULTS.DENIED,
+      smsDeliveryMode: 'direct',
       smsAutomaticSendAvailable: false,
       call: PermissionsAndroid.RESULTS.DENIED,
       notifications: PermissionsAndroid.RESULTS.DENIED,
@@ -264,8 +264,18 @@ export async function openSmsPermissionSettings() {
 // ================= ✅ ADDED: OPEN SMS SETTINGS =================
 export async function openSmsSettings() {
   if (Platform.OS !== 'android') return false;
-  
+
   try {
+    const {NativeModules} = require('react-native');
+    const {EmergencyMedia} = NativeModules;
+
+    // Prefer the native application-details intent. OEMs such as realme/OPPO
+    // can route Linking.openSettings() to a generic settings surface.
+    if (EmergencyMedia && typeof EmergencyMedia.openAppDetailsSettings === 'function') {
+      const opened = await EmergencyMedia.openAppDetailsSettings();
+      if (opened) return true;
+    }
+
     await Linking.openSettings();
     return true;
   } catch (error) {
@@ -310,32 +320,36 @@ export async function requestSmsPermission() {
       return PERMISSION_STATUS.GRANTED;
     }
 
-    if (current === PERMISSION_STATUS.BLOCKED) {
-      return PERMISSION_STATUS.BLOCKED;
-    }
-
+    // SEND_SMS is a hard-restricted Android permission on current Android
+    // releases. A normal runtime request is valid only when the installer
+    // has allowlisted the permission (for example, an approved Play release).
+    // Never manufacture a granted state or treat a restricted denial as
+    // granted.
     const result = await PermissionsAndroid.request(
       PermissionsAndroid.PERMISSIONS.SEND_SMS,
       {
         title: 'SMS Permission Required',
-        message: 'CoGG Safe needs SMS permission to send emergency messages to your configured contacts.',
+        message: 'CoGG Safe needs SMS permission only to send emergency SOS alerts to your configured contacts.',
         buttonPositive: 'Allow',
         buttonNegative: 'Deny',
       },
     );
 
-    if (result === PermissionsAndroid.RESULTS.GRANTED) {
+    // Re-check Android's actual permission state after the request.
+    const verified = await checkSmsPermission();
+    if (verified === PERMISSION_STATUS.GRANTED) {
       return PERMISSION_STATUS.GRANTED;
     }
-    if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+
+    if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN || verified === PERMISSION_STATUS.BLOCKED) {
       return PERMISSION_STATUS.BLOCKED;
     }
-    if (result === PermissionsAndroid.RESULTS.DENIED) {
-      return PERMISSION_STATUS.DENIED;
-    }
 
-    return PERMISSION_STATUS.UNAVAILABLE;
+    return verified === PERMISSION_STATUS.UNAVAILABLE
+      ? PERMISSION_STATUS.UNAVAILABLE
+      : PERMISSION_STATUS.DENIED;
   } catch (error) {
+    if (__DEV__) console.warn('[SMS] REQUEST_FAILED', {reason: error?.message || 'unknown'});
     return PERMISSION_STATUS.UNAVAILABLE;
   }
 }

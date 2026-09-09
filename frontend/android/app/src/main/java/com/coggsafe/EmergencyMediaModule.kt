@@ -149,6 +149,24 @@ class EmergencyMediaModule(
         }
     }
 
+    // ================= Open this app's Android settings =================
+    @ReactMethod
+    fun openAppDetailsSettings(promise: Promise) {
+        try {
+            val intent = Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:${reactContext.packageName}")
+            ).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            reactContext.startActivity(intent)
+            promise.resolve(true)
+        } catch (e: Exception) {
+            Log.e("EmergencyMedia", "openAppDetailsSettings error: ${e.message}")
+            promise.resolve(false)
+        }
+    }
+
     // ================= NEW: Get Active SIM Count =================
     @ReactMethod
     fun getActiveSimCount(promise: Promise) {
@@ -175,9 +193,15 @@ class EmergencyMediaModule(
                 return
             }
 
-            // Try to get default voice subscription
+            // Prefer the system default SMS subscription. Fall back to the
+            // default voice subscription only when Android does not expose a
+            // usable SMS default on the device.
             val defaultId = try {
-                SubscriptionManager.getDefaultVoiceSubscriptionId()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    SubscriptionManager.getDefaultSmsSubscriptionId()
+                } else {
+                    -1
+                }
             } catch (e: Exception) {
                 -1
             }
@@ -372,41 +396,14 @@ class EmergencyMediaModule(
         try {
             ensureSmsStatusReceiverRegistered()
 
-            // ================= FIX: Auto-detect SIM =================
-            var subscriptionId = preferredSubscriptionId
-
-            // If no preference, auto-detect
-            if (subscriptionId < 0) {
-                try {
-                    val subscriptionManager = reactContext.getSystemService(SubscriptionManager::class.java)
-                    val active = subscriptionManager?.activeSubscriptionInfoList ?: emptyList()
-                    
-                    if (active.isNotEmpty()) {
-                        // If only 1 SIM, use it
-                        if (active.size == 1) {
-                            subscriptionId = active[0].subscriptionId
-                            Log.i("EmergencyMedia", "[SOS][SMS] Single SIM detected: $subscriptionId")
-                        } else {
-                            // If multiple SIMs, use default voice SIM or first one
-                            val defaultId = try {
-                                SubscriptionManager.getDefaultVoiceSubscriptionId()
-                            } catch (e: Exception) {
-                                -1
-                            }
-                            
-                            if (defaultId >= 0 && active.any { it.subscriptionId == defaultId }) {
-                                subscriptionId = defaultId
-                                Log.i("EmergencyMedia", "[SOS][SMS] Using default voice SIM: $subscriptionId")
-                            } else {
-                                subscriptionId = active[0].subscriptionId
-                                Log.i("EmergencyMedia", "[SOS][SMS] Using first SIM (slot 0): $subscriptionId")
-                            }
-                        }
-                    }
-                } catch (simError: Exception) {
-                    Log.e("EmergencyMedia", "[SOS][SMS] SIM detection error: ${simError.message}")
-                }
+            // ================= AUTO SIM SELECTION =================
+            // Never show a SIM chooser for SOS. Prefer physical SIM slot 1
+            // (slotIndex 0), then SIM 2 (slotIndex 1).
+            var subscriptionId = resolveSlotPreferredSubscriptionId()
+            if (subscriptionId < 0 && preferredSubscriptionId >= 0) {
+                subscriptionId = resolveActiveSubscriptionId(preferredSubscriptionId)
             }
+            Log.i("EmergencyMedia", "[SOS][SMS] Auto-selected subscriptionId=$subscriptionId")
 
             val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (subscriptionId > 0) {
@@ -465,68 +462,22 @@ class EmergencyMediaModule(
         }
     }
 
-    // ================= EXISTING: Open SMS Composer =================
-    @ReactMethod
-    fun openSmsComposer(
-        phoneNumber: String,
-        message: String,
-        promise: Promise
-    ) {
-        val cleanNumber = phoneNumber.trim()
-        if (cleanNumber.isEmpty()) {
-            promise.reject("E_SMS_NUMBER", "Emergency SMS number is missing.")
-            return
-        }
-
-        val activity = reactContext.currentActivity
-        if (activity == null) {
-            promise.reject(
-                "E_SMS_NO_ACTIVITY",
-                "Opening the system SMS composer requires an active Android activity."
-            )
-            return
-        }
-
-        val smsIntent = Intent(Intent.ACTION_SENDTO).apply {
-            data = Uri.parse("smsto:${Uri.encode(cleanNumber)}")
-            putExtra("sms_body", message.ifBlank { "Emergency assistance requested." })
-        }
-
-        try {
-            activity.startActivity(smsIntent)
-            promise.resolve(Arguments.createMap().apply {
-                putString("status", "pending")
-                putString("reason", "Android opened the system SMS composer. User confirmation is required before the message is sent.")
-            })
-        } catch (error: Exception) {
-            promise.reject(
-                "E_SMS_COMPOSER",
-                "Android could not open an SMS application for the emergency message.",
-                error
-            )
-        }
-    }
-
     // ================= EXISTING: Get Available SIMs =================
     @ReactMethod
     fun getAvailableSims(promise: Promise) {
         try {
             val subscriptionManager = reactContext.getSystemService(SubscriptionManager::class.java)
             val active = subscriptionManager?.activeSubscriptionInfoList ?: emptyList()
-            val defaultSubscriptionId = try {
-                SubscriptionManager.getDefaultVoiceSubscriptionId()
-            } catch (e: Exception) {
-                -1
-            }
+            val sortedActive = active.sortedBy { it.simSlotIndex }
 
             val result = Arguments.createArray()
-            active.forEach { info ->
+            sortedActive.forEach { info ->
                 result.pushMap(Arguments.createMap().apply {
                     putInt("subscriptionId", info.subscriptionId)
                     putInt("slotIndex", info.simSlotIndex)
                     putString("displayName", info.displayName?.toString() ?: "SIM ${info.simSlotIndex + 1}")
                     putString("carrierName", info.carrierName?.toString() ?: "")
-                    putBoolean("isDefault", info.subscriptionId == defaultSubscriptionId)
+                    putBoolean("isDefault", info.simSlotIndex == 0)
                 })
             }
             promise.resolve(result)
@@ -574,29 +525,89 @@ class EmergencyMediaModule(
             return
         }
 
-        val callIntent = Intent(Intent.ACTION_CALL, Uri.parse("tel:$cleanNumber"))
-        Log.i("EmergencyMedia", "[SOS][CALL] ACTION_CALL intent created")
-        emitDiagnostic("CALL_NATIVE 03: ACTION_CALL intent created")
-
         try {
-            Log.i("EmergencyMedia", "[SOS][CALL] startActivity attempted")
-            emitDiagnostic("CALL DEBUG — ACTION_CALL attempted")
-            emitDiagnostic("CALL_NATIVE 05: startActivity ACTION_CALL")
-            activity.startActivity(callIntent)
-            Log.i("EmergencyMedia", "[SOS][CALL] ACTION_CALL requested")
-            emitDiagnostic("CALL_NATIVE 06: ACTION_CALL returned")
+            // Do not use ACTION_DIAL or a SIM chooser. TelecomManager receives the
+            // exact PhoneAccountHandle so Android can place the call immediately
+            // through the selected SIM subscription. The system in-call UI may still
+            // appear because telephony is controlled by Android/carrier.
+            val telecomManager = reactContext.getSystemService(TelecomManager::class.java)
+            if (telecomManager == null) {
+                throw IllegalStateException("Telecom service is unavailable on this device.")
+            }
+
+            val selectedSubscriptionId = resolveSlotPreferredSubscriptionId()
+            val phoneAccount = findPhoneAccountForSubscription(telecomManager, selectedSubscriptionId)
+
+            val callUri = Uri.parse("tel:$cleanNumber")
+            val extras = android.os.Bundle()
+            if (phoneAccount != null) {
+                extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, phoneAccount)
+                Log.i("EmergencyMedia", "[SOS][CALL] Auto-selected SIM subscriptionId=$selectedSubscriptionId account=${phoneAccount.id}")
+                emitDiagnostic("CALL_NATIVE 03: SIM ${if (selectedSubscriptionId >= 0) selectedSubscriptionId else "auto"} selected")
+            } else {
+                Log.w("EmergencyMedia", "[SOS][CALL] Matching SIM phone account unavailable; using device telephony default")
+                emitDiagnostic("CALL_NATIVE 03: matching SIM account unavailable; using device default", "error")
+            }
+
+            telecomManager.placeCall(callUri, extras)
+            Log.i("EmergencyMedia", "[SOS][CALL] TelecomManager.placeCall requested")
+            emitDiagnostic("CALL_NATIVE 05: direct Telecom call request accepted")
             promise.resolve(Arguments.createMap().apply {
                 putString("status", "initiated")
-                putString("reason", "Android accepted the ACTION_CALL request using the device default voice SIM. Final call connection status is controlled by the carrier/device.")
+                putString("reason", "Android accepted the direct emergency call request. No SIM chooser was opened.")
+                putInt("subscriptionId", selectedSubscriptionId)
             })
         } catch (error: Exception) {
-            Log.e("EmergencyMedia", "[SOS][CALL] ACTION_CALL failed", error)
-            emitDiagnostic("CALL_NATIVE 07: ACTION_CALL failed: ${error.message}", "error")
+            Log.e("EmergencyMedia", "[SOS][CALL] direct Telecom call failed", error)
+            emitDiagnostic("CALL_NATIVE 07: direct call failed: ${error.message}", "error")
             promise.reject(
                 "E_CALL_LAUNCH",
-                "Android could not launch the emergency call.",
+                "Android could not place the emergency call: ${error.message}",
                 error
             )
+        }
+    }
+
+    /**
+     * Returns the subscription in physical SIM slot 1 first, then slot 2.
+     * This is deliberately slot-based rather than default-SIM based so SOS never
+     * opens a chooser or silently follows the user's unrelated default SMS/voice SIM.
+     */
+    private fun getActiveSubscriptionsBySlot(): List<android.telephony.SubscriptionInfo> {
+        return try {
+            val manager = reactContext.getSystemService(SubscriptionManager::class.java)
+            manager?.activeSubscriptionInfoList
+                ?.sortedBy { it.simSlotIndex }
+                ?: emptyList()
+        } catch (error: Exception) {
+            Log.w("EmergencyMedia", "[SOS][SIM] Could not enumerate active subscriptions", error)
+            emptyList()
+        }
+    }
+
+    private fun resolveSlotPreferredSubscriptionId(): Int {
+        val active = getActiveSubscriptionsBySlot()
+        if (active.isEmpty()) return -1
+        val slotOne = active.firstOrNull { it.simSlotIndex == 0 }
+        if (slotOne != null) return slotOne.subscriptionId
+        val slotTwo = active.firstOrNull { it.simSlotIndex == 1 }
+        return slotTwo?.subscriptionId ?: active.first().subscriptionId
+    }
+
+    private fun resolveActiveSubscriptionId(subscriptionId: Int): Int {
+        if (subscriptionId < 0) return -1
+        return getActiveSubscriptionsBySlot().firstOrNull { it.subscriptionId == subscriptionId }?.subscriptionId ?: -1
+    }
+
+    private fun findPhoneAccountForSubscription(telecomManager: TelecomManager, subscriptionId: Int): PhoneAccountHandle? {
+        if (subscriptionId < 0) return null
+        return try {
+            telecomManager.callCapablePhoneAccounts.firstOrNull { handle ->
+                handle.id == subscriptionId.toString()
+            }
+        } catch (error: Exception) {
+            Log.w("EmergencyMedia", "[SOS][CALL] Could not match PhoneAccountHandle", error)
+            null
         }
     }
 

@@ -211,16 +211,16 @@ describe('SOS media services', () => {
     expect(NativeModules.EmergencyMedia.placeCall).not.toHaveBeenCalled();
   });
 
-  test('SMS composer failure is reported as unsupported, never sent', async () => {
+  test('SMS never falls back to an external composer when direct native sending is unavailable', async () => {
     const {NativeModules} = require('react-native');
     connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
     NativeModules.EmergencyMedia.sendEmergencySms.mockResolvedValue(undefined);
-    NativeModules.EmergencyMedia.openSmsComposer.mockRejectedValue(new Error('No SMS application available'));
 
     const result = await sendEmergencySms({phoneNumber: '+1234567890', message: 'help'});
 
     expect(result.status).toBe('UNSUPPORTED');
-    expect(result.reason).toMatch(/SMS application|composer/i);
+    expect(result.reason).toMatch(/Direct Android SMS|unavailable/i);
+    expect(NativeModules.EmergencyMedia.openSmsComposer).not.toHaveBeenCalled();
   });
 
   test('SMS tracks recipients independently and retries only pending recipients', async () => {
@@ -257,7 +257,7 @@ describe('SOS media services', () => {
   test('SMS no-SIM response stays unsupported and is not treated as success', async () => {
     const {NativeModules} = require('react-native');
     connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
-    NativeModules.EmergencyMedia.openSmsComposer.mockResolvedValue({status: 'unsupported', reason: 'No active SIM subscription available for SMS.'});
+    NativeModules.EmergencyMedia.sendEmergencySms.mockResolvedValue({status: 'unsupported', reason: 'No active SIM subscription available for SMS.'});
 
     const result = await sendEmergencySms({phoneNumber: '+1234567890', message: 'help'});
 

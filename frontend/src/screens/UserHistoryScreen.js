@@ -211,8 +211,8 @@ const UserHistoryScreen = ({token, onBack, onHistoryDetail}) => {
                 <View style={styles.cardLocation}>
                   <Text style={styles.cardLocationIcon}>📍</Text>
                   <Text style={styles.cardLocationText} numberOfLines={1}>
-                    {item.location?.latitude != null 
-                      ? `${item.location.latitude.toFixed(4)}, ${item.location.longitude.toFixed(4)}`
+                    {item.location?.latitude != null && item.location?.longitude != null
+                      ? `${Number(item.location.latitude).toFixed(4)}, ${Number(item.location.longitude).toFixed(4)}`
                       : 'Location unknown'}
                   </Text>
                 </View>

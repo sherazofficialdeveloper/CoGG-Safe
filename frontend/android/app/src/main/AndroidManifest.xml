@@ -31,14 +31,6 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
-    <!-- ================= SMS Composer Fallback ================= -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.SENDTO" />
-            <data android:scheme="smsto" />
-        </intent>
-    </queries>
-
     <application
       android:name=".MainApplication"
       android:label="@string/app_name"
