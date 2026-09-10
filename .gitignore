@@ -83,3 +83,4 @@ yarn-error.log
 # Firebase / Google Cloud service account credentials
 *-firebase-adminsdk-*.json
 firebase-adminsdk-*.json
+**/.gradle-user-home/

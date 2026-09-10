@@ -226,20 +226,10 @@ const AdminSosDetailScreen = ({
   const hasAudio = !!mediaUrls.audio;
   const hasImageData = hasFrontImage || hasBackImage;
 
-  if (isLoading) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#E4002B" />
-          <Text style={styles.loadingText}>Loading SOS details...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#F7F7F8" translucent={false} />
+      {isLoading ? <View style={styles.topLoading}><ActivityIndicator size="small" color="#E4002B" /><Text style={styles.topLoadingText}>Refreshing latest data...</Text></View> : null}
 
       {/* ================= HEADER ================= */}
       <View style={styles.header}>
@@ -258,7 +248,7 @@ const AdminSosDetailScreen = ({
                 {record.userName || record.userId?.username || 'Unknown User'}
               </Text>
               <Text style={styles.headerSubtitle}>
-                {record.collectionName || record.collectionId?.name || 'No Collection'}
+                {record.collectionName || record.collectionId?.name || 'No Group'}
               </Text>
             </View>
           </View>
@@ -345,6 +335,8 @@ const AdminSosDetailScreen = ({
 };
 
 const styles = StyleSheet.create({
+  topLoading: {height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0F2'},
+  topLoadingText: {marginLeft: 8, fontSize: 12, color: '#E4002B', fontWeight: '600'},
   safeArea: { flex: 1, backgroundColor: '#F7F7F8' },
 
   loadingContainer: {

@@ -8,6 +8,7 @@ import {
   StatusBar,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import Icon from '../components/Icon';
 import {listNotifications, markNotificationRead} from '../api/resources';
@@ -46,7 +47,7 @@ const UserNotificationScreen = ({
       })
       .catch(requestError => mounted && setError(requestError.message))
       .finally(() => mounted && setLoading(false));
-    setLoading(!hasCachedNotifications && !snapshot);
+    setLoading(true);
     refresh();
     const timer = setInterval(refresh, 10000);
     return () => { mounted = false; clearInterval(timer); };
@@ -119,6 +120,7 @@ const UserNotificationScreen = ({
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      {loading ? <View style={styles.topLoading}><ActivityIndicator size="small" color="#E4002B" /><Text style={styles.topLoadingText}>Refreshing latest data...</Text></View> : null}
       <StatusBar
         barStyle="dark-content"
         backgroundColor="#F7F7F8"
@@ -377,6 +379,8 @@ const UserNotificationScreen = ({
 };
 
 const styles = StyleSheet.create({
+  topLoading: {height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0F2'},
+  topLoadingText: {marginLeft: 8, fontSize: 12, color: '#E4002B', fontWeight: '600'},
   safeArea: {
     flex: 1,
     backgroundColor: '#F7F7F8',

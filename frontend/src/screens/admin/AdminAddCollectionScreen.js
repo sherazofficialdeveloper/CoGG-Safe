@@ -38,7 +38,7 @@ const AdminAddCollectionScreen = ({
   const handleSaveCollection = async () => {
     const name = category === 'Other' ? customName.trim() : category;
     if (category === 'Other' && !name) {
-      setError('Please enter a custom collection name.');
+      setError('Please enter a custom group name.');
       return;
     }
     if (!emergencyNumber.trim()) {
@@ -57,7 +57,7 @@ const AdminAddCollectionScreen = ({
       onCreated?.(collectionData.collection);
       if (onSave) onSave(collectionData.collection);
     } catch (requestError) {
-      setError(requestError.message || 'Unable to create collection.');
+      setError(requestError.message || 'Unable to create group.');
     } finally {
       setSubmitting(false);
     }
@@ -73,7 +73,7 @@ const AdminAddCollectionScreen = ({
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Add Collection</Text>
+          <Text style={styles.headerTitle}>Add group</Text>
           <Text style={styles.headerSubtitle}>Configure group & assign members</Text>
         </View>
         <View style={styles.headerRight} />
@@ -85,7 +85,7 @@ const AdminAddCollectionScreen = ({
 
         {/* Category Selector */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Collection Category</Text>
+          <Text style={styles.sectionLabel}>Group Category</Text>
           <View style={styles.categoryGrid}>
             {['Personal', 'Employees', 'Other'].map((cat) => (
               <TouchableOpacity
@@ -107,13 +107,13 @@ const AdminAddCollectionScreen = ({
           </View>
         </View>
 
-        {/* Collection Name */}
+        {/* Group Name */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Collection Name</Text>
+          <Text style={styles.sectionLabel}>Group Name</Text>
           {category === 'Other' ? (
             <TextInput
               style={styles.nameInput}
-              placeholder="Enter custom collection name"
+              placeholder="Enter custom group name"
               placeholderTextColor="#9CA3AF"
               value={customName}
               onChangeText={setCustomName}
@@ -158,7 +158,7 @@ const AdminAddCollectionScreen = ({
             onPress={handleSaveCollection}
             disabled={submitting}
             activeOpacity={0.7}>
-            <Text style={styles.saveButtonText}>{submitting ? 'Saving...' : 'Save Collection'}</Text>
+            <Text style={styles.saveButtonText}>{submitting ? 'Saving...' : 'Save Group'}</Text>
           </TouchableOpacity>
         </View>
 

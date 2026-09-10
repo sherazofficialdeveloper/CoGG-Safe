@@ -28,7 +28,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
   const [credentialMap, setCredentialMap] = useState(initialCredentials);
 
   const loadCollections = useCallback(async ({initial = false, forceRefresh = false} = {}) => {
-    if (initial && !collectionSnapshots.has(token)) setLoading(true);
+    setLoading(true);
     try {
       const response = await listCollections(token, undefined, {forceRefresh});
       const nextCollections = response.collections || [];
@@ -36,15 +36,14 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
       collectionSnapshots.set(token, nextCollections);
       setError('');
     } catch (requestError) {
-      if (!collectionSnapshots.has(token) || collections.length === 0) setError(requestError.message || 'Unable to load collections. Please try again.');
+      if (!collectionSnapshots.has(token) || collections.length === 0) setError(requestError.message || 'Unable to load groups. Please try again.');
     } finally {
       setLoading(false);
     }
   }, [token]);
 
   useEffect(() => {
-    if (!collectionSnapshots.has(token)) loadCollections({initial: true});
-    else loadCollections({forceRefresh: false});
+    loadCollections({initial: !collectionSnapshots.has(token), forceRefresh: true});
     const timer = setInterval(() => loadCollections({forceRefresh: true}), 30000);
     return () => clearInterval(timer);
   }, [loadCollections, token]);
@@ -77,7 +76,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
       setMembers(nextMembers);
       setMemberError('');
     } catch (requestError) {
-      setMemberError(requestError.message || 'Unable to load collection users.');
+      setMemberError(requestError.message || 'Unable to load group users.');
       if (!cachedMembers) setMembers([]);
     } finally {
       setMembersLoading(false);
@@ -228,7 +227,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
 
   if (selected) return <SafeAreaView style={styles.container}>
     <StatusBar barStyle="dark-content" backgroundColor="#F7F7F8" />
-    {header(selected.name, `${selected.type.toUpperCase()} COLLECTION`, () => setSelected(null), showUserForm ? 'Close' : '+ User', () => setShowUserForm(value => !value))}
+    {header(selected.name, `${selected.type.toUpperCase()} GROUP`, () => setSelected(null), showUserForm ? 'Close' : '+ User', () => setShowUserForm(value => !value))}
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.summary}><Text style={styles.label}>PRIMARY EMERGENCY NUMBER</Text><Text style={styles.phone}>{selected.emergencyCallNumber}</Text><Text style={styles.muted}>{members.length} users assigned</Text></View>
@@ -237,8 +236,8 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
         {/* ✅ REMOVED: Edit Collection Button and Form */}
         
         {showUserForm ? <InlineUserForm editMode={Boolean(editingUser)} form={userForm} setForm={setUserForm} submitting={submitting} onCancel={() => {setUserForm(EMPTY_USER); setEditingUser(null); setShowUserForm(false);}} onSubmit={submitUser} /> : null}
-        <Text style={styles.sectionTitle}>COLLECTION USERS</Text>
-        {memberError && members.length === 0 ? <View style={styles.empty}><Text style={styles.error}>{memberError}</Text><TouchableOpacity onPress={() => openCollection(selected)}><Text style={styles.retry}>Retry</Text></TouchableOpacity></View> : membersLoading ? <ActivityIndicator color="#E4002B" /> : members.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>No users in this collection</Text><Text style={styles.muted}>Add a user to this collection.</Text></View> : members.map(member => {
+        <Text style={styles.sectionTitle}>GROUP USERS</Text>
+        {memberError && members.length === 0 ? <View style={styles.empty}><Text style={styles.error}>{memberError}</Text><TouchableOpacity onPress={() => openCollection(selected)}><Text style={styles.retry}>Retry</Text></TouchableOpacity></View> : membersLoading ? <ActivityIndicator color="#E4002B" /> : members.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>No users in this group</Text><Text style={styles.muted}>Add a user to this group.</Text></View> : members.map(member => {
           const memberId = member._id || member.id;
           const statusLabel = member.status === 'active' ? 'Active' : 'Inactive';
           return (
@@ -277,8 +276,8 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
 
   return <SafeAreaView style={styles.container}>
     <StatusBar barStyle="dark-content" backgroundColor="#F7F7F8" />
-    {header('Collections', `${collections.length} COLLECTIONS`, onBack, '+ Add', onAddCollection)}
-    <ScrollView contentContainerStyle={styles.content}>    {loading ? <ActivityIndicator color="#E4002B" /> : error ? <View style={styles.empty}><Text style={styles.error}>{error}</Text><TouchableOpacity onPress={loadCollections}><Text style={styles.retry}>Retry</Text></TouchableOpacity></View> : collections.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>No collections yet</Text><Text style={styles.muted}>Create your first collection to start managing users.</Text></View> : collections.map(collection => <TouchableOpacity key={collection._id} style={styles.collection} onPress={() => openCollection(collection)}><View style={styles.collectionIcon}><Text style={styles.collectionIconText}>{collection.name[0]}</Text></View><View style={styles.collectionInfo}><Text style={styles.collectionName}>{collection.name}</Text><Text style={styles.muted}>{collection.type} · {collection.emergencyCallNumber}</Text></View><Text style={styles.chevron}>›</Text></TouchableOpacity>)}</ScrollView>  </SafeAreaView>;
+    {header('Groups', `${collections.length} GROUPS`, onBack, '+ Add', onAddCollection)}
+    <ScrollView contentContainerStyle={styles.content}>    {loading ? <ActivityIndicator color="#E4002B" /> : error ? <View style={styles.empty}><Text style={styles.error}>{error}</Text><TouchableOpacity onPress={loadCollections}><Text style={styles.retry}>Retry</Text></TouchableOpacity></View> : collections.length === 0 ? <View style={styles.empty}><Text style={styles.emptyTitle}>No groups yet</Text><Text style={styles.muted}>Create your first group to start managing users.</Text></View> : collections.map(collection => <TouchableOpacity key={collection._id} style={styles.collection} onPress={() => openCollection(collection)}><View style={styles.collectionIcon}><Text style={styles.collectionIconText}>{collection.name[0]}</Text></View><View style={styles.collectionInfo}><Text style={styles.collectionName}>{collection.name}</Text><Text style={styles.muted}>{collection.type} · {collection.emergencyCallNumber}</Text></View><Text style={styles.chevron}>›</Text></TouchableOpacity>)}</ScrollView>  </SafeAreaView>;
 }
 
 export function InlineUserForm({editMode, form, setForm, submitting, onCancel, onSubmit}) {

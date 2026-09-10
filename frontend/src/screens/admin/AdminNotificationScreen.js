@@ -13,17 +13,15 @@ const AdminNotificationScreen = ({
   onBack,
   onNotificationPress,
   onBadgeCountChange,
-  initialNotifications = [],
   onNotificationsChange,
 }) => {
   const insets = useSafeAreaInsets();
   const cachedData = getCachedApiData('/notifications', token);
   const snapshotNotifications = notificationSnapshots.get(token);
-  const [notifications, setNotifications] = useState(() => snapshotNotifications || cachedData?.notifications || initialNotifications);
-  const [loading, setLoading] = useState(() => !snapshotNotifications && !cachedData && initialNotifications.length === 0);
+  const [notifications, setNotifications] = useState(() => snapshotNotifications || cachedData?.notifications || []);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const requestIdRef = useRef(0);
-  const initialNotificationsRef = useRef(initialNotifications);
   const onNotificationsChangeRef = useRef(onNotificationsChange);
   onNotificationsChangeRef.current = onNotificationsChange;
 
@@ -51,17 +49,13 @@ const AdminNotificationScreen = ({
 
       setError('');
       const existingNotifications = getCachedApiData('/notifications', token)?.notifications || [];
-      if (initialNotificationsRef.current.length > 0 && existingNotifications.length === 0) {
-        setNotifications(initialNotificationsRef.current);
-        setLoading(false);
-      }
       if (existingNotifications.length > 0 && mounted && requestId === requestIdRef.current) {
         setNotifications(existingNotifications);
         setLoading(false);
       }
 
       try {
-        const result = await listNotifications(token);
+        const result = await listNotifications(token, undefined, {forceRefresh: true});
         if (!mounted || requestId !== requestIdRef.current) {
           return;
         }
@@ -85,7 +79,7 @@ const AdminNotificationScreen = ({
       }
     };
 
-    if (!notificationSnapshots.has(token)) loadNotifications();
+    loadNotifications();
     const timer = setInterval(() => {
       listNotifications(token, undefined, {forceRefresh: true}).then(result => {
         if (!mounted) return;
@@ -146,6 +140,8 @@ const AdminNotificationScreen = ({
 };
 
 const styles = StyleSheet.create({
+  topLoading: {height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0F2'},
+  topLoadingText: {marginLeft: 8, fontSize: 12, color: '#E4002B', fontWeight: '600'},
   container: {flex: 1, backgroundColor: '#F7F7F8'},
   header: {backgroundColor: '#FFFFFF', paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: '#E8E8EB', flexDirection: 'row', alignItems: 'center'},
   backButton: {width: 42, height: 42, alignItems: 'center', justifyContent: 'center'},

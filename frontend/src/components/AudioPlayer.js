@@ -1,6 +1,7 @@
 // AudioPlayer.js - COMPLETE FIXED
 import React, {useEffect, useState, useRef} from 'react';
 import {
+  NativeModules,
   ActivityIndicator,
   StyleSheet,
   Text,
@@ -40,6 +41,8 @@ const AudioPlayer = ({
   const [reloadKey, setReloadKey] = useState(0);
   const isDownloadingRef = useRef(false);
   const hasLoadedRef = useRef(false);
+  const [nativeAudioPath, setNativeAudioPath] = useState(null);
+  const nativePlayingRef = useRef(false);
 
   // Cleanup
   useEffect(() => {
@@ -52,6 +55,8 @@ const AudioPlayer = ({
           soundRef.current = null;
         } catch (_) {}
       }
+      try { NativeModules?.EmergencyMedia?.stopAudioFile?.(); } catch (_) {}
+      nativePlayingRef.current = false;
     };
   }, []);
 
@@ -122,8 +127,38 @@ const AudioPlayer = ({
     let loadedSound = null;
     let isCancelled = false;
 
+    // ✅ FIX: Made this function async so we can await inside
+    const handleNativeFallback = async (soundPath) => {
+      const nativeModule = NativeModules?.EmergencyMedia;
+      if (
+        Platform.OS === 'android' &&
+        nativeModule?.getAudioDuration &&
+        nativeModule?.playAudioFile
+      ) {
+        const nativePath = soundPath.replace(/^file:\/\//, '');
+        try {
+          const nativeDuration = await nativeModule.getAudioDuration(nativePath);
+          if (Number(nativeDuration) >= 0) {
+            setNativeAudioPath(nativePath);
+            setDuration(Number(nativeDuration) / 1000);
+            setSound(null);
+            setIsLoading(false);
+            hasLoadedRef.current = true;
+            return true;
+          }
+        } catch (nativeError) {
+          console.log(
+            '[AudioPlayer] Native MediaPlayer fallback unavailable:',
+            nativeError?.message || nativeError,
+          );
+        }
+      }
+      return false;
+    };
+
     const loadAudio = async () => {
       try {
+        setNativeAudioPath(null);
         let playablePath = localPath;
 
         if (!playablePath && hasUrl) {
@@ -137,23 +172,31 @@ const AudioPlayer = ({
           // ================= FIX 2: PRIVATE MEDIA - Download first =================
           else if (token && token.trim().length > 0) {
             try {
-              console.log('[AudioPlayer] Private media - downloading...');
-              // Try direct URL with token first (for react-native-sound)
-              // Some versions support headers in the constructor
+              console.log('[AudioPlayer] Private media - downloading with authenticated native client...');
               playablePath = trimmedUrl;
-              
-              // Try to download as fallback
+
               try {
-                const downloadedPath = await downloadAudioFile(trimmedUrl, token);
-                if (downloadedPath) {
-                  playablePath = downloadedPath;
-                  console.log('[AudioPlayer] Download complete:', downloadedPath);
+                const nativeModule = NativeModules?.EmergencyMedia;
+                if (Platform.OS === 'android' && nativeModule?.downloadAuthenticatedMedia) {
+                  const nativePath = await nativeModule.downloadAuthenticatedMedia(trimmedUrl, token);
+                  if (nativePath) {
+                    playablePath = nativePath;
+                    console.log('[AudioPlayer] Native authenticated download complete:', nativePath);
+                  }
+                } else {
+                  const downloadedPath = await downloadAudioFile(trimmedUrl, token);
+                  if (downloadedPath) playablePath = downloadedPath;
                 }
               } catch (downloadErr) {
-                console.log('[AudioPlayer] Download failed, using direct URL:', downloadErr.message);
-                // Use direct URL with token in query param as fallback
-                const separator = trimmedUrl.includes('?') ? '&' : '?';
-                playablePath = `${trimmedUrl}${separator}token=${encodeURIComponent(token)}`;
+                console.log('[AudioPlayer] Authenticated native download failed, trying RNFS:', downloadErr?.message || downloadErr);
+                try {
+                  const downloadedPath = await downloadAudioFile(trimmedUrl, token);
+                  if (downloadedPath) playablePath = downloadedPath;
+                } catch (fallbackErr) {
+                  console.log('[AudioPlayer] RNFS download failed:', fallbackErr?.message || fallbackErr);
+                  const separator = trimmedUrl.includes('?') ? '&' : '?';
+                  playablePath = `${trimmedUrl}${separator}token=${encodeURIComponent(token)}`;
+                }
               }
             } catch (err) {
               console.log('[AudioPlayer] URL processing error:', err);
@@ -180,27 +223,25 @@ const AudioPlayer = ({
         // ================= Prepare path for Sound =================
         let soundPath = playablePath;
         
-        // If it's a remote URL (http/https), use as-is
         if (soundPath.startsWith('http://') || soundPath.startsWith('https://')) {
           console.log('[AudioPlayer] Remote URL, using directly');
-        }
-        // If it's a local path without file:// prefix, add it
-        else if (!soundPath.startsWith('file://') && !soundPath.startsWith('/')) {
+        } else if (!soundPath.startsWith('file://') && !soundPath.startsWith('/')) {
           soundPath = Platform.OS === 'android' ? `file://${soundPath}` : soundPath;
         }
 
         console.log('[AudioPlayer] Final path for Sound:', soundPath);
 
-        // react-native-sound 0.11.x expects the second constructor
-        // argument to be a base-path string, not an options/headers object.
-        // Private media is already downloaded with RNFS + Authorization above,
-        // so the player only needs the local file path here.
-        loadedSound = new Sound(soundPath, '', (loadError) => {
+        loadedSound = new Sound(soundPath, '', async (loadError) => {
+          // ✅ FIX: Callback made async to support await inside
           if (!isMountedRef.current || isCancelled) return;
 
           if (loadError) {
             console.log('[AudioPlayer] Load error:', loadError);
-            
+
+            // ✅ FIX: Await the native fallback helper
+            const fallbackSucceeded = await handleNativeFallback(soundPath);
+            if (fallbackSucceeded) return;
+
             // ================= Retry without file:// =================
             if (soundPath.startsWith('file://')) {
               const fallbackPath = soundPath.replace('file://', '');
@@ -278,21 +319,37 @@ const AudioPlayer = ({
   }, [audioUrl, localPath, token, publicMedia, reloadKey]);
 
   // ================= FIX 4: Play/Pause (No auto-play) =================
-  const handlePlayPause = () => {
-    if (!soundRef.current) {
+  const handlePlayPause = async () => {
+    if (!soundRef.current && !nativeAudioPath) {
       setError('Audio not available');
       return;
     }
 
     try {
+      if (nativeAudioPath && !soundRef.current) {
+        const nativeModule = NativeModules?.EmergencyMedia;
+        if (!nativeModule?.playAudioFile) {
+          setError('Audio playback unavailable');
+          return;
+        }
+        if (nativePlayingRef.current) {
+          await nativeModule.stopAudioFile?.();
+          nativePlayingRef.current = false;
+          setIsPlaying(false);
+        } else {
+          await nativeModule.playAudioFile(nativeAudioPath);
+          nativePlayingRef.current = true;
+          setIsPlaying(true);
+        }
+        return;
+      }
+
       if (isPlaying) {
-        // Pause
         soundRef.current.pause();
         setIsPlaying(false);
         return;
       }
 
-      // Play - Only when user clicks play button
       soundRef.current.play((success) => {
         setIsPlaying(false);
         if (success) {
@@ -358,6 +415,8 @@ const AudioPlayer = ({
       soundRef.current = null;
     }
     setSound(null);
+    setNativeAudioPath(null);
+    nativePlayingRef.current = false;
     setError(null);
     setIsLoading(true);
     setCurrentTime(0);
@@ -396,7 +455,7 @@ const AudioPlayer = ({
     );
   }
 
-  const hasSound = !!soundRef.current;
+  const hasSound = !!soundRef.current || !!nativeAudioPath;
 
   return (
     <View style={[styles.container, style]}>

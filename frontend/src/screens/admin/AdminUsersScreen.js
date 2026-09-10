@@ -34,7 +34,7 @@ const AdminUsersScreen = ({
   useEffect(() => {
     let mounted = true;
     setLoading(true);
-    listUsers(token)
+    listUsers(token, undefined, {forceRefresh: true})
       .then(result => {
         if (!mounted) return;
         setUsers((result.users || []).map(item => ({
@@ -463,6 +463,8 @@ const AdminUsersScreen = ({
 };
 
 const styles = StyleSheet.create({
+  topLoading: {height: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0F2'},
+  topLoadingText: {fontSize: 12, color: '#E4002B', fontWeight: '600'},
   safeArea: {
     flex: 1,
     backgroundColor: '#F7F7F8',

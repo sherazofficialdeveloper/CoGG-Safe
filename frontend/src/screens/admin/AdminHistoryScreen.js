@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {
   View,
   Text,
@@ -8,114 +8,54 @@ import {
   StatusBar,
   ScrollView,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
+import {listSos} from '../../api/resources';
 
 const AdminHistoryScreen = ({
   onBack,
   onSosDetail,
+  token,
 }) => {
   const [search, setSearch] = useState('');
   const [selectedFilter, setSelectedFilter] =
     useState('All');
 
-  const historyData = [
-    {
-      id: 101,
-      userName: 'Sheraz Ali',
-      initials: 'SA',
-      location: 'Blue Area, Islamabad',
-      date: 'August 24, 2026',
-      time: '10:42 AM',
-      status: 'Resolved',
-      duration: '18 min',
-      priority: 'High',
-      color: '#E4002B',
-    },
-    {
-      id: 102,
-      userName: 'Ali Shah',
-      initials: 'AS',
-      location: 'F-7 Markaz, Islamabad',
-      date: 'August 24, 2026',
-      time: '09:15 AM',
-      status: 'Resolved',
-      duration: '12 min',
-      priority: 'High',
-      color: '#2777D3',
-    },
-    {
-      id: 103,
-      userName: 'Waqas Bashir',
-      initials: 'WB',
-      location: 'G-11, Islamabad',
-      date: 'August 23, 2026',
-      time: '08:35 PM',
-      status: 'Resolved',
-      duration: '8 min',
-      priority: 'Normal',
-      color: '#D88900',
-    },
-    {
-      id: 104,
-      userName: 'Noman Khan',
-      initials: 'NK',
-      location: 'F-6, Islamabad',
-      date: 'August 23, 2026',
-      time: '05:20 PM',
-      status: 'Cancelled',
-      duration: '3 min',
-      priority: 'Normal',
-      color: '#5B67D8',
-    },
-    {
-      id: 105,
-      userName: 'Hamza Ahmed',
-      initials: 'HA',
-      location: 'I-8 Markaz, Islamabad',
-      date: 'August 22, 2026',
-      time: '11:10 PM',
-      status: 'Resolved',
-      duration: '21 min',
-      priority: 'High',
-      color: '#22A06B',
-    },
-    {
-      id: 106,
-      userName: 'Ahmed Khan',
-      initials: 'AK',
-      location: 'G-9 Markaz, Islamabad',
-      date: 'August 22, 2026',
-      time: '04:42 PM',
-      status: 'Cancelled',
-      duration: '2 min',
-      priority: 'Normal',
-      color: '#7656D6',
-    },
-    {
-      id: 107,
-      userName: 'Usman Tariq',
-      initials: 'UT',
-      location: 'F-10 Markaz, Islamabad',
-      date: 'August 21, 2026',
-      time: '07:25 PM',
-      status: 'Resolved',
-      duration: '15 min',
-      priority: 'High',
-      color: '#E26D5A',
-    },
-    {
-      id: 108,
-      userName: 'Bilal Ahmed',
-      initials: 'BA',
-      location: 'G-8, Islamabad',
-      date: 'August 21, 2026',
-      time: '02:10 PM',
-      status: 'Resolved',
-      duration: '9 min',
-      priority: 'Normal',
-      color: '#22A6B3',
-    },
-  ];
+  const [historyData, setHistoryData] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    listSos(token, {limit: 100}, {forceRefresh: true})
+      .then(result => {
+        if (!mounted) return;
+        const rows = (result?.sos || []).map(record => {
+          const name = record.userId?.username || 'CoGG Safe user';
+          const statusRaw = String(record.status || '').toLowerCase();
+          return {
+            ...record,
+            id: record._id || record.id,
+            userName: name,
+            initials: name.slice(0, 2).toUpperCase(),
+            location: record.location?.latitude != null && record.location?.longitude != null
+              ? `${Number(record.location.latitude).toFixed(5)}, ${Number(record.location.longitude).toFixed(5)}`
+              : 'Location unavailable',
+            date: record.createdAt ? new Date(record.createdAt).toLocaleDateString() : 'Date unavailable',
+            time: record.createdAt ? new Date(record.createdAt).toLocaleTimeString() : 'Time unavailable',
+            status: statusRaw === 'deactivated' ? 'Resolved' : statusRaw === 'cancelled' ? 'Cancelled' : statusRaw === 'active' ? 'Active' : (record.status || 'Unknown'),
+            duration: record.activatedAt && record.resolvedAt ? `${Math.max(0, Math.round((new Date(record.resolvedAt) - new Date(record.activatedAt)) / 60000))} min` : '—',
+            priority: 'High',
+          };
+        });
+        setHistoryData(rows);
+        setError('');
+      })
+      .catch(err => mounted && setError(err.message || 'Unable to load SOS history.'))
+      .finally(() => mounted && setLoading(false));
+    return () => { mounted = false; };
+  }, [token]);
 
   const filters = [
     'All',
@@ -555,6 +495,9 @@ const AdminHistoryScreen = ({
 };
 
 const styles = StyleSheet.create({
+  topLoading: {height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0F2'},
+  topLoadingText: {marginLeft: 8, fontSize: 12, color: '#E4002B', fontWeight: '600'},
+  errorText: {paddingHorizontal: 16, paddingVertical: 8, color: '#B42318', fontSize: 12},
   safeArea: {
     flex: 1,
     backgroundColor: '#F7F7F8',

@@ -30,8 +30,10 @@ const AdminSosScreen = ({
   const [activeFilter, setActiveFilter] = useState('All');
   const [sosAlerts, setSosAlerts] = useState(() => sosSnapshots.get(token) || []);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
       const response = await listSos(token, {limit: 50}, {forceRefresh: true});
       const nextAlerts = (response?.sos || []).map(record => {
@@ -61,7 +63,7 @@ const AdminSosScreen = ({
           userName: record.userId?.username || 'CoGG Safe user',
           mobileNumber: record.userId?.mobileNumber || 'Mobile unavailable',
           initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
-          collectionName: record.collectionId?.name || 'Assigned collection',
+          collectionName: record.collectionId?.name || 'Assigned group',
           location: hasLocation 
             ? `${record.location.latitude.toFixed(5)}, ${record.location.longitude.toFixed(5)}` 
             : 'Location unavailable',
@@ -77,6 +79,8 @@ const AdminSosScreen = ({
       setSosAlerts(nextAlerts);
     } catch (requestError) {
       setError(requestError.message || 'Unable to load SOS alerts.');
+    } finally {
+      setLoading(false);
     }
   }, [token]);
 
@@ -106,7 +110,7 @@ const AdminSosScreen = ({
           userName: record.userId?.username || 'CoGG Safe user',
           mobileNumber: record.userId?.mobileNumber || 'Mobile unavailable',
           initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
-          collectionName: record.collectionId?.name || 'Assigned collection',
+          collectionName: record.collectionId?.name || 'Assigned group',
           location: hasLocation 
             ? `${record.location.latitude.toFixed(5)}, ${record.location.longitude.toFixed(5)}` 
             : 'Location unavailable',
@@ -119,7 +123,7 @@ const AdminSosScreen = ({
         };
       }));
     }
-    if (!sosSnapshots.has(token)) refresh().catch(requestError => setError(requestError.message || 'Unable to load SOS alerts.'));
+    refresh().catch(requestError => setError(requestError.message || 'Unable to load SOS alerts.'));
     const subscription = AppState.addEventListener('change', nextState => {
       if (nextState === 'active') refresh().catch(() => undefined);
     });
@@ -393,6 +397,8 @@ const AdminSosScreen = ({
 };
 
 const styles = StyleSheet.create({
+  topLoading: {height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0F2'},
+  topLoadingText: {marginLeft: 8, fontSize: 12, color: '#E4002B', fontWeight: '600'},
   safeArea: {
     flex: 1,
     backgroundColor: '#F7F7F8',

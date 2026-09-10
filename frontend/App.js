@@ -71,6 +71,7 @@ import {recordEmergencyAudio} from './src/features/sos/services/audioService';
 import {emitSosDiagnostic} from './src/features/sos/services/sosDiagnosticService';
 import {reportServiceResult} from './src/features/sos/services/backendSyncService';
 import {listContacts, listNotifications, stopLiveLocation, getSos} from './src/api/resources';
+import {getCurrentUser} from './src/api/auth';
 import {rememberCredential} from './src/utils/adminCredentials';
 
 import {connectivityService} from './src/features/sos/connectivity';
@@ -88,7 +89,7 @@ import {
 // ============================================================
 
 function AppContent() {
-  const {token, user, loading, signIn, signOut} = useAuth();
+  const {token, user, loading, signIn, signOut, updateUser} = useAuth();
 
   const [screen, setScreen] = useState('loading');
   const [portal, setPortal] = useState('admin');
@@ -333,12 +334,12 @@ function AppContent() {
             sms: async (item, event) => {
               let recipients = event.meta?.smsRecipients || [];
               if (!recipients.length) {
-                const cachedMembers = await sosLocalStore.getCachedCollectionMembers(user?.collectionId);
+                const cachedMembers = await sosLocalStore.getCachedCollectionMembers(sosUser?.collectionId);
                 recipients = cachedMembers.map(member => member?.mobileNumber).filter(Boolean);
               }
               if (!recipients.length) {
                 try {
-                  const result = await listContacts(token);
+                  const result = await listContacts(token, undefined, {forceRefresh: true});
                   const members = result?.contacts || result?.users || result || [];
                   if (Array.isArray(members)) {
                     await sosLocalStore.setCachedCollectionMembers(user?.collectionId, members);
@@ -364,6 +365,14 @@ function AppContent() {
             },
 
             linkSms: async (item, event) => {
+              // The primary emergency SMS is the authoritative direct-SIM message.
+              // Do not send a second SMS to the same recipients when that primary
+              // transmission has already completed; this was causing occasional
+              // duplicate SMS deliveries. The tracking link remains available in
+              // the SOS/notification UI.
+              if (event.services?.sms?.status === 'COMPLETED') {
+                return {status: 'COMPLETED', reason: 'Primary emergency SMS already sent; duplicate link SMS suppressed.'};
+              }
               if (!event.emergencyLink) {
                 return {status: 'WAITING_FOR_LINK', reason: 'Waiting for the backend emergency link.'};
               }
@@ -617,6 +626,7 @@ function AppContent() {
         break;
 
       case 'Collections':
+      case 'Groups':
         setScreen('adminCollections');
         break;
 
@@ -655,7 +665,23 @@ function AppContent() {
     if (__DEV__) console.log('[SOS_DEBUG] TRIGGER_START', {timestamp: new Date().toISOString()});
 
     try {
-      let collection = await sosLocalStore.getCachedCollectionInfo(user?.collectionId);
+      // Always resolve the latest profile before an SOS. This prevents an older
+      // in-memory/default emergency message from being sent after the user
+      // updates the template in Profile.
+      let sosUser = user;
+      if (token) {
+        try {
+          const meResult = await getCurrentUser(token);
+          if (meResult?.user) {
+            sosUser = {...user, ...meResult.user, collection: meResult.collection || meResult.user?.collection || user?.collection || null};
+            updateUser?.(sosUser);
+          }
+        } catch (profileError) {
+          if (__DEV__) console.log('[SOS] PROFILE_REFRESH_FAILED', profileError?.message || profileError);
+        }
+      }
+
+      let collection = await sosLocalStore.getCachedCollectionInfo(sosUser?.collectionId);
       if (collection?.collection) collection = collection.collection;
 
       // Start resolving collection SMS recipients immediately, in parallel
@@ -664,7 +690,7 @@ function AppContent() {
       // all active members of the triggering user's collection except the
       // triggering user.
       const collectionSmsRecipientsPromise = (async () => {
-        const cachedMembers = await sosLocalStore.getCachedCollectionMembers(user?.collectionId);
+        const cachedMembers = await sosLocalStore.getCachedCollectionMembers(sosUser?.collectionId);
         const cachedRecipients = cachedMembers.map(item => item?.mobileNumber).filter(Boolean);
         try {
           const result = await listContacts(token);
@@ -673,7 +699,7 @@ function AppContent() {
             ? members.map(item => item?.mobileNumber || item?.phone || item?.phoneNumber).filter(Boolean)
             : [];
           if (Array.isArray(members)) {
-            await sosLocalStore.setCachedCollectionMembers(user?.collectionId, members);
+            await sosLocalStore.setCachedCollectionMembers(sosUser?.collectionId, members);
           }
           return freshRecipients.length ? freshRecipients : cachedRecipients;
         } catch (error) {
@@ -683,8 +709,8 @@ function AppContent() {
       })();
 
       const result = await activateSosFlow({
-        userId: user?._id || user?.id,
-        collectionId: user?.collectionId,
+        userId: sosUser?._id || sosUser?.id,
+        collectionId: sosUser?.collectionId,
         cancelSignal: sosCancelSignalRef.current,
         silent,
         onPending: async event => {
@@ -719,16 +745,11 @@ function AppContent() {
               : (event.meta?.smsRecipients || []);
 
             const message = String(
-              user?.emergencyMessage ||
-              `I am ${user?.username || 'the user'}. I may be in danger. Please help me.`
-            ).replace(/\[Username\]/gi, user?.username || 'the user');
+              sosUser?.emergencyMessage ||
+              `I am ${sosUser?.username || 'the user'}. I may be in danger. Please help me.`
+            ).replace(/\[Username\]/gi, sosUser?.username || 'the user');
 
-            let selectedSubscriptionId = null;
-            try {
-              selectedSubscriptionId = await chooseSmsSubscription({forcePrompt: true});
-            } catch (_) {
-              selectedSubscriptionId = null;
-            }
+            const selectedSubscriptionId = -1;
 
             if (recipients.length) {
               await sosLocalStore.upsertSos({
@@ -1034,6 +1055,7 @@ function AppContent() {
             <UserContactsScreen
               token={token}
               onBack={() => setScreen('userHome')}
+              onUserUpdated={updateUser}
             />
           </AppShell>
         );

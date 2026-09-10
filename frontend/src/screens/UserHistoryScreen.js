@@ -47,7 +47,7 @@ const UserHistoryScreen = ({token, onBack, onHistoryDetail}) => {
   }, [token]);
 
   useEffect(() => {
-    loadHistory();
+    loadHistory(true);
   }, [loadHistory]);
 
   const onRefresh = () => {
@@ -93,20 +93,10 @@ const UserHistoryScreen = ({token, onBack, onHistoryDetail}) => {
   const totalCount = records.length;
 
   // ================= Loading State =================
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#E4002B" />
-          <Text style={styles.loadingText}>Loading history...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#F7F7F8" />
+      {loading ? <View style={styles.topLoading}><ActivityIndicator size="small" color="#E4002B" /><Text style={styles.topLoadingText}>Refreshing latest data...</Text></View> : null}
 
       {/* ================= HEADER ================= */}
       <View style={styles.header}>
@@ -231,6 +221,8 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#F7F7F8' },
 
   loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  topLoading: {height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0F2'},
+  topLoadingText: {marginLeft: 8, fontSize: 12, color: '#E4002B', fontWeight: '600'},
   loadingText: { marginTop: 16, fontSize: 14, color: '#6B7280', fontWeight: '600' },
 
   header: {

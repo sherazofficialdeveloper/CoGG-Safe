@@ -1,4 +1,4 @@
-import {NativeModules, Platform} from 'react-native';
+import {NativeModules, PermissionsAndroid, Platform} from 'react-native';
 import {PERMISSION_STATUS, checkPermission, requestPermission} from '../../../permissions/sosPermissions';
 import {connectivityService, getConnectivityState} from '../connectivity';
 import {sosLocalStore} from '../storage';
@@ -40,6 +40,13 @@ function normalizeCallResult(result) {
  */
 export async function getAvailableEmergencySims() {
   if (Platform.OS !== 'android') return [];
+  // SIM mapping uses Android's subscription APIs, which require READ_PHONE_STATE.
+  // Request it only when SOS telephony is actually being executed.
+  if (PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE) {
+    try {
+      await requestPermission(PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE);
+    } catch (_) {}
+  }
   const emergencyMedia = NativeModules?.EmergencyMedia;
   if (!emergencyMedia || typeof emergencyMedia.getAvailableSims !== 'function') return [];
   try {
@@ -87,6 +94,13 @@ export async function initiateEmergencyCall({emergencyNumber}) {
     return {status: 'UNSUPPORTED', reason: 'Emergency call is only supported on Android devices.'};
   }
 
+  // Required to map Android's PhoneAccountHandle to the exact SIM 1 subscription.
+  if (PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE) {
+    try {
+      await requestPermission(PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE);
+    } catch (_) {}
+  }
+
   const callPermission = 'android.permission.CALL_PHONE';
   let hasPermission = await checkPermission(callPermission);
   showCallDebug(`CALL DEBUG 3: CALL_PHONE permission = ${hasPermission}`);
@@ -112,7 +126,7 @@ export async function initiateEmergencyCall({emergencyNumber}) {
   }
 
   // SOS communication is automatic: native Android selects physical SIM 1
-  // (slot 0), or SIM 2 (slot 1) when SIM 1 is unavailable. Do not load a
+  // (slot 0) only; if SIM 1 is unavailable, native Android rejects the request Do not load a
   // previously saved SIM preference and do not open a SIM chooser.
   const preferredSubscriptionId = -1;
 

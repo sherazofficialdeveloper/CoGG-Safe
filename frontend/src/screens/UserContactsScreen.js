@@ -28,10 +28,10 @@ const UserContactsScreen = ({token, onBack}) => {
       const hasCachedContacts = Array.isArray(cached);
       if (hasCachedContacts && mounted) {
         setContacts(cached);
-        setLoading(false);
+        setLoading(true);
       }
       try {
-        const result = await listContacts(token);
+        const result = await listContacts(token, undefined, {forceRefresh: true});
         if (!mounted) return;
         const nextContacts = result.contacts || [];
         setContacts(nextContacts);
@@ -64,9 +64,9 @@ const UserContactsScreen = ({token, onBack}) => {
       <View style={styles.sectionHeader}>
         <View style={styles.sectionHeaderContent}>
           <Text style={styles.sectionLabel}>CONTACTS</Text>
-          <Text style={styles.sectionTitle}>Your collection members</Text>
+          <Text style={styles.sectionTitle}>Your group members</Text>
           <Text style={styles.sectionDescription}>
-            Users assigned to your collection can be reached here.
+            Users assigned to your group can be reached here.
           </Text>
         </View>
 
@@ -80,7 +80,7 @@ const UserContactsScreen = ({token, onBack}) => {
         {loading ? (
           <View style={styles.stateCard}>
             <ActivityIndicator color="#E4002B" />
-            <Text style={styles.stateText}>Loading collection members...</Text>
+            <Text style={styles.stateText}>Loading group members...</Text>
           </View>
         ) : error ? (
           <View style={styles.stateCard}>
@@ -88,7 +88,7 @@ const UserContactsScreen = ({token, onBack}) => {
           </View>
         ) : totalContactCount === 0 ? (
           <View style={styles.stateCard}>
-            <Text style={styles.emptyText}>No other users are assigned to your collection.</Text>
+            <Text style={styles.emptyText}>No other users are assigned to your group.</Text>
           </View>
         ) : contacts.map((contact, index) => (
           <TouchableOpacity key={contact._id} style={styles.contactCard} activeOpacity={0.82}>
@@ -103,7 +103,7 @@ const UserContactsScreen = ({token, onBack}) => {
             <View style={styles.contactInfo}>
               <View style={styles.contactNameRow}>
                 <Text style={styles.contactName} numberOfLines={1}>
-                  {contact.username || contact.name || 'Collection member'}
+                  {contact.username || contact.name || 'Group member'}
                 </Text>
               </View>
               <Text style={styles.contactRelation}>{contact.email || 'No email on file'}</Text>
@@ -131,9 +131,9 @@ const UserContactsScreen = ({token, onBack}) => {
           <Text style={styles.bottomInfoIcon}>✓</Text>
         </View>
         <View style={styles.bottomInfoContent}>
-          <Text style={styles.bottomInfoTitle}>Your collection is ready</Text>
+          <Text style={styles.bottomInfoTitle}>Your group is ready</Text>
           <Text style={styles.bottomInfoDescription}>
-            These users share the same collection access and contact record.
+            These users share the same group access and contact record.
           </Text>
         </View>
         <View style={styles.readyBadge}>
@@ -144,7 +144,7 @@ const UserContactsScreen = ({token, onBack}) => {
       <View style={styles.footer}>
         <View style={styles.footerLine} />
         <Text style={styles.footerText}>
-          Keep your collection members up to date for better safety.
+          Keep your group members up to date for better safety.
         </Text>
       </View>
     </ScrollView>

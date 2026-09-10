@@ -61,7 +61,7 @@ const AdminDashboardScreen = ({
         .map(record => ({
           id: record.id || record._id,
           userName: record.userId?.username || 'CoGG Safe user',
-          collectionName: record.collectionId?.name || 'Assigned collection',
+          collectionName: record.collectionId?.name || 'Assigned group',
           initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
           time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
           status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Active',
@@ -85,6 +85,7 @@ const AdminDashboardScreen = ({
 
   useEffect(() => {
     let mounted = true;
+    setLoading(true);
     if (!dashboardSnapshots.has(token)) loadDashboard(() => mounted);
     else loadDashboard(() => mounted, true);
     // Keep the dashboard fresh without refetching on every state render.
@@ -128,7 +129,7 @@ const AdminDashboardScreen = ({
           {/* ================= STATS ================= */}
           <View style={styles.statsGrid}>
             <StatCard title="Total users" value={totalUsers} icon="user" loading={loading} onPress={onUsers} />
-            <StatCard title="Collections" value={totalCollections} icon="collection" loading={loading} onPress={onCollections} />
+            <StatCard title="Groups" value={totalCollections} icon="group" loading={loading} onPress={onCollections} />
             <StatCard title="Active users" value={activeUsers} icon="user" tone="success" loading={loading} onPress={onUsers} />
             <StatCard title="Inactive users" value={inactiveUsers} icon="user" tone="muted" loading={loading} onPress={onUsers} />
             <StatCard title="SOS alerts" value={totalSos} icon="sos" tone="danger" loading={loading} onPress={onSos} />
@@ -167,11 +168,11 @@ const AdminDashboardScreen = ({
               onPress={onCollections}>
 
               <View style={styles.quickActionIcon}>
-                <Icon name="collection" size={24} color="#111827" />
+                <Icon name="group" size={24} color="#111827" />
               </View>
 
               <Text style={styles.quickActionText}>
-                Collections
+                groups
               </Text>
             </TouchableOpacity>
 
@@ -203,11 +204,11 @@ const AdminDashboardScreen = ({
           <View style={styles.listHeader}>
             <View>
               <Text style={styles.sectionTitle}>
-                Collections
+                groups
               </Text>
 
               <Text style={styles.sectionSubtitle}>
-                {loading ? 'Loading collections...' : `${totalCollections} collections in the database`}
+                {loading ? 'Loading groups...' : `${totalCollections} groups in the database`}
               </Text>
             </View>
 
@@ -222,7 +223,7 @@ const AdminDashboardScreen = ({
 
           <View style={styles.collectionsList}>
             {!loading && !error && collections.length === 0 ? (
-              <Text style={styles.emptyText}>No collections have been created yet.</Text>
+              <Text style={styles.emptyText}>No groups have been created yet.</Text>
             ) : collections.slice(0, 5).map((col, index) => (
               <TouchableOpacity
                 key={col._id || col.id}
@@ -241,7 +242,7 @@ const AdminDashboardScreen = ({
                       styles.collectionAvatar,
                       styles.collectionAvatarBlue,
                     ]}>
-                    <Icon name="collection" size={22} color="#1A5FB4" />
+                    <Icon name="group" size={22} color="#1A5FB4" />
                   </View>
 
                   <View style={styles.collectionInfo}>
@@ -262,7 +263,7 @@ const AdminDashboardScreen = ({
 
                 <View style={styles.collectionRight}>
                   <View style={styles.categoryBadge}>
-                    <Text style={styles.categoryBadgeText}>Collection</Text>
+                    <Text style={styles.categoryBadgeText}>Group</Text>
                   </View>
 
                   <Text style={styles.chevron}>›</Text>

@@ -116,17 +116,6 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
   const hasAudio = !!audioMediaUrl;
   const hasImageData = hasFrontImage || hasBackImage;
 
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#E4002B" />
-          <Text style={styles.loadingText}>Loading...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.safeArea}>
       {/* Header */}
@@ -137,6 +126,8 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
         <Text style={styles.title}>Notification</Text>
         <View style={styles.headerRight} />
       </View>
+
+      {loading ? <View style={styles.topLoading}><ActivityIndicator size="small" color="#E4002B" /><Text style={styles.topLoadingText}>Refreshing latest data...</Text></View> : null}
 
       {notification ? (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -202,6 +193,8 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
 };
 
 const styles = StyleSheet.create({
+  topLoading: {height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0F2'},
+  topLoadingText: {marginLeft: 8, fontSize: 12, color: '#E4002B', fontWeight: '600'},
   safeArea: {flex: 1, backgroundColor: '#F7F7F8'},
 
   loadingContainer: {flex: 1, alignItems: 'center', justifyContent: 'center'},

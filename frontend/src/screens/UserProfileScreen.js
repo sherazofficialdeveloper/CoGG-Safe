@@ -1,5 +1,5 @@
 // UserProfileScreen.js
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {
   View,
   Text,
@@ -28,11 +28,26 @@ const UserProfileScreen = ({
   const [isEditingTemplate, setIsEditingTemplate] = useState(false);
   const [tempTemplate, setTempTemplate] = useState(emergencyMessage);
 
+  useEffect(() => {
+    const latestDefault = user?.username ? `I am ${user.username}, I may be in danger.` : '';
+    const latestMessage = user?.emergencyMessage || latestDefault;
+    setEmergencyMessage(latestMessage);
+    if (!isEditingTemplate) setTempTemplate(latestMessage);
+  }, [user?.username, user?.emergencyMessage]);
+
   const handleSaveTemplate = async () => {
     try {
-      const result = await updateMyProfile(token, {emergencyMessage: tempTemplate});
-      setEmergencyMessage(result.user.emergencyMessage || defaultEmergencyMessage);
-      onUserUpdated?.(result.user);
+      const messageToSave = tempTemplate.trim();
+      if (!messageToSave) {
+        Alert.alert('Message required', 'Please enter an emergency message.');
+        return;
+      }
+      const result = await updateMyProfile(token, {emergencyMessage: messageToSave});
+      const updatedUser = result?.user || result?.data || result;
+      const savedMessage = updatedUser?.emergencyMessage || messageToSave;
+      setEmergencyMessage(savedMessage);
+      setTempTemplate(savedMessage);
+      onUserUpdated?.(updatedUser);
       setIsEditingTemplate(false);
       Alert.alert('Success', 'Message template updated successfully.');
     } catch (error) {
@@ -67,7 +82,7 @@ const UserProfileScreen = ({
           <Text style={styles.profileEmail} numberOfLines={2}>
             {user?.email || 'Email not configured'} · {user?.mobileNumber || 'Mobile not configured'}
           </Text>
-          <Text style={styles.profileEmail}>{user?.collection?.name || 'Collection not assigned'}</Text>
+          <Text style={styles.profileEmail}>{user?.collection?.name || 'Group not assigned'}</Text>
         </View>
       </View>
 

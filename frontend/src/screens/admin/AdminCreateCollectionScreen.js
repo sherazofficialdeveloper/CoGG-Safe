@@ -82,7 +82,7 @@ export default function AdminCreateCollectionScreen({onBack, onSave, token}) {
 
   const save = async () => {
     const nextErrors = {};
-    if (!name.trim() || name.trim().length < 2) nextErrors.name = 'Collection name must be at least 2 characters.';
+    if (!name.trim() || name.trim().length < 2) nextErrors.name = 'Group name must be at least 2 characters.';
     if (!/^\+?[0-9\s()-]+$/.test(emergencyCallNumber.trim())) nextErrors.emergencyCallNumber = 'Enter a valid emergency number.';
     users.forEach((user, index) => { nextErrors[`user-${index}`] = validateUser(user, index, users); });
     setErrors(nextErrors);
@@ -105,13 +105,13 @@ export default function AdminCreateCollectionScreen({onBack, onSave, token}) {
           createdUsers += 1;
         }
       } catch (userError) {
-        Alert.alert('Collection partially saved', `The collection was created, but ${createdUsers} of ${users.length} users were saved. ${userError.message || 'Please review the collection and try again.'}`);
+        Alert.alert('Group partially saved', `The group was created, but ${createdUsers} of ${users.length} users were saved. ${userError.message || 'Please review the group and try again.'}`);
         return;
       }
-      Alert.alert('Collection saved', `${createdUsers} user${createdUsers === 1 ? '' : 's'} added successfully.`);
+      Alert.alert('Group saved', `${createdUsers} user${createdUsers === 1 ? '' : 's'} added successfully.`);
       onSave?.(collection, credentials);
     } catch (requestError) {
-      Alert.alert('Unable to save collection', requestError.message || 'Please check your connection and try again.');
+      Alert.alert('Unable to save group', requestError.message || 'Please check your connection and try again.');
     } finally {
       setSubmitting(false);
     }
@@ -119,12 +119,12 @@ export default function AdminCreateCollectionScreen({onBack, onSave, token}) {
 
   return (
     <SafeAreaView style={styles.container} edges={['left', 'right', 'bottom']}>
-      <Header title="Create Collection" subtitle="Collection and members" onBack={onBack} />
+      <Header title="Create Group" subtitle="Group and members" onBack={onBack} />
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Input label="Collection / Group name" required value={name} onChangeText={setName} editable={type === 'other'} placeholder="e.g. Warehouse Team" error={errors.name} />
+          <Input label="Group / Group name" required value={name} onChangeText={setName} editable={type === 'other'} placeholder="e.g. Warehouse Team" error={errors.name} />
           
-          <Text style={styles.label}>Collection type</Text>
+          <Text style={styles.label}>Group type</Text>
           <View style={styles.typeRow}>
             {COLLECTION_TYPES.map(item => (
               <Button 
@@ -143,7 +143,7 @@ export default function AdminCreateCollectionScreen({onBack, onSave, token}) {
           {users.map((user, index) => <UserForm key={index} user={user} index={index} users={users} errors={errors[`user-${index}`] || {}} onChange={(field, value) => updateUser(index, field, value)} onRemove={() => removeUser(index)} />)}
           
           <Button title="Add User" icon="add" variant="outline" onPress={addUser} disabled={submitting} style={styles.addButton} />
-          <Button title="Save Collection" icon="save" loading={submitting} onPress={save} style={styles.saveButton} />
+          <Button title="Save Group" icon="save" loading={submitting} onPress={save} style={styles.saveButton} />
           <Button title="Cancel" variant="ghost" onPress={onBack} disabled={submitting} style={styles.cancelButton} />
         </ScrollView>
       </KeyboardAvoidingView>

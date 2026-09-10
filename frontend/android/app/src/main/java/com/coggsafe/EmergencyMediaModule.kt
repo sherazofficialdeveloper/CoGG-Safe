@@ -14,10 +14,12 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.telecom.PhoneAccountHandle
+import android.media.MediaPlayer
 import android.telecom.TelecomManager
 import android.telephony.SmsManager
 import android.location.Location
 import android.telephony.SubscriptionManager
+import android.telephony.TelephonyManager
 import android.provider.Settings
 import android.location.LocationManager
 import androidx.camera.core.CameraSelector
@@ -51,6 +53,8 @@ import java.util.concurrent.Executor
 class EmergencyMediaModule(
     private val reactContext: ReactApplicationContext
 ) : ReactContextBaseJavaModule(reactContext) {
+
+    private var fallbackMediaPlayer: MediaPlayer? = null
 
     private val executor: Executor =
         ContextCompat.getMainExecutor(reactContext)
@@ -396,24 +400,17 @@ class EmergencyMediaModule(
         try {
             ensureSmsStatusReceiverRegistered()
 
-            // ================= AUTO SIM SELECTION =================
-            // Never show a SIM chooser for SOS. Prefer physical SIM slot 1
-            // (slotIndex 0), then SIM 2 (slotIndex 1).
-            var subscriptionId = resolveSlotPreferredSubscriptionId()
-            if (subscriptionId < 0 && preferredSubscriptionId >= 0) {
-                subscriptionId = resolveActiveSubscriptionId(preferredSubscriptionId)
+            // ================= AUTO SIM 1 ONLY =================
+            // SOS must never use Android's default SIM or show a SIM chooser.
+            // Slot 0 is Android's SIM 1. If SIM 1 is not active, fail instead
+            // of silently routing the emergency SMS through another SIM.
+            val subscriptionId = resolveSimOneSubscriptionId()
+            if (subscriptionId < 0) {
+                throw IllegalStateException("SIM 1 is not available on this device.")
             }
-            Log.i("EmergencyMedia", "[SOS][SMS] Auto-selected subscriptionId=$subscriptionId")
+            Log.i("EmergencyMedia", "[SOS][SMS] Auto-selected SIM 1 subscriptionId=$subscriptionId")
 
-            val smsManager = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (subscriptionId > 0) {
-                    android.telephony.SmsManager.getSmsManagerForSubscriptionId(subscriptionId)
-                } else {
-                    android.telephony.SmsManager.getDefault()
-                }
-            } else {
-                android.telephony.SmsManager.getDefault()
-            }
+            val smsManager = android.telephony.SmsManager.getSmsManagerForSubscriptionId(subscriptionId)
             Log.i("EmergencyMedia", "[SOS][SMS] SmsManager initialized subscriptionId=$subscriptionId")
 
             val sentAction = Intent("SOS_SMS_SENT").apply {
@@ -535,19 +532,19 @@ class EmergencyMediaModule(
                 throw IllegalStateException("Telecom service is unavailable on this device.")
             }
 
-            val selectedSubscriptionId = resolveSlotPreferredSubscriptionId()
+            val selectedSubscriptionId = resolveSimOneSubscriptionId()
+            if (selectedSubscriptionId < 0) {
+                throw IllegalStateException("SIM 1 is not available on this device.")
+            }
             val phoneAccount = findPhoneAccountForSubscription(telecomManager, selectedSubscriptionId)
+                ?: throw IllegalStateException("Android did not expose a call account for SIM 1.")
 
             val callUri = Uri.parse("tel:$cleanNumber")
-            val extras = android.os.Bundle()
-            if (phoneAccount != null) {
-                extras.putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, phoneAccount)
-                Log.i("EmergencyMedia", "[SOS][CALL] Auto-selected SIM subscriptionId=$selectedSubscriptionId account=${phoneAccount.id}")
-                emitDiagnostic("CALL_NATIVE 03: SIM ${if (selectedSubscriptionId >= 0) selectedSubscriptionId else "auto"} selected")
-            } else {
-                Log.w("EmergencyMedia", "[SOS][CALL] Matching SIM phone account unavailable; using device telephony default")
-                emitDiagnostic("CALL_NATIVE 03: matching SIM account unavailable; using device default", "error")
+            val extras = android.os.Bundle().apply {
+                putParcelable(TelecomManager.EXTRA_PHONE_ACCOUNT_HANDLE, phoneAccount)
             }
+            Log.i("EmergencyMedia", "[SOS][CALL] Auto-selected SIM 1 subscriptionId=$selectedSubscriptionId account=${phoneAccount.id}")
+            emitDiagnostic("CALL_NATIVE 03: SIM 1 selected")
 
             telecomManager.placeCall(callUri, extras)
             Log.i("EmergencyMedia", "[SOS][CALL] TelecomManager.placeCall requested")
@@ -585,28 +582,30 @@ class EmergencyMediaModule(
         }
     }
 
-    private fun resolveSlotPreferredSubscriptionId(): Int {
-        val active = getActiveSubscriptionsBySlot()
-        if (active.isEmpty()) return -1
-        val slotOne = active.firstOrNull { it.simSlotIndex == 0 }
-        if (slotOne != null) return slotOne.subscriptionId
-        val slotTwo = active.firstOrNull { it.simSlotIndex == 1 }
-        return slotTwo?.subscriptionId ?: active.first().subscriptionId
-    }
-
-    private fun resolveActiveSubscriptionId(subscriptionId: Int): Int {
-        if (subscriptionId < 0) return -1
-        return getActiveSubscriptionsBySlot().firstOrNull { it.subscriptionId == subscriptionId }?.subscriptionId ?: -1
+    private fun resolveSimOneSubscriptionId(): Int {
+        return getActiveSubscriptionsBySlot()
+            .firstOrNull { it.simSlotIndex == 0 }
+            ?.subscriptionId
+            ?: -1
     }
 
     private fun findPhoneAccountForSubscription(telecomManager: TelecomManager, subscriptionId: Int): PhoneAccountHandle? {
         if (subscriptionId < 0) return null
         return try {
+            val telephonyManager = reactContext.getSystemService(TelephonyManager::class.java)
             telecomManager.callCapablePhoneAccounts.firstOrNull { handle ->
-                handle.id == subscriptionId.toString()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    try {
+                        telephonyManager?.getSubscriptionId(handle) == subscriptionId
+                    } catch (_: SecurityException) {
+                        handle.id == subscriptionId.toString()
+                    }
+                } else {
+                    handle.id == subscriptionId.toString()
+                }
             }
         } catch (error: Exception) {
-            Log.w("EmergencyMedia", "[SOS][CALL] Could not match PhoneAccountHandle", error)
+            Log.w("EmergencyMedia", "[SOS][CALL] Could not match SIM 1 PhoneAccountHandle", error)
             null
         }
     }
@@ -744,8 +743,16 @@ class EmergencyMediaModule(
                     throw IllegalStateException("Media request was rejected (HTTP $status).")
                 }
 
+                val contentType = connection.contentType?.lowercase().orEmpty()
+                if (contentType.startsWith("application/json") || contentType.startsWith("text/")) {
+                    throw IllegalStateException("The media endpoint returned a non-media response ($contentType).")
+                }
+
                 val extension = when {
                     mediaUrl.contains("/frontImage/") || mediaUrl.contains("/backImage/") -> "jpg"
+                    contentType.contains("mpeg") -> "mp3"
+                    contentType.contains("wav") -> "wav"
+                    contentType.contains("3gpp") -> "3gp"
                     else -> "m4a"
                 }
                 val fileName = "sos-media-${mediaUrl.hashCode().toUInt().toString(16)}.$extension"
@@ -765,6 +772,71 @@ class EmergencyMediaModule(
                 connection?.disconnect()
             }
         }.start()
+    }
+
+    // ================= Audio playback fallback =================
+    @ReactMethod
+    fun getAudioDuration(filePath: String, promise: Promise) {
+        if (filePath.isBlank()) {
+            promise.reject("E_AUDIO_PATH", "Audio file path is required.")
+            return
+        }
+        try {
+            val player = MediaPlayer()
+            player.setDataSource(filePath.removePrefix("file://"))
+            player.prepare()
+            val duration = player.duration
+            player.release()
+            promise.resolve(duration)
+        } catch (error: Exception) {
+            promise.reject("E_AUDIO_DURATION", "Unable to read audio duration.", error)
+        }
+    }
+
+    @ReactMethod
+    fun playAudioFile(filePath: String, promise: Promise) {
+        if (filePath.isBlank()) {
+            promise.reject("E_AUDIO_PATH", "Audio file path is required.")
+            return
+        }
+        try {
+            try { fallbackMediaPlayer?.stop() } catch (_: Exception) {}
+            try { fallbackMediaPlayer?.release() } catch (_: Exception) {}
+            fallbackMediaPlayer = MediaPlayer().apply {
+                setDataSource(filePath.removePrefix("file://"))
+                setOnPreparedListener { mediaPlayer ->
+                    mediaPlayer.start()
+                    promise.resolve(true)
+                }
+                setOnCompletionListener { mediaPlayer ->
+                    try { mediaPlayer.release() } catch (_: Exception) {}
+                    if (fallbackMediaPlayer === mediaPlayer) fallbackMediaPlayer = null
+                }
+                setOnErrorListener { mediaPlayer, what, extra ->
+                    try { mediaPlayer.release() } catch (_: Exception) {}
+                    if (fallbackMediaPlayer === mediaPlayer) fallbackMediaPlayer = null
+                    false
+                }
+                prepareAsync()
+            }
+        } catch (error: Exception) {
+            try { fallbackMediaPlayer?.release() } catch (_: Exception) {}
+            fallbackMediaPlayer = null
+            promise.reject("E_AUDIO_PLAY", "Unable to play audio file.", error)
+        }
+    }
+
+    @ReactMethod
+    fun stopAudioFile(promise: Promise) {
+        try {
+            try { fallbackMediaPlayer?.stop() } catch (_: Exception) {}
+            try { fallbackMediaPlayer?.release() } catch (_: Exception) {}
+            fallbackMediaPlayer = null
+            promise.resolve(true)
+        } catch (error: Exception) {
+            fallbackMediaPlayer = null
+            promise.reject("E_AUDIO_STOP", "Unable to stop audio.", error)
+        }
     }
 
     // ================= EXISTING: Record Audio =================

@@ -1,6 +1,6 @@
 // src/features/sos/services/smsService.js
 
-import {Alert, NativeModules, Platform} from 'react-native';
+import {Alert, NativeModules, PermissionsAndroid, Platform} from 'react-native';
 import {PERMISSION_STATUS, checkPermission, requestPermission, openSmsPermissionSettings, checkSmsPermission, getActiveSimCount, getDefaultSimId} from '../../../permissions/sosPermissions';
 import {sosLocalStore} from '../storage';
 import {emitSosDiagnostic, ensureSosNativeDiagnosticListener} from './sosDiagnosticService';
@@ -18,6 +18,13 @@ export async function sendEmergencySms({phoneNumber, message, preferredSubscript
 
   if (Platform.OS !== 'android') {
     return {status: 'UNSUPPORTED', reason: 'SMS is only supported on Android devices.'};
+  }
+
+  // Required to enumerate and select the exact SIM 1 subscription.
+  if (PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE) {
+    try {
+      await requestPermission(PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE);
+    } catch (_) {}
   }
 
   const emergencyMedia = NativeModules?.EmergencyMedia;
@@ -145,6 +152,13 @@ export {openSmsPermissionSettings};
 
 export async function chooseSmsSubscription() {
   if (Platform.OS !== 'android') return -1;
+  // SIM mapping uses Android's subscription APIs, which require READ_PHONE_STATE.
+  // Request it only when SOS telephony is actually being executed.
+  if (PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE) {
+    try {
+      await requestPermission(PermissionsAndroid.PERMISSIONS.READ_PHONE_STATE);
+    } catch (_) {}
+  }
   const module = NativeModules?.EmergencyMedia;
   if (!module || typeof module.getAvailableSims !== 'function') return -1;
   try {

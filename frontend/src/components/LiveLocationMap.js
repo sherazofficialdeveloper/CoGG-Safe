@@ -1,4 +1,4 @@
-// LiveLocationMap.js - Fixed Version
+// LiveLocationMap.js - WebView Version (No compilation issues)
 import React, {useEffect, useState, useRef} from 'react';
 import {
   View,
@@ -7,10 +7,11 @@ import {
   StyleSheet,
   Dimensions,
   ActivityIndicator,
-  Platform,
+  // Platform, // Unused - removed
 } from 'react-native';
 import {WebView} from 'react-native-webview';
 import Icon from 'react-native-vector-icons/MaterialIcons';
+// import {API_BASE_URL} from '../api/config'; // Unused - removed
 import {getLiveLocation} from '../api/resources';
 
 const {width: screenWidth} = Dimensions.get('window');
@@ -38,9 +39,10 @@ const LiveLocationMap = ({
 
   const liveActive = String(liveLocationStatus || '').toLowerCase() === 'active';
 
-  const displayLat = liveLocation?.lat ?? liveLocation?.latitude ?? initialLocation?.lat ?? initialLocation?.latitude ?? null;
-  const displayLng = liveLocation?.lng ?? liveLocation?.longitude ?? initialLocation?.lng ?? initialLocation?.longitude ?? null;
-  const displayAccuracy = liveLocation?.accuracy ?? initialLocation?.accuracy ?? null;
+  const latestLocation = liveLocation || initialLocation || null;
+  const displayLat = latestLocation?.lat ?? latestLocation?.latitude ?? null;
+  const displayLng = latestLocation?.lng ?? latestLocation?.longitude ?? null;
+  const displayAccuracy = latestLocation?.accuracy ?? null;
 
   const hasLocation = displayLat !== null && displayLng !== null
     && !isNaN(displayLat) && !isNaN(displayLng)
@@ -118,6 +120,7 @@ const LiveLocationMap = ({
     };
   }, [sosId, token]);
 
+  // ================= Open Location =================
   // ================= Get Speed =================
   const getSpeedDisplay = () => {
     if (currentSpeed > 0) {
@@ -164,7 +167,7 @@ const LiveLocationMap = ({
           @keyframes pulse {
             0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(26, 115, 232, 0.6); }
             50% { transform: scale(1.3); box-shadow: 0 0 0 20px rgba(26, 115, 232, 0); }
-            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(26, 115, 232, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(228, 0, 43, 0); }
           }
           .accuracy-circle {
             position: absolute;
@@ -185,15 +188,18 @@ const LiveLocationMap = ({
             zoom: 16
           });
 
+          // ================= TILE LAYER =================
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '© OpenStreetMap'
           }).addTo(map);
 
+          // ================= ZOOM CONTROLS =================
           L.control.zoom({
             position: 'topright'
           }).addTo(map);
 
+          // ================= ACCURACY CIRCLE =================
           var accuracyCircle = L.circle([${lat}, ${lng}], {
             radius: ${displayAccuracy || 50},
             color: '#1A73E8',
@@ -202,6 +208,7 @@ const LiveLocationMap = ({
             weight: 1
           }).addTo(map);
 
+          // ================= CUSTOM MARKER =================
           var customIcon = L.divIcon({
             html: '<div class="marker-pulse"></div>',
             className: 'custom-marker',
@@ -214,6 +221,7 @@ const LiveLocationMap = ({
             title: 'Emergency Location'
           }).addTo(map);
 
+          // ================= UPDATE LOCATION =================
           function updateLocation(data) {
             if (!data) return;
             
@@ -222,18 +230,22 @@ const LiveLocationMap = ({
             
             if (newLat == null || newLng == null) return;
             
+            // Update marker position
             marker.setLatLng([newLat, newLng]);
             
+            // Update accuracy circle
             var radius = data.accuracy || 50;
             accuracyCircle.setLatLng([newLat, newLng]);
             accuracyCircle.setRadius(radius);
             
+            // Smooth pan to new location
             map.panTo([newLat, newLng], {
               duration: 0.5,
               animate: true
             });
           }
 
+          // ================= WINDOW RESIZE =================
           window.addEventListener('resize', function() {
             map.invalidateSize();
           });
@@ -354,7 +366,7 @@ const LiveLocationMap = ({
           </View>
           <View style={styles.mapOverlayBottom}>
             <Text style={styles.mapOverlayAccuracy}>
-              {displayAccuracy !== null ? `±${displayAccuracy.toFixed(1)}m accuracy` : 'Accuracy: Unknown'}
+              {displayAccuracy !== null ? `±${Number(displayAccuracy).toFixed(1)}m accuracy` : 'Accuracy: Unknown'}
             </Text>
             <Text style={styles.mapOverlayTime}>
               🕐 {locationUpdateTime}
@@ -377,7 +389,7 @@ const LiveLocationMap = ({
         <View style={styles.statDivider} />
         <View style={styles.statItem}>
           <Text style={styles.statValue}>
-            {displayAccuracy !== null ? `${displayAccuracy.toFixed(0)}m` : '—'}
+            {displayAccuracy !== null ? `${Number(displayAccuracy).toFixed(0)}m` : '—'}
           </Text>
           <Text style={styles.statLabel}>Accuracy</Text>
         </View>
@@ -390,11 +402,7 @@ const LiveLocationMap = ({
 
       {/* ================= STOP SHARING BUTTON ================= */}
       {showStopButton && liveActive && (
-        <TouchableOpacity 
-          style={styles.stopButton} 
-          onPress={onStopSharing} 
-          disabled={isStopping}
-        >
+        <TouchableOpacity style={styles.stopButton} onPress={onStopSharing} disabled={isStopping}>
           <Icon name="stop-circle" size={20} color="#D9263A" />
           <Text style={styles.stopButtonText}>
             {isStopping ? 'Stopping...' : 'Stop Sharing Live Location'}
