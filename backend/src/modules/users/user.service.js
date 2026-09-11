@@ -112,6 +112,47 @@ async function updateUser(id, { username, mobileNumber, email }) {
   return user;
 }
 
+/**
+ * Self-service profile edit for the authenticated user (PATCH /users/me).
+ * Distinct from updateUser (the Admin Edit User form) because this is the
+ * ONLY place emergencyMessage is ever written - it is the single source of
+ * truth the SOS/SMS flow reads from (see
+ * frontend/src/features/sos/services/emergencyMessage.js and
+ * backend sos.service.js resolveEmergencyMessage). role/status/password/
+ * collectionId are deliberately not accepted here (also enforced by
+ * user.validation.js's updateMyProfileValidation `.not().exists()` rules),
+ * so a user can never elevate their own account through this route.
+ *
+ * ROOT CAUSE FIX: user.controller.js's updateMyProfile handler has always
+ * called `userService.updateOwnProfile(...)`, but this function did not
+ * exist on this module - every profile save (including the emergency
+ * message) threw a TypeError ("userService.updateOwnProfile is not a
+ * function"), which asyncHandler/errorHandler normalized into a generic
+ * 500 "Something went wrong". The edit still *looked* saved in the app
+ * because the client applies it to local/cached state immediately
+ * (offline-first UI update) before attempting the network call - but the
+ * backend never actually persisted it, and the user was shown that
+ * generic failure right after. This is the fix: an actual working
+ * implementation of the missing function, following the exact same
+ * pattern as updateUser above, plus the emergencyMessage field.
+ */
+async function updateOwnProfile(id, { username, mobileNumber, email, emergencyMessage }) {
+  const user = await getUserById(id);
+
+  if (username !== undefined) user.username = username;
+  if (mobileNumber !== undefined) user.mobileNumber = mobileNumber;
+  if (email !== undefined) {
+    user.email = email === null || email === '' ? undefined : email;
+  }
+  if (emergencyMessage !== undefined) {
+    const trimmed = typeof emergencyMessage === 'string' ? emergencyMessage.trim() : emergencyMessage;
+    user.emergencyMessage = trimmed === null || trimmed === '' ? undefined : trimmed;
+  }
+
+  await user.save();
+  return user;
+}
+
 async function setPassword(id, newPassword) {
   const user = await getUserById(id);
   await user.setPassword(newPassword);
@@ -172,6 +213,7 @@ module.exports = {
   listContacts,
   getUserById,
   updateUser,
+  updateOwnProfile,
   setPassword,
   getCredentials,
   activateUser,

@@ -49,6 +49,14 @@ export async function syncSosToBackend({
 
   const payload = {
     idempotencyKey: idempotencyKey || sosEvent.id,
+    // Single source of truth: the exact message snapshotted onto this SOS
+    // event when it was triggered (see App.js onPending), which is also
+    // exactly what was sent in the first emergency SMS. The backend/admin
+    // SOS detail must never fall back to its own default text when this
+    // is present.
+    ...(typeof sosEvent.meta?.emergencyMessage === 'string' && sosEvent.meta.emergencyMessage.trim()
+      ? {emergencyMessage: sosEvent.meta.emergencyMessage.trim()}
+      : {}),
     location: isValidLocation(sosEvent.location)
       ? {
           latitude: sosEvent.location.latitude,

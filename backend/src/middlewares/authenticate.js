@@ -23,9 +23,23 @@ const { USER_STATUS } = require('../constants/sosConstants');
 async function authenticate(req, res, next) {
   try {
     const header = req.headers.authorization || '';
-    const [scheme, token] = header.split(' ');
+    const [scheme, headerToken] = header.split(' ');
 
-    if (scheme !== 'Bearer' || !token) {
+    // Media file requests (e.g. the mobile app's <AudioPlayer>/native
+    // downloader hitting GET /sos/:id/media/:component/file) cannot always
+    // attach an Authorization header — some fallback code paths and native
+    // media players can only load a bare URL. Those callers append the JWT
+    // as ?token=... instead. Without this fallback, that query token was
+    // dead code (see sos.controller.js's getMediaFile, which already tried
+    // to read req.query.token but never received a request that reached it,
+    // since this middleware rejected header-less requests before the
+    // controller ever ran) and every such request was silently rejected
+    // with 401 — surfacing on mobile as "Audio is unavailable" even though
+    // the exact same file streamed fine on the public emergency-token page
+    // (a different, intentionally unauthenticated route).
+    const token = (scheme === 'Bearer' && headerToken) ? headerToken : (req.query.token || null);
+
+    if (!token) {
       throw ApiError.unauthorized('Authentication token missing');
     }
 

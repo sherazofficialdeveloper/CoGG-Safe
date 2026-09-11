@@ -9,9 +9,12 @@ import {
   Switch,
   Alert,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import Icon from '../components/Icon';
 import {updateMyProfile} from '../api/resources';
+import {getUserEmergencyMessage} from '../features/sos/services/emergencyMessage';
+import {savePendingProfileUpdate, clearPendingProfileUpdate} from '../features/profile/profileSync';
 
 const UserProfileScreen = ({
   user,
@@ -22,36 +25,67 @@ const UserProfileScreen = ({
 }) => {
   const [offlineSmsEnabled, setOfflineSmsEnabled] = useState(true);
   const [dailyAlarmEnabled, setDailyAlarmEnabled] = useState(true);
-  const defaultEmergencyMessage = user?.username ? `I am ${user.username}, I may be in danger.` : '';
-  const [emergencyMessage, setEmergencyMessage] = useState(user?.emergencyMessage || defaultEmergencyMessage);
+  // Single source of truth: the same helper used to build the actual SOS
+  // SMS text, so the profile screen can never show different wording than
+  // what actually gets sent.
+  const [emergencyMessage, setEmergencyMessage] = useState(getUserEmergencyMessage(user));
 
   const [isEditingTemplate, setIsEditingTemplate] = useState(false);
   const [tempTemplate, setTempTemplate] = useState(emergencyMessage);
+  // Tracks the in-flight backend sync only - the local/offline save this
+  // gates is already applied synchronously before this becomes true, so it
+  // never blocks the user from seeing their new message.
+  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
 
   useEffect(() => {
-    const latestDefault = user?.username ? `I am ${user.username}, I may be in danger.` : '';
-    const latestMessage = user?.emergencyMessage || latestDefault;
+    const latestMessage = getUserEmergencyMessage(user);
     setEmergencyMessage(latestMessage);
     if (!isEditingTemplate) setTempTemplate(latestMessage);
   }, [user?.username, user?.emergencyMessage]);
 
   const handleSaveTemplate = async () => {
+    if (isSavingTemplate) return; // guard against duplicate taps while a save is already in flight
+    const messageToSave = tempTemplate.trim();
+    if (!messageToSave) {
+      Alert.alert('Message required', 'Please enter an emergency message.');
+      return;
+    }
+
+    // 1. Apply locally immediately. The user's edit must never be lost or
+    // silently reverted just because the network request that follows is
+    // slow or fails.
+    setEmergencyMessage(messageToSave);
+    setTempTemplate(messageToSave);
+    onUserUpdated?.({emergencyMessage: messageToSave});
+    setIsEditingTemplate(false);
+    await savePendingProfileUpdate({emergencyMessage: messageToSave});
+
+    // 2. Try to sync with the backend right away. isSavingTemplate only
+    // covers this network round-trip (the message the user sees is already
+    // updated above), and drives the spinner shown next to EDIT/SAVE below.
+    setIsSavingTemplate(true);
     try {
-      const messageToSave = tempTemplate.trim();
-      if (!messageToSave) {
-        Alert.alert('Message required', 'Please enter an emergency message.');
-        return;
-      }
       const result = await updateMyProfile(token, {emergencyMessage: messageToSave});
       const updatedUser = result?.user || result?.data || result;
-      const savedMessage = updatedUser?.emergencyMessage || messageToSave;
-      setEmergencyMessage(savedMessage);
-      setTempTemplate(savedMessage);
-      onUserUpdated?.(updatedUser);
-      setIsEditingTemplate(false);
-      Alert.alert('Success', 'Message template updated successfully.');
+      await clearPendingProfileUpdate();
+      onUserUpdated?.(updatedUser || {emergencyMessage: messageToSave});
     } catch (error) {
-      Alert.alert('Unable to save message', error.message || 'Please try again.');
+      if (!error?.status || error.status === 0) {
+        // Offline / server unreachable - keep the local value and the
+        // pending record; it will sync automatically once the network
+        // returns (see profileSync.flushPendingProfileUpdate, triggered
+        // by App.js's connectivity listener). This is expected, not a
+        // failure, so it must never surface as an error to the user.
+      } else {
+        // A genuine rejection from the server (validation, auth, etc.) -
+        // surface the real reason instead of a generic error, and don't
+        // keep retrying a payload the server has already rejected. The
+        // locally-applied message (step 1) stays in effect either way.
+        await clearPendingProfileUpdate();
+        Alert.alert('Unable to sync message', error.message || 'Please try again.');
+      }
+    } finally {
+      setIsSavingTemplate(false);
     }
   };
 
@@ -125,6 +159,7 @@ const UserProfileScreen = ({
 
           <TouchableOpacity
             style={styles.editButtonContainer}
+            disabled={isSavingTemplate}
             onPress={() => {
               if (isEditingTemplate) {
                 handleSaveTemplate();
@@ -134,15 +169,19 @@ const UserProfileScreen = ({
               }
             }}
             activeOpacity={0.75}>
-            <Text style={styles.editButton}>
-              {isEditingTemplate ? 'SAVE' : 'EDIT'}
-            </Text>
+            {isSavingTemplate ? (
+              <ActivityIndicator size="small" color="#E4002B" />
+            ) : (
+              <Text style={styles.editButton}>
+                {isEditingTemplate ? 'SAVE' : 'EDIT'}
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
 
         <Text style={styles.settingTitle}>Emergency SMS Template</Text>
         <Text style={styles.settingDescription}>
-          Dynamic payload fields append automatically during transmission.
+          {isSavingTemplate ? 'Saving your message…' : 'Dynamic payload fields append automatically during transmission.'}
         </Text>
 
         {isEditingTemplate ? (
@@ -168,8 +207,13 @@ const UserProfileScreen = ({
               <TouchableOpacity
                 style={styles.saveButton}
                 onPress={handleSaveTemplate}
+                disabled={isSavingTemplate}
                 activeOpacity={0.8}>
-                <Text style={styles.saveButtonText}>Save Changes</Text>
+                {isSavingTemplate ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.saveButtonText}>Save Changes</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>

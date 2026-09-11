@@ -52,68 +52,103 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
   }
 
   // ================= Fetch SOS Detail =================
+  // Polls (not just a single fetch) while any media component is still
+  // capturing/uploading, so this screen picks up images/audio as soon as
+  // they land instead of only showing whatever existed at the moment it
+  // first opened - required since this is the screen that opens
+  // immediately after the 3-second SOS hold, when capture/upload is
+  // realistically still in progress. Polling stops on its own once every
+  // component has settled (uploaded or genuinely failed), so it never
+  // runs forever.
   useEffect(() => {
     let mounted = true;
+    let pollHandle = null;
     setLoading(true);
     setError('');
 
-    const fetchDetail = async () => {
+    const applyResult = sosData => {
+      setDetail(sosData);
+
+      // ================= Extract Media URLs =================
+      const components = sosData.components || {};
+
+      const frontComp = components.frontImage;
+      const backComp = components.backImage;
+      const audioComp = components.audio;
+
+      // ================= FIX: Check storageRef properly =================
+      const frontUrl = frontComp && frontComp.storageRef
+        ? buildMediaUrl(API_BASE_URL, recordId, 'frontImage')
+        : null;
+
+      const backUrl = backComp && backComp.storageRef
+        ? buildMediaUrl(API_BASE_URL, recordId, 'backImage')
+        : null;
+
+      const audioUrl = audioComp && audioComp.storageRef
+        ? buildMediaUrl(API_BASE_URL, recordId, 'audio')
+        : null;
+
+      console.log('[UserSosActive] Media URLs:', {frontUrl: !!frontUrl, backUrl: !!backUrl, audioUrl: !!audioUrl});
+
+      setMediaUrls({
+        front: frontUrl,
+        back: backUrl,
+        audio: audioUrl,
+      });
+
+      // ================= Extract Live Location =================
+      if (sosData.liveLocation) {
+        setLiveLocationStatus(sosData.liveLocation.status || null);
+        if (sosData.liveLocation.lastLocation) {
+          setLiveLocation(sosData.liveLocation.lastLocation);
+          setLocationUpdateTime(
+            sosData.liveLocation.lastLocation.capturedAt
+              ? new Date(sosData.liveLocation.lastLocation.capturedAt).toLocaleString()
+              : 'Just now'
+          );
+        }
+      }
+
+      // A component is still "in progress" until it either has a
+      // storageRef (uploaded) or the backend has recorded it as failed -
+      // that's exactly when polling can stop.
+      const stillPending = [frontComp, backComp, audioComp].some(component => {
+        if (component?.storageRef) return false;
+        return String(component?.status || '').toLowerCase() !== 'failed';
+      });
+      return stillPending;
+    };
+
+    const fetchDetail = async ({silent = false} = {}) => {
       try {
         const result = await getSos(token, recordId, {forceRefresh: true});
-        if (mounted && result?.sos) {
-          const sosData = result.sos;
-          setDetail(sosData);
-
-          // ================= Extract Media URLs =================
-          const components = sosData.components || {};
-          
-          const frontComp = components.frontImage;
-          const backComp = components.backImage;
-          const audioComp = components.audio;
-
-          // ================= FIX: Check storageRef properly =================
-          const frontUrl = frontComp && frontComp.storageRef
-            ? buildMediaUrl(API_BASE_URL, recordId, 'frontImage')
-            : null;
-
-          const backUrl = backComp && backComp.storageRef
-            ? buildMediaUrl(API_BASE_URL, recordId, 'backImage')
-            : null;
-
-          const audioUrl = audioComp && audioComp.storageRef
-            ? buildMediaUrl(API_BASE_URL, recordId, 'audio')
-            : null;
-
-          console.log('[UserSosActive] Media URLs:', {frontUrl: !!frontUrl, backUrl: !!backUrl, audioUrl: !!audioUrl});
-
-          setMediaUrls({
-            front: frontUrl,
-            back: backUrl,
-            audio: audioUrl,
-          });
-
-          // ================= Extract Live Location =================
-          if (sosData.liveLocation) {
-            setLiveLocationStatus(sosData.liveLocation.status || null);
-            if (sosData.liveLocation.lastLocation) {
-              setLiveLocation(sosData.liveLocation.lastLocation);
-              setLocationUpdateTime(
-                sosData.liveLocation.lastLocation.capturedAt
-                  ? new Date(sosData.liveLocation.lastLocation.capturedAt).toLocaleString()
-                  : 'Just now'
-              );
-            }
+        if (!mounted) return;
+        if (result?.sos) {
+          const stillPending = applyResult(result.sos);
+          if (!silent) setError('');
+          if (stillPending && !pollHandle) {
+            pollHandle = setInterval(() => fetchDetail({silent: true}), 6000);
+          } else if (!stillPending && pollHandle) {
+            clearInterval(pollHandle);
+            pollHandle = null;
           }
         }
       } catch (err) {
-        if (mounted) setError(err.message || 'Unable to load SOS details.');
+        // Silent (background poll) failures - e.g. a transient offline
+        // gap - must never blank out an already-loaded screen with an
+        // error; only the very first load surfaces a failure.
+        if (mounted && !silent) setError(err.message || 'Unable to load SOS details.');
       } finally {
         if (mounted) setLoading(false);
       }
     };
 
     fetchDetail();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+      if (pollHandle) clearInterval(pollHandle);
+    };
   }, [recordId, token]);
 
   const handleStopSharing = async () => {
@@ -187,6 +222,13 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
             setLiveLocation(location);
             setLiveLocationStatus(status);
           }}
+          // This is the screen that opens immediately after the 3-second
+          // SOS hold - live location sharing and the backend SOS record
+          // may both still be starting up, so give it the bounded
+          // "Acquiring your location..." grace window instead of flashing
+          // "Location not available" before a fix has had a chance to
+          // arrive.
+          justTriggered
         />
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}

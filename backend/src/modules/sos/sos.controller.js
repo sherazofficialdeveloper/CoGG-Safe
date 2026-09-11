@@ -36,14 +36,14 @@ function withEmergencyLink(sos, req = null) {
  * set by the `authenticate` middleware from the verified token.
  */
 const createSos = asyncHandler(async (req, res) => {
-  const { idempotencyKey, location } = req.body;
+  const { idempotencyKey, location, emergencyMessage } = req.body;
   console.log('[SOS_DEBUG] CREATE_RECEIVED', {
     timestamp: new Date().toISOString(),
     userId: req.user.id,
     idempotencyKey: idempotencyKey || null,
     requestId: req.id || req.headers['x-request-id'] || null,
   });
-  const { sos, alreadyExisted } = await sosService.createSos({ userId: req.user.id, idempotencyKey, location });
+  const { sos, alreadyExisted } = await sosService.createSos({ userId: req.user.id, idempotencyKey, location, emergencyMessage });
   console.log('[SOS_DEBUG] CREATE_RESULT', {
     sosId: String(sos._id),
     status: sos.status,

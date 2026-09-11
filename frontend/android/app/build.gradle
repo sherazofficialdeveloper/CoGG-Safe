@@ -96,10 +96,85 @@ dependencies {
 
 apply from: "./vector-icons.gradle"
 
+// ROOT CAUSE FIX for:
+//   Task :app:configureCMakeRelWithDebInfo[arm64-v8a]
+//   java.io.FileNotFoundException: .../react-android-0.87.0-release/prefab/modules/reactnative/include/react/renderer/core/graphicsConversions.h
+//
+// This header is extracted by AGP's Prefab support from the react-android
+// AAR into the Gradle transforms cache (under GRADLE_USER_HOME, which this
+// project points at the project-local `android/.gradle-user-home` - see
+// gradlew.bat / CI config). That extraction is a one-time, content-addressed
+// Gradle *transform*: once the output directory for a given AAR exists,
+// Gradle treats it as complete and will NEVER re-run the transform, even if
+// the directory's contents are partial. A build that gets killed/OOM'd/
+// interrupted (low disk, CI cancellation, IDE stop) while that transform is
+// extracting the AAR's zip therefore leaves a permanently-corrupted,
+// partially-extracted `.../react-android-0.87.0-release/prefab/...` folder
+// behind - missing files like graphicsConversions.h - and every subsequent
+// build fails with the exact FileNotFoundException above, no matter how
+// many times it is retried, because Gradle keeps reusing the same broken
+// cache entry. This is NOT a version mismatch, NOT a missing NDK/CMake
+// dependency, and NOT something New Architecture/Prefab needs to be
+// disabled for - it is a corrupted local transform cache entry.
+//
+// The pre-existing patch below assumed the header already exists and only
+// rewrote its text (for the separate, unrelated std::format/NDK-C++20
+// compatibility issue). It silently did nothing when the header was
+// missing entirely, so CMake configuration went on to fail with the raw
+// FileNotFoundException. This version makes that case self-healing: if the
+// header cannot be found anywhere under GRADLE_USER_HOME, it deletes the
+// corrupted `react-android-0.87.0-release` transform output(s) so Gradle
+// is forced to re-run the AAR extraction transform from a clean state, and
+// fails the current build with a clear, actionable message instead of the
+// buried java.io.FileNotFoundException (the freshly-cleaned build must be
+// re-invoked - a transform Gradle just invalidated cannot be re-resolved
+// from inside an already-executing task in the same invocation).
+def graphicsConversionsHeaderPattern = "**/react-android-0.87.0-release/prefab/modules/reactnative/include/react/renderer/core/graphicsConversions.h"
+
 def patchReactNativeGraphicsConversions = {
-    fileTree(gradle.gradleUserHomeDir).matching {
-        include("**/react-android-0.87.0-release/prefab/modules/reactnative/include/react/renderer/core/graphicsConversions.h")
-    }.files.each { header ->
+    def matches = fileTree(gradle.gradleUserHomeDir).matching {
+        include(graphicsConversionsHeaderPattern)
+    }.files
+
+    if (matches.isEmpty()) {
+        // Header not found anywhere in the cache: either it has never been
+        // extracted yet (fine - Prefab will extract it before this task
+        // needs it) or an earlier extraction is corrupted/partial. Look for
+        // any existing (necessarily incomplete) extraction of this AAR's
+        // prefab package and remove just that cache subtree so Gradle
+        // re-extracts it cleanly, rather than nuking the whole Gradle cache.
+        def findAarRoot = { File f ->
+            def dir = f
+            while (dir != null && dir.name != "react-android-0.87.0-release") {
+                dir = dir.parentFile
+            }
+            return dir
+        }
+        def corruptedTransformDirs = fileTree(gradle.gradleUserHomeDir).matching {
+            include("**/react-android-0.87.0-release/prefab/**")
+        }.files.collect(findAarRoot).findAll { it != null }.unique()
+
+        if (!corruptedTransformDirs.isEmpty()) {
+            corruptedTransformDirs.each { dir ->
+                logger.error("[CoGGSafe] Removing corrupted/incomplete react-android-0.87.0-release prefab cache: ${dir}")
+                delete(dir)
+            }
+            throw new GradleException(
+                "The cached react-android-0.87.0-release Prefab package was incomplete " +
+                "(missing graphicsConversions.h) and has now been deleted from " +
+                "${corruptedTransformDirs[0].parentFile}. This was a corrupted Gradle " +
+                "transform cache entry, most likely left behind by a previous build that " +
+                "was interrupted (killed/out of disk/cancelled) while extracting the AAR. " +
+                "Re-run the build now (do NOT delete the whole Gradle cache) - Gradle will " +
+                "re-extract the package from scratch and this error will not recur."
+            )
+        }
+        // No cached extraction exists at all yet - nothing to patch; Prefab
+        // will extract it fresh before it's needed. Not an error.
+        return
+    }
+
+    matches.each { header ->
         def contents = header.getText("UTF-8")
         def patchedContents = contents.replace(
                 'return std::format("{}%", dimension.value);',

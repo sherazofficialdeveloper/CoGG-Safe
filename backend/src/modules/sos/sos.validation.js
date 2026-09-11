@@ -10,6 +10,18 @@ const createSosValidation = [
     .trim()
     .isLength({ min: 8, max: 128 })
     .withMessage('idempotencyKey must be between 8 and 128 characters'),
+  // Optional: the exact emergency message the client already used for the
+  // first SMS at trigger time. When present it is treated as the
+  // authoritative message for this SOS so the backend/admin record never
+  // shows different wording than what the recipients actually received.
+  // Falls back to the user's stored profile message when omitted (older
+  // clients, or other API consumers).
+  body('emergencyMessage')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ min: 1, max: 1000 })
+    .withMessage('emergencyMessage must be a non-empty string up to 1000 characters'),
   body('location').optional().isObject().withMessage('location must be an object'),
   body('location.latitude')
     .if(body('location').exists())

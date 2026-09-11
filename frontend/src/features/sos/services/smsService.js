@@ -4,6 +4,7 @@ import {Alert, NativeModules, PermissionsAndroid, Platform} from 'react-native';
 import {PERMISSION_STATUS, checkPermission, requestPermission, openSmsPermissionSettings, checkSmsPermission, getActiveSimCount, getDefaultSimId} from '../../../permissions/sosPermissions';
 import {sosLocalStore} from '../storage';
 import {emitSosDiagnostic, ensureSosNativeDiagnosticListener} from './sosDiagnosticService';
+import {getDefaultEmergencyMessage} from './emergencyMessage';
 
 export async function sendEmergencySms({phoneNumber, message, preferredSubscriptionId = null}) {
   ensureSosNativeDiagnosticListener();
@@ -99,7 +100,13 @@ export async function sendEmergencySms({phoneNumber, message, preferredSubscript
 
       const result = await emergencyMedia.sendEmergencySms(
         phoneNumber,
-        message || 'Emergency assistance requested.',
+        // Defensive only: every caller in this codebase resolves a real
+        // message via emergencyMessage.js before reaching here, so this
+        // fallback should never actually fire. It exists solely so the
+        // native bridge is never handed an empty string. It intentionally
+        // reuses the SAME canonical default (not a distinct hardcoded
+        // string) so there is still only one place that text is defined.
+        message || getDefaultEmergencyMessage(),
         selectedSubscriptionId,
       );
       if (__DEV__) console.log('[SOS_DEBUG] SMS_SEND_ATTEMPT', {recipient: `${phoneNumber.slice(0, 3)}***`});

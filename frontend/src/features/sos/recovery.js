@@ -17,6 +17,12 @@ const RECOVERABLE_SERVICES = {
   // idempotent (stable {sosId}:{type} key) so this never creates a
   // duplicate for an SOS that already has the job queued or completed.
   linkSms: 'LINK_SMS',
+  // Location follow-up SMS (only sent when the first SMS had to go out
+  // before a GPS fix existed - see App.js). Included for the same
+  // restart-safety reason as linkSms above; enqueueSosJob's idempotent
+  // {sosId}:{type} key means this is a no-op if the job already exists or
+  // already completed.
+  locationSms: 'LOCATION_SMS',
   // email/notifications are intentionally NOT recovered here: they are a
   // server-side responsibility (backend/src/modules/sos/dispatch.service.js)
   // dispatched automatically once the backend SOS is created/activated.

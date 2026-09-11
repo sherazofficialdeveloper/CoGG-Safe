@@ -78,6 +78,27 @@ import {connectivityService} from './src/features/sos/connectivity';
 import {processSosQueue} from './src/features/sos/queue/queueWorker';
 import {recoverActiveSosWork} from './src/features/sos/recovery';
 import {sosLocalStore} from './src/features/sos/storage';
+import {buildFirstEmergencySms, buildLocationFollowUpSms, getUserEmergencyMessage} from './src/features/sos/services/emergencyMessage';
+import {flushPendingProfileUpdate} from './src/features/profile/profileSync';
+
+// The first emergency SMS should include a fresh GPS fix when it can be
+// obtained quickly, but must never be held up indefinitely waiting for
+// one (GPS can occasionally take 10-30s to resolve indoors). This bounds
+// how long the SOS trigger waits for a location fix before sending the
+// first SMS with the message alone; a follow-up SMS carries the location
+// as soon as it resolves (see the `location`/`locationSms` runners).
+const FIRST_SMS_LOCATION_WAIT_MS = 6000;
+
+async function raceLocationForFirstSms(locationPromise) {
+  try {
+    return await Promise.race([
+      locationPromise,
+      new Promise(resolve => setTimeout(() => resolve(null), FIRST_SMS_LOCATION_WAIT_MS)),
+    ]);
+  } catch (error) {
+    return null;
+  }
+}
 import {
   observeFirebaseNotifications,
   registerDeviceToken,
@@ -276,6 +297,13 @@ function AppContent() {
     }
 
     const processQueue = async () => {
+      // Any profile edit (e.g. the emergency SMS message) made while
+      // offline is queued locally; flush it opportunistically whenever
+      // connectivity is (re)established, alongside the SOS queue.
+      flushPendingProfileUpdate(token, updatedUser => {
+        if (updatedUser) updateUser(updatedUser);
+      }).catch(() => undefined);
+
       try {
         emitSosDiagnostic('SOS DEBUG STARTUP 01: Queue processor invoked');
         const startupQueue = await sosLocalStore.getPendingQueue();
@@ -353,13 +381,25 @@ function AppContent() {
                 return {status: 'PENDING', reason: 'Collection SMS recipients are not available yet.'};
               }
               const latestEvent = await sosLocalStore.getSosById(event.id);
+              const current = latestEvent || event;
+              // This runs on app restart/reconnect for an SMS job that
+              // didn't go out yet (e.g. no cellular service at trigger
+              // time). By now a GPS fix may already be on the local event
+              // record, so include it using the exact same canonical
+              // builder as the live-trigger path - never a different
+              // message for a retried send.
+              const {message, includesLocation} = buildFirstEmergencySms({
+                user,
+                baseMessage: current.meta?.emergencyMessage,
+                location: isValidLocation(current.location) ? current.location : null,
+              });
               await sosLocalStore.upsertSos({
-                ...(latestEvent || event),
-                meta: {...(latestEvent || event).meta, smsRecipients: recipients},
+                ...current,
+                meta: {...current.meta, smsRecipients: recipients, firstSmsIncludedLocation: includesLocation},
               });
               return sendEmergencySmsToNumbers({
                 phoneNumbers: recipients,
-                message: String(user?.emergencyMessage || `I am ${user?.username || 'the user'}. I may be in danger. Please help me.`).replace(/\[Username\]/gi, user?.username || 'the user'),
+                message,
                 sosId: event.id,
               });
             },
@@ -403,10 +443,15 @@ function AppContent() {
             },
 
             locationSms: async (item, event) => {
-              if (!isValidLocation(event.location)) {
+              const latestEvent = await sosLocalStore.getSosById(event.id);
+              const current = latestEvent || event;
+              if (current.meta?.firstSmsIncludedLocation) {
+                return {status: 'COMPLETED', reason: 'Location was already included in the first emergency SMS.'};
+              }
+              if (!isValidLocation(current.location)) {
                 return {status: 'WAITING_FOR_LINK', reason: 'Waiting for the first valid GPS location.'};
               }
-              let recipients = event.meta?.smsRecipients || [];
+              let recipients = current.meta?.smsRecipients || [];
               if (!recipients.length) {
                 const cachedMembers = await sosLocalStore.getCachedCollectionMembers(user?.collectionId);
                 recipients = cachedMembers.map(member => member?.mobileNumber).filter(Boolean);
@@ -424,11 +469,13 @@ function AppContent() {
               if (!recipients.length) {
                 return {status: 'PENDING', reason: 'Waiting for collection SMS recipients.'};
               }
-              const mapsLink = `https://maps.google.com/?q=${event.location.latitude},${event.location.longitude}`;
-              const trackingPart = event.emergencyLink ? `\nLive tracking: ${event.emergencyLink}` : '';
+              const message = buildLocationFollowUpSms({location: current.location, emergencyLink: current.emergencyLink});
+              if (!message) {
+                return {status: 'WAITING_FOR_LINK', reason: 'Waiting for the first valid GPS location.'};
+              }
               return sendEmergencySmsToNumbers({
                 phoneNumbers: recipients,
-                message: `Current GPS location: ${mapsLink}${trackingPart}`,
+                message,
                 sosId: event.id,
                 serviceKey: 'locationSms',
               });
@@ -665,21 +712,41 @@ function AppContent() {
     if (__DEV__) console.log('[SOS_DEBUG] TRIGGER_START', {timestamp: new Date().toISOString()});
 
     try {
-      // Always resolve the latest profile before an SOS. This prevents an older
-      // in-memory/default emergency message from being sent after the user
-      // updates the template in Profile.
+      // Resolve the latest profile in the BACKGROUND, never blocking SOS
+      // activation on it. This used to be `await getCurrentUser(token)`
+      // sitting here before anything else ran - a full network round-trip
+      // (up to the client's 20s GET timeout on a poor connection) that had
+      // to finish before the local SOS event was even created, let alone
+      // before the SOS Active screen could navigate. That is the exact
+      // root cause of the reported 10-15 second delay between the
+      // 3-second hold completing and the next screen opening.
+      //
+      // The refresh is still worth doing - it catches an emergency-message
+      // edit made on another device - but Profile saves already update
+      // `user` optimistically and locally the instant they happen (see
+      // UserProfileScreen.handleSaveTemplate), so the already-cached
+      // `user` object already IS the canonical message for the
+      // overwhelming majority of triggers. Kicking this off without
+      // awaiting it lets local SOS creation and navigation proceed
+      // immediately; onPending below gives it only a short, bounded
+      // window (mirroring the same bounded-wait pattern already used for
+      // GPS in the first SMS below) before snapshotting whatever is
+      // freshest at that moment.
       let sosUser = user;
-      if (token) {
-        try {
-          const meResult = await getCurrentUser(token);
-          if (meResult?.user) {
-            sosUser = {...user, ...meResult.user, collection: meResult.collection || meResult.user?.collection || user?.collection || null};
-            updateUser?.(sosUser);
-          }
-        } catch (profileError) {
-          if (__DEV__) console.log('[SOS] PROFILE_REFRESH_FAILED', profileError?.message || profileError);
-        }
-      }
+      const profileRefreshPromise = token
+        ? getCurrentUser(token)
+            .then(meResult => {
+              if (meResult?.user) {
+                sosUser = {...user, ...meResult.user, collection: meResult.collection || meResult.user?.collection || user?.collection || null};
+                updateUser?.(sosUser);
+              }
+              return sosUser;
+            })
+            .catch(profileError => {
+              if (__DEV__) console.log('[SOS] PROFILE_REFRESH_FAILED', profileError?.message || profileError);
+              return sosUser;
+            })
+        : Promise.resolve(sosUser);
 
       let collection = await sosLocalStore.getCachedCollectionInfo(sosUser?.collectionId);
       if (collection?.collection) collection = collection.collection;
@@ -718,11 +785,31 @@ function AppContent() {
             setSelectedSos(event);
             setScreen('userSosActive');
           }
+          // Give the background profile refresh a short, bounded window to
+          // land before snapshotting - long enough to catch it on a normal
+          // connection, short enough to never meaningfully delay this
+          // (already-navigated-away-from) snapshot write. Navigation above
+          // already happened synchronously, so this wait cannot reintroduce
+          // the pre-SOS-screen delay this whole change removes.
+          await Promise.race([
+            profileRefreshPromise,
+            new Promise(resolve => setTimeout(resolve, 300)),
+          ]).catch(() => undefined);
+          // Snapshot the canonical emergency message onto the SOS event at
+          // the moment it is triggered. This is the SINGLE point where the
+          // Profile's saved message becomes "this SOS's message" - every
+          // downstream consumer (SMS runners, backend sync, admin/mobile
+          // SOS detail) reads it from here instead of re-resolving the
+          // live profile, so a later profile edit during an active SOS
+          // can never change what this specific emergency already said,
+          // and a queue retry after app restart reproduces the identical
+          // text rather than recomputing a possibly-different fallback.
           await sosLocalStore.upsertSos({
             ...event,
             meta: {
               ...event.meta,
               emergencyNumber: collection?.emergencyCallNumber || null,
+              emergencyMessage: getUserEmergencyMessage(sosUser),
             },
           });
           if (__DEV__) {
@@ -737,27 +824,50 @@ function AppContent() {
           // ------------------------------------------------------
           sms: async event => {
             // FIRST SMS: send the user's emergency message as soon as the
-            // three-second SOS hold completes. Do NOT wait for GPS, camera,
-            // backend creation, or live-location startup.
+            // three-second SOS hold completes. Do NOT wait indefinitely for
+            // GPS, camera, backend creation, or live-location startup - but
+            // DO give GPS a short, bounded window so the first message can
+            // include the fresh location whenever possible (see
+            // FIRST_SMS_LOCATION_WAIT_MS). If GPS isn't ready in time, the
+            // message goes out on schedule and the `location`/`locationSms`
+            // runners below deliver the location as a prompt follow-up.
+            //
+            // Re-read the persisted event rather than trusting the `event`
+            // reference closed over at SOS-creation time: onPending()
+            // already wrote the canonical emergencyMessage snapshot (and
+            // any other runner may have written smsRecipients/location
+            // concurrently) directly to storage, not to this in-memory
+            // object, so building off the stale reference would silently
+            // drop that data when this runner writes its own update back.
+            const priorEvent = (await sosLocalStore.getSosById(event.id)) || event;
             const fetchedRecipients = await collectionSmsRecipientsPromise;
             const recipients = fetchedRecipients.length
               ? fetchedRecipients
-              : (event.meta?.smsRecipients || []);
+              : (priorEvent.meta?.smsRecipients || []);
 
-            const message = String(
-              sosUser?.emergencyMessage ||
-              `I am ${sosUser?.username || 'the user'}. I may be in danger. Please help me.`
-            ).replace(/\[Username\]/gi, sosUser?.username || 'the user');
+            const quickLocation = await raceLocationForFirstSms(getCurrentLocation());
+            const {message, includesLocation} = buildFirstEmergencySms({
+              user: sosUser,
+              baseMessage: priorEvent.meta?.emergencyMessage,
+              location: isValidLocation(quickLocation) ? quickLocation : null,
+            });
 
             const selectedSubscriptionId = -1;
 
-            if (recipients.length) {
+            if (recipients.length || includesLocation) {
+              const latestEvent = (await sosLocalStore.getSosById(event.id)) || priorEvent;
               await sosLocalStore.upsertSos({
-                ...(await sosLocalStore.getSosById(event.id) || event),
+                ...latestEvent,
+                ...(isValidLocation(quickLocation) ? {location: quickLocation} : {}),
                 meta: {
-                  ...event.meta,
+                  ...latestEvent.meta,
                   emergencyNumber: collection?.emergencyCallNumber || null,
                   smsRecipients: recipients,
+                  // Lets the location/locationSms runners know the fresh
+                  // GPS fix already went out in the first message, so they
+                  // don't send a redundant second "here's your location"
+                  // text to the same recipients.
+                  firstSmsIncludedLocation: includesLocation,
                 },
               });
             }
@@ -822,10 +932,13 @@ function AppContent() {
           // ------------------------------------------------------
           location: async event => {
             const location = await getCurrentLocation();
-            if (isValidLocation(location)) {
-              // Persist the follow-up job before attempting the send so a
-              // process death between GPS acquisition and SMS transmission
-              // cannot lose the location notification.
+            const latestEvent = await sosLocalStore.getSosById(event.id);
+            const firstSmsIncludedLocation = Boolean((latestEvent || event).meta?.firstSmsIncludedLocation);
+            if (isValidLocation(location) && !firstSmsIncludedLocation) {
+              // The first SMS went out before GPS resolved, so send the
+              // location as a prompt follow-up. Persist the job before
+              // attempting the send so a process death between GPS
+              // acquisition and SMS transmission cannot lose it.
               await enqueueSosJob({
                 sosId: event.id,
                 type: 'LOCATION_SMS',
@@ -836,23 +949,31 @@ function AppContent() {
           },
 
           // ------------------------------------------------------
-          // GPS LOCATION SMS (second SMS, after a fix exists)
+          // GPS LOCATION FOLLOW-UP SMS - only sent when the first SMS
+          // (above) had to go out before a GPS fix was available.
           // ------------------------------------------------------
           locationSms: async event => {
-            if (!isValidLocation(event.location)) {
+            const latestEvent = await sosLocalStore.getSosById(event.id);
+            const current = latestEvent || event;
+            if (current.meta?.firstSmsIncludedLocation) {
+              return {status: 'COMPLETED', reason: 'Location was already included in the first emergency SMS.'};
+            }
+            if (!isValidLocation(current.location)) {
               return {status: 'PENDING', reason: 'Waiting for a valid GPS location.'};
             }
             const recipients = (await collectionSmsRecipientsPromise).length
               ? await collectionSmsRecipientsPromise
-              : (event.meta?.smsRecipients || []);
+              : (current.meta?.smsRecipients || []);
             if (!recipients.length) {
               return {status: 'PENDING', reason: 'Waiting for collection SMS recipients.'};
             }
-            const mapsLink = `https://maps.google.com/?q=${event.location.latitude},${event.location.longitude}`;
-            const trackingPart = event.emergencyLink ? `\nLive tracking: ${event.emergencyLink}` : '';
+            const message = buildLocationFollowUpSms({location: current.location, emergencyLink: current.emergencyLink});
+            if (!message) {
+              return {status: 'PENDING', reason: 'Waiting for a valid GPS location.'};
+            }
             return sendEmergencySmsToNumbers({
               phoneNumbers: recipients,
-              message: `Current GPS location: ${mapsLink}${trackingPart}`,
+              message,
               sosId: event.id,
               serviceKey: 'locationSms',
             });

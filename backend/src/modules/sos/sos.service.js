@@ -31,9 +31,20 @@ const schedulerService = require('../scheduler/scheduler.service');
 const JOB_TYPE_SOS_ACTIVATION = 'sos_activation';
 const JOB_TYPE_LIVE_LOCATION_EXPIRY = 'live_location_expiry';
 
-const DEFAULT_EMERGENCY_MESSAGE_TEMPLATE = 'I am [Username]. I may be in danger. Please help me.';
+const DEFAULT_EMERGENCY_MESSAGE_TEMPLATE = 'I am [Username], I may be in danger.';
 
-function resolveEmergencyMessage(user) {
+// SINGLE SOURCE OF TRUTH (server side): prefer the exact message the
+// client already used for the first SMS at trigger time (this is the
+// user's own authenticated request, so it is trusted the same way any
+// other field on their own SOS trigger is). Falls back to the profile's
+// stored emergencyMessage, and only then to the shared default template -
+// mirroring frontend/src/features/sos/services/emergencyMessage.js so the
+// same user with the same saved message always gets the same text
+// whether it's resolved client-side or server-side.
+function resolveEmergencyMessage(user, clientSuppliedMessage) {
+  if (typeof clientSuppliedMessage === 'string' && clientSuppliedMessage.trim()) {
+    return clientSuppliedMessage.trim();
+  }
   if (user.emergencyMessage) return user.emergencyMessage;
   return DEFAULT_EMERGENCY_MESSAGE_TEMPLATE.replace('[Username]', user.username);
 }
@@ -179,7 +190,7 @@ async function getOwnedSosOrThrow(id, reqUser, message) {
  * resulting duplicate-key error is treated as "the other retry won",
  * not as a real conflict).
  */
-async function createSos({ userId, idempotencyKey, location }) {
+async function createSos({ userId, idempotencyKey, location, emergencyMessage }) {
   const user = await User.findById(userId);
   if (!user) {
     throw ApiError.unauthorized('User no longer exists');
@@ -202,7 +213,7 @@ async function createSos({ userId, idempotencyKey, location }) {
     sos = await Sos.create({
       userId: user._id,
       collectionId: user.collectionId,
-      emergencyMessage: resolveEmergencyMessage(user),
+      emergencyMessage: resolveEmergencyMessage(user, emergencyMessage),
       emergencyToken: generateEmergencyToken(),
       idempotencyKey: idempotencyKey || undefined,
       status: SOS_STATUS.ACTIVE,

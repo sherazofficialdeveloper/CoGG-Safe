@@ -25,6 +25,13 @@ const LiveLocationMap = ({
   showStopButton = false,
   onStopSharing = null,
   isStopping = false,
+  // Set by the post-SOS-trigger screen only (see UserSosActiveScreen ->
+  // SosMediaSection) to say "sharing was just started - a location fix and
+  // the backend SOS record may both still be in flight". Everywhere else
+  // (Admin SOS detail, notification detail) this stays false, so those
+  // screens keep their existing immediate "unavailable" behavior for SOS
+  // records that already had every chance to have a location.
+  justTriggered = false,
   style = {},
 }) => {
   const [liveLocation, setLiveLocation] = useState(initialLocation || null);
@@ -32,6 +39,13 @@ const LiveLocationMap = ({
   const [locationUpdateTime, setLocationUpdateTime] = useState('Just now');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // Bounded grace window so a freshly-triggered SOS shows "Acquiring your
+  // location..." instead of "Location not available" while the GPS fix
+  // and/or backend SOS creation are still in progress. Mirrors the SOS
+  // orchestrator's own bounded GPS retry window (up to ~12s across 3
+  // attempts - see features/sos/orchestrator.js) with a little headroom;
+  // it always ends on its own, so this can never hang indefinitely.
+  const [initializing, setInitializing] = useState(Boolean(justTriggered));
   const [locationHistory, setLocationHistory] = useState([]);
   const [currentSpeed, setCurrentSpeed] = useState(0);
   const [region, setRegion] = useState(null);
@@ -117,6 +131,19 @@ const LiveLocationMap = ({
     fetchLiveLocation(true);
   }, [sosId, token]);
 
+  // ================= Bounded initializing grace window =================
+  useEffect(() => {
+    if (!justTriggered) return undefined;
+    const timeout = setTimeout(() => setInitializing(false), 15000);
+    return () => clearTimeout(timeout);
+  }, [justTriggered, sosId]);
+
+  // A real location fix ends the grace window immediately - no need to
+  // keep showing "Acquiring your location..." once we actually have one.
+  useEffect(() => {
+    if (hasLocation && initializing) setInitializing(false);
+  }, [hasLocation, initializing]);
+
   // ================= Set initial region =================
   useEffect(() => {
     if (hasLocation && !region) {
@@ -179,6 +206,22 @@ const LiveLocationMap = ({
     );
   }
 
+  // ================= Initializing State (freshly-triggered SOS only) =====
+  // Bounded: `initializing` always flips false on its own after 15s (or
+  // immediately once a real fix arrives), so this can never replace the
+  // genuine "unavailable" state permanently - it only delays it while
+  // acquisition is still realistically in progress.
+  if (!hasLocation && justTriggered && initializing) {
+    return (
+      <View style={[styles.container, style]}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#E4002B" />
+          <Text style={styles.loadingText}>Acquiring your location…</Text>
+        </View>
+      </View>
+    );
+  }
+
   // ================= No Location State =================
   if (!hasLocation) {
     return (
@@ -191,7 +234,10 @@ const LiveLocationMap = ({
           </Text>
           <TouchableOpacity
             style={styles.retryButton}
-            onPress={() => fetchLiveLocation(true)}>
+            onPress={() => {
+              setInitializing(false);
+              fetchLiveLocation(true);
+            }}>
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
         </View>

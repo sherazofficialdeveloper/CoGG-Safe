@@ -116,7 +116,7 @@ describe('POST /api/sos (creation + ownership)', () => {
     const { token, user } = await createUserAndLogin({ collectionId: collection._id });
 
     const res = await request(app).post('/api/sos').set('Authorization', `Bearer ${token}`).send({});
-    expect(res.body.data.sos.emergencyMessage).toBe(`I am ${user.username}. I may be in danger. Please help me.`);
+    expect(res.body.data.sos.emergencyMessage).toBe(`I am ${user.username}, I may be in danger.`);
   });
 
   test('emergency message uses the user custom saved message when set', async () => {

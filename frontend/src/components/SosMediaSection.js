@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {Image, Linking, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
+import {ActivityIndicator, Image, Linking, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
 import AudioPlayer from './AudioPlayer';
 import LiveLocationMap from './LiveLocationMap';
 import FullscreenImageViewer from './FullscreenImageViewer';
@@ -24,6 +24,10 @@ const SosMediaSection = ({
   onLocationUpdate,
   showEmergencyLink = true,
   compact = false,
+  // Forwarded to LiveLocationMap - only the post-SOS-trigger screen sets
+  // this (see UserSosActiveScreen). Defaults to false everywhere else so
+  // Admin/notification detail screens keep their existing behavior.
+  justTriggered = false,
 }) => {
   const [selectedImage, setSelectedImage] = useState(null);
   const [hidden, setHidden] = useState({front: false, back: false});
@@ -41,6 +45,16 @@ const SosMediaSection = ({
   };
   const hasImages = Boolean(urls.front || urls.back);
 
+  // Only meaningful (and only consulted) on the just-triggered screen: a
+  // component with no url yet is either genuinely failed (backend said so)
+  // or still capturing/uploading - which for a freshly-triggered SOS is the
+  // common case, not an absence. componentHasMedia() being false already
+  // covers "there is no url"; this only decides which message that maps to.
+  const componentFailed = component => String(component?.status || '').toLowerCase() === 'failed';
+  const frontPending = justTriggered && !urls.front && !componentFailed(sos?.components?.frontImage);
+  const backPending = justTriggered && !urls.back && !componentFailed(sos?.components?.backImage);
+  const audioPending = justTriggered && !urls.audio && !componentFailed(sos?.components?.audio);
+
   return (
     <View style={styles.root}>
       {sosId ? (
@@ -53,6 +67,7 @@ const SosMediaSection = ({
           isStopping={isStopping}
           onStopSharing={onStopSharing}
           onLocationUpdate={onLocationUpdate}
+          justTriggered={justTriggered}
         />
       ) : null}
 
@@ -67,19 +82,29 @@ const SosMediaSection = ({
 
       <View style={styles.section}>
         <Text style={styles.sectionLabel}>📷 PHOTOS</Text>
-        {hasImages ? (
+        {hasImages || frontPending || backPending ? (
           <View style={styles.photosGrid}>
             {urls.front && !hidden.front ? (
               <TouchableOpacity style={styles.photoBox} onPress={() => setSelectedImage(urls.front)}>
                 <View style={styles.badge}><Text style={styles.badgeText}>Front</Text></View>
                 <Image source={{uri: urls.front, headers: authHeaders}} style={styles.photo} onError={() => setHidden(v => ({...v, front: true}))} />
               </TouchableOpacity>
+            ) : frontPending ? (
+              <View style={[styles.photoBox, styles.photoBoxPending]}>
+                <ActivityIndicator size="small" color="#E4002B" />
+                <Text style={styles.photoPendingText}>Uploading…</Text>
+              </View>
             ) : null}
             {urls.back && !hidden.back ? (
               <TouchableOpacity style={styles.photoBox} onPress={() => setSelectedImage(urls.back)}>
                 <View style={styles.badge}><Text style={styles.badgeText}>Back</Text></View>
                 <Image source={{uri: urls.back, headers: authHeaders}} style={styles.photo} onError={() => setHidden(v => ({...v, back: true}))} />
               </TouchableOpacity>
+            ) : backPending ? (
+              <View style={[styles.photoBox, styles.photoBoxPending]}>
+                <ActivityIndicator size="small" color="#E4002B" />
+                <Text style={styles.photoPendingText}>Uploading…</Text>
+              </View>
             ) : null}
           </View>
         ) : <Text style={styles.empty}>No photos available.</Text>}
@@ -89,7 +114,21 @@ const SosMediaSection = ({
         <Text style={styles.sectionLabel}>🎙️ VOICE RECORDING</Text>
         {urls.audio ? (
           <View style={styles.audioCard}>
-            <AudioPlayer audioUrl={urls.audio} token={token} publicMedia={true} directFetch={true} style={styles.audio} />
+            {/* This URL (buildMediaUrl -> /sos/:id/media/audio/file) is the
+                authenticated per-SOS media route, not the public emergency-
+                token route. publicMedia MUST be false here so AudioPlayer
+                attaches the Bearer token (native authenticated download,
+                falling back to RNFS with the Authorization header) instead
+                of requesting the URL with no auth and getting a 401 that
+                surfaced as "Audio unavailable" even though the file exists
+                and the public token page (which really does use an
+                unauthenticated endpoint) could play it. */}
+            <AudioPlayer audioUrl={urls.audio} token={token} publicMedia={false} style={styles.audio} />
+          </View>
+        ) : audioPending ? (
+          <View style={[styles.audioCard, styles.audioPendingCard]}>
+            <ActivityIndicator size="small" color="#E4002B" />
+            <Text style={styles.audioPendingText}>Recording is uploading…</Text>
           </View>
         ) : <Text style={styles.empty}>No audio recording available.</Text>}
       </View>
@@ -108,7 +147,11 @@ const styles = StyleSheet.create({
   photo: {width: '100%', height: '100%', resizeMode: 'cover'},
   badge: {position: 'absolute', top: 8, left: 8, zIndex: 1, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6},
   badgeText: {fontSize: 8, fontWeight: '700', color: '#FFFFFF'},
+  photoBoxPending: {alignItems: 'center', justifyContent: 'center'},
+  photoPendingText: {fontSize: 10, color: '#9CA3AF', fontWeight: '600', marginTop: 6},
   audioCard: {backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E8E8EB', borderRadius: 12, padding: 4},
+  audioPendingCard: {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 14, gap: 8},
+  audioPendingText: {fontSize: 12, color: '#9CA3AF', fontWeight: '600'},
   audio: {width: '100%'},
   empty: {color: '#A1A1A6', fontSize: 13, textAlign: 'center', padding: 12},
   linkSection: {marginBottom: 16},

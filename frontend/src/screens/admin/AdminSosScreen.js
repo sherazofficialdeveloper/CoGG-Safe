@@ -17,6 +17,7 @@ import {deleteSos, deactivateSos, listSos} from '../../api/resources';
 import {getCachedApiData} from '../../api/client';
 import Icon from '../../components/Icon';
 import {clearDashboardSnapshots} from './AdminDashboardScreen';
+import {getDefaultEmergencyMessage} from '../../features/sos/services/emergencyMessage';
 
 const sosSnapshots = new Map();
 
@@ -72,7 +73,7 @@ const AdminSosScreen = ({
           isLiveActive: isLiveActive,
           time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
           status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Pending',
-          emergencyMessage: record.emergencyMessage || 'Emergency assistance requested.',
+          emergencyMessage: record.emergencyMessage || getDefaultEmergencyMessage(record.userId?.username),
         };
       });
       sosSnapshots.set(token, nextAlerts);
@@ -119,7 +120,7 @@ const AdminSosScreen = ({
           isLiveActive: isLiveActive,
           time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
           status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Pending',
-          emergencyMessage: record.emergencyMessage || 'Emergency assistance requested.',
+          emergencyMessage: record.emergencyMessage || getDefaultEmergencyMessage(record.userId?.username),
         };
       }));
     }
