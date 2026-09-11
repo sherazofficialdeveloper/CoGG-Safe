@@ -89,7 +89,7 @@ const SosMediaSection = ({
         <Text style={styles.sectionLabel}>🎙️ VOICE RECORDING</Text>
         {urls.audio ? (
           <View style={styles.audioCard}>
-            <AudioPlayer audioUrl={urls.audio} token={token} publicMedia={false} directFetch={true} style={styles.audio} />
+            <AudioPlayer audioUrl={urls.audio} token={token} publicMedia={true} directFetch={true} style={styles.audio} />
           </View>
         ) : <Text style={styles.empty}>No audio recording available.</Text>}
       </View>

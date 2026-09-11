@@ -41,6 +41,11 @@
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
       
+      <!-- ================= GOOGLE MAPS API KEY ================= -->
+      <meta-data
+          android:name="com.google.android.geo.API_KEY"
+          android:value="AIzaSyCpmLiVkTY26zGiT2oZ94LTqpli8uQsQ18" />
+      
       <meta-data
           android:name="com.google.firebase.messaging.default_notification_channel_id"
           android:value="@string/default_notification_channel_id"
