@@ -19,8 +19,13 @@ const processingQueueItems = new Set();
 let activeQueueRun = null;
 
 function requiresInternet(item) {
-  return ['BACKEND_SYNC', 'BACKEND', 'MEDIA_UPLOAD', 'EMAIL', 'NOTIFICATIONS', 'LIVELOCATION', 'LOCATION'].includes(item.type)
-    || item.type.startsWith('MEDIA_UPLOAD:');
+  if (['BACKEND_SYNC', 'BACKEND', 'MEDIA_UPLOAD', 'EMAIL', 'NOTIFICATIONS', 'LIVELOCATION', 'LOCATION'].includes(item.type)
+    || item.type.startsWith('MEDIA_UPLOAD:')) return true;
+  // When Offline SMS Dispatch is disabled, the primary SMS job must wait for
+  // internet. When enabled, SMS remains cellular-only and can be delivered
+  // with internet completely unavailable.
+  if (item.type === 'SMS' && item.payload?.offlineSmsEnabled === false) return true;
+  return false;
 }
 
 function requiresCellular(item) {
@@ -45,6 +50,10 @@ function isEligible(item, state, now = Date.now()) {
 }
 
 export async function enqueueSosJob({sosId, backendSosId = null, type, serviceName, payload = {}, idempotencyKey = null}) {
+  const event = await sosLocalStore.getSosById(sosId);
+  const effectivePayload = serviceName === 'sms' && payload.offlineSmsEnabled === undefined
+    ? {...payload, offlineSmsEnabled: event?.meta?.offlineSmsEnabled !== false}
+    : payload;
   return sosLocalStore.enqueueQueueItem({
     id: `${sosId}:${type}`,
     localSosId: sosId,
@@ -52,7 +61,7 @@ export async function enqueueSosJob({sosId, backendSosId = null, type, serviceNa
     operationType: type,
     type,
     serviceName,
-    payload,
+    payload: effectivePayload,
     status: 'PENDING',
     attempts: 0,
     idempotencyKey: idempotencyKey || payload.idempotencyKey || null,
@@ -131,11 +140,15 @@ async function processSosQueueRun({processors = {}, now = Date.now(), userId = n
       }
 
       if (result?.status === 'PENDING') {
-        if (item.type.startsWith('MEDIA_UPLOAD:') && !event.backendId) {
+        if (item.type.startsWith('MEDIA_UPLOAD:')) {
+          // A media job may legitimately be created before the camera/audio
+          // writer finishes. Do not consume MAX_ATTEMPTS for a missing local
+          // file; the capture service will update the SOS and re-enqueue the
+          // component when it becomes available.
           await sosLocalStore.updateQueueItem(item.id, {
             status: 'PENDING',
             error: null,
-            nextAttemptAt: null,
+            nextAttemptAt: new Date(now + 5000).toISOString(),
             updatedAt: new Date(now).toISOString(),
           });
           processed.push({id: item.id, status: 'PENDING'});
@@ -155,7 +168,20 @@ async function processSosQueueRun({processors = {}, now = Date.now(), userId = n
       // no file. Re-enqueue the individual media uploads immediately so a
       // newly captured back/front image (or audio recording) is not stranded.
       if (item.serviceName === 'camera' && event.backendId) {
+        const latestAfterCapture = (await sosLocalStore.getSosById(event.id)) || event;
         for (const component of ['frontImage', 'backImage']) {
+          const path = component === 'frontImage'
+            ? result?.frontImagePath || latestAfterCapture.services?.camera?.frontImagePath
+            : result?.backImagePath || latestAfterCapture.services?.camera?.backImagePath;
+          const mediaJob = {
+            id: `${event.id}:MEDIA_UPLOAD:${component}`,
+            localSosId: event.id,
+            backendSosId: event.backendId,
+            type: `MEDIA_UPLOAD:${component}`,
+            operationType: `MEDIA_UPLOAD:${component}`,
+            serviceName: 'mediaUpload',
+            payload: {component},
+          };
           await enqueueSosJob({
             sosId: event.id,
             backendSosId: event.backendId,
@@ -163,9 +189,34 @@ async function processSosQueueRun({processors = {}, now = Date.now(), userId = n
             serviceName: 'mediaUpload',
             payload: {component},
           });
+          // If the file is already available, start its upload in this same
+          // reconnect pass instead of waiting for a second connectivity event.
+          if (path && typeof processors.mediaUpload === 'function') {
+            const uploadEvent = {
+              ...latestAfterCapture,
+              backendId: event.backendId,
+              services: {
+                ...latestAfterCapture.services,
+                camera: {...latestAfterCapture.services?.camera, ...result},
+              },
+            };
+            const uploadResult = await processors.mediaUpload(mediaJob, uploadEvent);
+            if (uploadResult?.status === 'COMPLETED') {
+              await sosLocalStore.removeQueueItem(mediaJob.id);
+            }
+          }
         }
       }
       if (item.serviceName === 'audio' && event.backendId && result?.localPath) {
+        const mediaJob = {
+          id: `${event.id}:MEDIA_UPLOAD:audio`,
+          localSosId: event.id,
+          backendSosId: event.backendId,
+          type: 'MEDIA_UPLOAD:audio',
+          operationType: 'MEDIA_UPLOAD:audio',
+          serviceName: 'mediaUpload',
+          payload: {component: 'audio'},
+        };
         await enqueueSosJob({
           sosId: event.id,
           backendSosId: event.backendId,
@@ -173,6 +224,18 @@ async function processSosQueueRun({processors = {}, now = Date.now(), userId = n
           serviceName: 'mediaUpload',
           payload: {component: 'audio'},
         });
+        if (typeof processors.mediaUpload === 'function') {
+          const latestAfterCapture = (await sosLocalStore.getSosById(event.id)) || event;
+          const uploadEvent = {
+            ...latestAfterCapture,
+            backendId: event.backendId,
+            services: {...latestAfterCapture.services, audio: {...latestAfterCapture.services?.audio, ...result}},
+          };
+          const uploadResult = await processors.mediaUpload(mediaJob, uploadEvent);
+          if (uploadResult?.status === 'COMPLETED') {
+            await sosLocalStore.removeQueueItem(mediaJob.id);
+          }
+        }
       }
 
       if (item.serviceName === 'liveLocation' && result?.status === 'COMPLETED') {

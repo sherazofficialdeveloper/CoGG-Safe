@@ -54,10 +54,17 @@ android {
         }
 
         release {
-            storeFile file(COGGSAFE_RELEASE_STORE_FILE)
-            storePassword COGGSAFE_RELEASE_STORE_PASSWORD
-            keyAlias COGGSAFE_RELEASE_KEY_ALIAS
-            keyPassword COGGSAFE_RELEASE_KEY_PASSWORD
+            def releaseStoreFile = project.findProperty('COGGSAFE_RELEASE_STORE_FILE') ?: System.getenv('COGGSAFE_RELEASE_STORE_FILE')
+            def releaseStorePassword = project.findProperty('COGGSAFE_RELEASE_STORE_PASSWORD') ?: System.getenv('COGGSAFE_RELEASE_STORE_PASSWORD')
+            def releaseKeyAlias = project.findProperty('COGGSAFE_RELEASE_KEY_ALIAS') ?: System.getenv('COGGSAFE_RELEASE_KEY_ALIAS')
+            def releaseKeyPassword = project.findProperty('COGGSAFE_RELEASE_KEY_PASSWORD') ?: System.getenv('COGGSAFE_RELEASE_KEY_PASSWORD')
+            if (!releaseStoreFile || !releaseStorePassword || !releaseKeyAlias || !releaseKeyPassword) {
+                throw new GradleException('Release signing credentials are not configured. Set COGGSAFE_RELEASE_STORE_FILE, COGGSAFE_RELEASE_STORE_PASSWORD, COGGSAFE_RELEASE_KEY_ALIAS and COGGSAFE_RELEASE_KEY_PASSWORD in ~/.gradle/gradle.properties or CI secrets.')
+            }
+            storeFile file(releaseStoreFile)
+            storePassword releaseStorePassword
+            keyAlias releaseKeyAlias
+            keyPassword releaseKeyPassword
         }
     }
 

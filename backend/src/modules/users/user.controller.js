@@ -24,6 +24,11 @@ const listMyContacts = asyncHandler(async (req, res) => {
   ApiResponse.send(res, {statusCode: httpStatus.OK, message: 'Contacts retrieved', data: {contacts}});
 });
 
+const listMyEmergencySmsRecipients = asyncHandler(async (req, res) => {
+  const contacts = await userService.listEmergencySmsRecipients(req.user.id);
+  ApiResponse.send(res, {statusCode: httpStatus.OK, message: 'Emergency SMS recipients retrieved', data: {contacts}});
+});
+
 const updateMyProfile = asyncHandler(async (req, res) => {
   const {username, mobileNumber, email, emergencyMessage} = req.body;
   const user = await userService.updateOwnProfile(req.user.id, {username, mobileNumber, email, emergencyMessage});
@@ -81,6 +86,7 @@ module.exports = {
   createUser,
   listUsers,
   listMyContacts,
+  listMyEmergencySmsRecipients,
   updateMyProfile,
   getUser,
   updateUser,

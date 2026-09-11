@@ -15,6 +15,7 @@ import Icon from '../components/Icon';
 import {updateMyProfile} from '../api/resources';
 import {getUserEmergencyMessage} from '../features/sos/services/emergencyMessage';
 import {savePendingProfileUpdate, clearPendingProfileUpdate} from '../features/profile/profileSync';
+import {sosLocalStore} from '../features/sos/storage';
 
 const UserProfileScreen = ({
   user,
@@ -24,6 +25,7 @@ const UserProfileScreen = ({
   onUserUpdated,
 }) => {
   const [offlineSmsEnabled, setOfflineSmsEnabled] = useState(true);
+  const [isLoadingOfflineSmsSetting, setIsLoadingOfflineSmsSetting] = useState(true);
   const [dailyAlarmEnabled, setDailyAlarmEnabled] = useState(true);
   // Single source of truth: the same helper used to build the actual SOS
   // SMS text, so the profile screen can never show different wording than
@@ -36,6 +38,16 @@ const UserProfileScreen = ({
   // gates is already applied synchronously before this becomes true, so it
   // never blocks the user from seeing their new message.
   const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    sosLocalStore.getOfflineSmsEnabled(user?._id || user?.id).then(enabled => {
+      if (mounted) setOfflineSmsEnabled(enabled);
+    }).finally(() => {
+      if (mounted) setIsLoadingOfflineSmsSetting(false);
+    });
+    return () => { mounted = false; };
+  }, [user?._id, user?.id]);
 
   useEffect(() => {
     const latestMessage = getUserEmergencyMessage(user);
@@ -58,7 +70,7 @@ const UserProfileScreen = ({
     setTempTemplate(messageToSave);
     onUserUpdated?.({emergencyMessage: messageToSave});
     setIsEditingTemplate(false);
-    await savePendingProfileUpdate({emergencyMessage: messageToSave});
+    await savePendingProfileUpdate(user?._id || user?.id, {emergencyMessage: messageToSave});
 
     // 2. Try to sync with the backend right away. isSavingTemplate only
     // covers this network round-trip (the message the user sees is already
@@ -67,7 +79,7 @@ const UserProfileScreen = ({
     try {
       const result = await updateMyProfile(token, {emergencyMessage: messageToSave});
       const updatedUser = result?.user || result?.data || result;
-      await clearPendingProfileUpdate();
+      await clearPendingProfileUpdate(user?._id || user?.id);
       onUserUpdated?.(updatedUser || {emergencyMessage: messageToSave});
     } catch (error) {
       if (!error?.status || error.status === 0) {
@@ -81,7 +93,7 @@ const UserProfileScreen = ({
         // surface the real reason instead of a generic error, and don't
         // keep retrying a payload the server has already rejected. The
         // locally-applied message (step 1) stays in effect either way.
-        await clearPendingProfileUpdate();
+        await clearPendingProfileUpdate(user?._id || user?.id);
         Alert.alert('Unable to sync message', error.message || 'Please try again.');
       }
     } finally {
@@ -135,7 +147,11 @@ const UserProfileScreen = ({
           </View>
           <Switch
             value={offlineSmsEnabled}
-            onValueChange={setOfflineSmsEnabled}
+            disabled={isLoadingOfflineSmsSetting}
+            onValueChange={async value => {
+              setOfflineSmsEnabled(value);
+              await sosLocalStore.setOfflineSmsEnabled(user?._id || user?.id, value);
+            }}
             trackColor={{false: '#D9DCE1', true: '#E4002B'}}
             thumbColor="#FFFFFF"
             style={styles.switch}
@@ -144,7 +160,7 @@ const UserProfileScreen = ({
 
         <Text style={styles.settingTitle}>Offline SMS Dispatch</Text>
         <Text style={styles.settingDescription}>
-          Force SMS broadcast if cellular data fails.
+          When enabled, SMS can dispatch even when internet is unavailable. Cellular/SIM service is still required.
         </Text>
       </View>
 

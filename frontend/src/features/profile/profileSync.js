@@ -14,28 +14,32 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {updateMyProfile} from '../../api/resources';
 
-const PENDING_KEY = 'cogg_safe.profile.pendingUpdate';
+const PENDING_KEY_PREFIX = 'cogg_safe.profile.pendingUpdate:';
+const getPendingKey = userId => `${PENDING_KEY_PREFIX}${String(userId || 'unknown')}`;
 
-export async function savePendingProfileUpdate(body) {
+export async function savePendingProfileUpdate(userId, body) {
+  if (!userId) return;
   try {
-    await AsyncStorage.setItem(PENDING_KEY, JSON.stringify({body, savedAt: new Date().toISOString()}));
+    await AsyncStorage.setItem(getPendingKey(userId), JSON.stringify({body, savedAt: new Date().toISOString()}));
   } catch (error) {
     // Best-effort - the in-memory/user-cache copy of the edit still holds.
   }
 }
 
-export async function getPendingProfileUpdate() {
+export async function getPendingProfileUpdate(userId) {
+  if (!userId) return null;
   try {
-    const raw = await AsyncStorage.getItem(PENDING_KEY);
+    const raw = await AsyncStorage.getItem(getPendingKey(userId));
     return raw ? JSON.parse(raw) : null;
   } catch (error) {
     return null;
   }
 }
 
-export async function clearPendingProfileUpdate() {
+export async function clearPendingProfileUpdate(userId) {
+  if (!userId) return;
   try {
-    await AsyncStorage.removeItem(PENDING_KEY);
+    await AsyncStorage.removeItem(getPendingKey(userId));
   } catch (error) {
     // Ignore.
   }
@@ -46,14 +50,14 @@ export async function clearPendingProfileUpdate() {
  * whenever connectivity changes; it is a no-op when there is nothing
  * pending. Never throws.
  */
-export async function flushPendingProfileUpdate(token, onSynced) {
-  const pending = await getPendingProfileUpdate();
+export async function flushPendingProfileUpdate(token, userId, onSynced) {
+  const pending = await getPendingProfileUpdate(userId);
   if (!pending?.body || !token) return null;
 
   try {
     const result = await updateMyProfile(token, pending.body);
     const updatedUser = result?.user || result?.data || result;
-    await clearPendingProfileUpdate();
+    await clearPendingProfileUpdate(userId);
     onSynced?.(updatedUser || pending.body);
     return updatedUser;
   } catch (error) {
@@ -62,7 +66,7 @@ export async function flushPendingProfileUpdate(token, onSynced) {
       // with a payload the server has already rejected. The locally
       // applied value stays in effect for the user; only the backend
       // sync attempt is abandoned.
-      await clearPendingProfileUpdate();
+      await clearPendingProfileUpdate(userId);
     }
     // status === 0 (network unreachable) - keep it queued for next retry.
     return null;

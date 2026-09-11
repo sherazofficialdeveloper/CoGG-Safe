@@ -206,20 +206,22 @@ export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId, s
   const event = sosId ? await sosLocalStore.getSosById(sosId) : null;
   const previousRecipients = event?.services?.[serviceKey]?.recipients || [];
   const previousByNumber = new Map(previousRecipients.map(item => [item.normalizedRecipient || item.phoneNumber, item]));
-  const recipientResults = [];
-
-  for (const phoneNumber of uniqueNumbers) {
+  const pending = uniqueNumbers.filter(phoneNumber => {
     const normalizedRecipient = phoneNumber.replace(/[^\d+]/g, '');
     const previous = previousByNumber.get(normalizedRecipient);
-    if (previous?.status === 'QUEUED_TO_ANDROID' || previous?.status === 'SENT_BROADCAST' || previous?.status === 'DELIVERED_BROADCAST') {
-      recipientResults.push(previous);
-      continue;
-    }
+    return !(previous?.status === 'QUEUED_TO_ANDROID' || previous?.status === 'SENT_BROADCAST' || previous?.status === 'DELIVERED_BROADCAST');
+  });
 
+  // Send recipients concurrently. A slow carrier response for one number must
+  // never serialize or delay every other emergency recipient. SIM selection is
+  // still entirely owned by the native module and remains SIM 1 only.
+  const settled = await Promise.allSettled(pending.map(async phoneNumber => {
+    const normalizedRecipient = phoneNumber.replace(/[^\d+]/g, '');
+    const previous = previousByNumber.get(normalizedRecipient);
     const attempt = (previous?.attempts || 0) + 1;
     const attemptedAt = new Date().toISOString();
     const result = await sendEmergencySms({phoneNumber, message, preferredSubscriptionId});
-    const recipientResult = {
+    return {
       recipient: phoneNumber,
       phoneNumber,
       normalizedRecipient,
@@ -227,23 +229,40 @@ export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId, s
       attempts: attempt,
       lastError: result.status === 'COMPLETED' ? null : (result.reason || null),
       lastAttemptAt: attemptedAt,
-      nextAttemptAt: result.status === 'PENDING' || result.status === 'FAILED' ? null : null,
+      nextAttemptAt: null,
       reason: result.reason || null,
       deliveryStatus: result.deliveryStatus || null,
       subscriptionId: result.subscriptionId || null,
     };
-    recipientResults.push(recipientResult);
+  }));
 
-    if (sosId) {
-      const latestEvent = await sosLocalStore.getSosById(sosId);
-      if (latestEvent) {
-        await sosLocalStore.updateSosServiceState(sosId, serviceKey, {
-          recipients: [
-            ...(latestEvent.services?.[serviceKey]?.recipients || []).filter(item => item.normalizedRecipient !== normalizedRecipient),
-            ...recipientResults.filter(item => item.normalizedRecipient === normalizedRecipient),
-          ],
-        });
-      }
+  const newResults = settled.map((entry, index) => entry.status === 'fulfilled'
+    ? entry.value
+    : {
+      recipient: pending[index],
+      phoneNumber: pending[index],
+      normalizedRecipient: pending[index]?.replace(/[^\d+]/g, ''),
+      status: 'FAILED',
+      attempts: (previousByNumber.get(pending[index]?.replace(/[^\d+]/g, ''))?.attempts || 0) + 1,
+      lastError: entry.reason?.message || 'SMS send failed.',
+      lastAttemptAt: new Date().toISOString(),
+      nextAttemptAt: null,
+      reason: entry.reason?.message || 'SMS send failed.',
+      deliveryStatus: null,
+      subscriptionId: null,
+    });
+
+  for (const previous of previousRecipients) {
+    if (!newResults.some(item => item.normalizedRecipient === (previous.normalizedRecipient || previous.phoneNumber))) {
+      recipientResults.push(previous);
+    }
+  }
+  recipientResults.push(...newResults);
+
+  if (sosId) {
+    const latestEvent = await sosLocalStore.getSosById(sosId);
+    if (latestEvent) {
+      await sosLocalStore.updateSosServiceState(sosId, serviceKey, {recipients: recipientResults});
     }
   }
 

@@ -82,6 +82,28 @@ async function listContacts(userId) {
   return items;
 }
 
+/**
+ * Emergency SMS recipients are broader than the normal Contacts screen:
+ * active admins plus every other active user in the triggering user's
+ * collection. Keeping this as a dedicated endpoint prevents admin users from
+ * unexpectedly appearing in the ordinary Contacts UI.
+ */
+async function listEmergencySmsRecipients(userId) {
+  const currentUser = await User.findOne({ _id: userId, ...NOT_DELETED });
+  if (!currentUser) throw ApiError.notFound('User not found');
+  if (!currentUser.collectionId) return [];
+
+  return User.find({
+    ...NOT_DELETED,
+    status: USER_STATUS.ACTIVE,
+    mobileNumber: { $exists: true, $nin: ['', null] },
+    $or: [
+      { role: ROLES.ADMIN },
+      { role: ROLES.USER, collectionId: currentUser.collectionId, _id: { $ne: userId } },
+    ],
+  }).select('_id username mobileNumber role collectionId').sort({ role: 1, username: 1 });
+}
+
 async function getUserById(id) {
   const user = await User.findOne({ _id: id, ...NOT_DELETED });
   if (!user) {
@@ -211,6 +233,7 @@ module.exports = {
   createUser,
   listUsers,
   listContacts,
+  listEmergencySmsRecipients,
   getUserById,
   updateUser,
   updateOwnProfile,

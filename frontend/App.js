@@ -70,35 +70,17 @@ import {captureEmergencyPhotos} from './src/features/sos/services/cameraService'
 import {recordEmergencyAudio} from './src/features/sos/services/audioService';
 import {emitSosDiagnostic} from './src/features/sos/services/sosDiagnosticService';
 import {reportServiceResult} from './src/features/sos/services/backendSyncService';
-import {listContacts, listNotifications, stopLiveLocation, getSos} from './src/api/resources';
+import {listContacts, listEmergencySmsRecipients, listNotifications, stopLiveLocation, getSos} from './src/api/resources';
 import {getCurrentUser} from './src/api/auth';
 import {rememberCredential} from './src/utils/adminCredentials';
 
 import {connectivityService} from './src/features/sos/connectivity';
-import {processSosQueue} from './src/features/sos/queue/queueWorker';
+import {processSosQueue, enqueueSosJob} from './src/features/sos/queue/queueWorker';
 import {recoverActiveSosWork} from './src/features/sos/recovery';
 import {sosLocalStore} from './src/features/sos/storage';
 import {buildFirstEmergencySms, buildLocationFollowUpSms, getUserEmergencyMessage} from './src/features/sos/services/emergencyMessage';
 import {flushPendingProfileUpdate} from './src/features/profile/profileSync';
 
-// The first emergency SMS should include a fresh GPS fix when it can be
-// obtained quickly, but must never be held up indefinitely waiting for
-// one (GPS can occasionally take 10-30s to resolve indoors). This bounds
-// how long the SOS trigger waits for a location fix before sending the
-// first SMS with the message alone; a follow-up SMS carries the location
-// as soon as it resolves (see the `location`/`locationSms` runners).
-const FIRST_SMS_LOCATION_WAIT_MS = 6000;
-
-async function raceLocationForFirstSms(locationPromise) {
-  try {
-    return await Promise.race([
-      locationPromise,
-      new Promise(resolve => setTimeout(() => resolve(null), FIRST_SMS_LOCATION_WAIT_MS)),
-    ]);
-  } catch (error) {
-    return null;
-  }
-}
 import {
   observeFirebaseNotifications,
   registerDeviceToken,
@@ -242,9 +224,9 @@ function AppContent() {
   // first SMS can still resolve recipients after an app restart or while the
   // internet is down. This is data-only caching; it does not change the UI.
   useEffect(() => {
-    if (!token || !user?.collectionId || user?.role !== 'user') return undefined;
+    if (!token || !user?.collectionId) return undefined;
     let cancelled = false;
-    listContacts(token)
+    listEmergencySmsRecipients(token)
       .then(result => {
         if (cancelled) return;
         const members = result?.contacts || result?.users || result || [];
@@ -297,10 +279,22 @@ function AppContent() {
     }
 
     const processQueue = async () => {
+      // Refresh the last-known emergency SMS recipient cache in the background.
+      // This request must never delay queue execution or the first SMS.
+      if (user?.collectionId && connectivityService.getInternetAvailability()) {
+        listEmergencySmsRecipients(token)
+          .then(result => {
+            const members = result?.contacts || result?.users || result || [];
+            if (Array.isArray(members)) return sosLocalStore.setCachedCollectionMembers(user.collectionId, members);
+            return undefined;
+          })
+          .catch(() => undefined);
+      }
+
       // Any profile edit (e.g. the emergency SMS message) made while
       // offline is queued locally; flush it opportunistically whenever
       // connectivity is (re)established, alongside the SOS queue.
-      flushPendingProfileUpdate(token, updatedUser => {
+      flushPendingProfileUpdate(token, user?._id || user?.id, updatedUser => {
         if (updatedUser) updateUser(updatedUser);
       }).catch(() => undefined);
 
@@ -366,18 +360,6 @@ function AppContent() {
                 recipients = cachedMembers.map(member => member?.mobileNumber).filter(Boolean);
               }
               if (!recipients.length) {
-                try {
-                  const result = await listContacts(token, undefined, {forceRefresh: true});
-                  const members = result?.contacts || result?.users || result || [];
-                  if (Array.isArray(members)) {
-                    await sosLocalStore.setCachedCollectionMembers(user?.collectionId, members);
-                    recipients = members.map(member => member?.mobileNumber || member?.phone || member?.phoneNumber).filter(Boolean);
-                  }
-                } catch (_) {
-                  // Cellular SMS can work without internet; keep the queue retryable.
-                }
-              }
-              if (!recipients.length) {
                 return {status: 'PENDING', reason: 'Collection SMS recipients are not available yet.'};
               }
               const latestEvent = await sosLocalStore.getSosById(event.id);
@@ -422,16 +404,6 @@ function AppContent() {
                 recipients = cachedMembers.map(member => member?.mobileNumber).filter(Boolean);
               }
               if (!recipients.length) {
-                try {
-                  const result = await listContacts(token);
-                  const members = result?.contacts || result?.users || result || [];
-                  if (Array.isArray(members)) {
-                    await sosLocalStore.setCachedCollectionMembers(user?.collectionId, members);
-                    recipients = members.map(member => member?.mobileNumber || member?.phone || member?.phoneNumber).filter(Boolean);
-                  }
-                } catch (_) {}
-              }
-              if (!recipients.length) {
                 return {status: 'PENDING', reason: 'Waiting for collection SMS recipients.'};
               }
               return sendEmergencySmsToNumbers({
@@ -455,16 +427,6 @@ function AppContent() {
               if (!recipients.length) {
                 const cachedMembers = await sosLocalStore.getCachedCollectionMembers(user?.collectionId);
                 recipients = cachedMembers.map(member => member?.mobileNumber).filter(Boolean);
-              }
-              if (!recipients.length) {
-                try {
-                  const result = await listContacts(token);
-                  const members = result?.contacts || result?.users || result || [];
-                  if (Array.isArray(members)) {
-                    await sosLocalStore.setCachedCollectionMembers(user?.collectionId, members);
-                    recipients = members.map(member => member?.mobileNumber || member?.phone || member?.phoneNumber).filter(Boolean);
-                  }
-                } catch (_) {}
               }
               if (!recipients.length) {
                 return {status: 'PENDING', reason: 'Waiting for collection SMS recipients.'};
@@ -751,29 +713,12 @@ function AppContent() {
       let collection = await sosLocalStore.getCachedCollectionInfo(sosUser?.collectionId);
       if (collection?.collection) collection = collection.collection;
 
-      // Start resolving collection SMS recipients immediately, in parallel
-      // with SOS activation. This prevents the first emergency SMS from
-      // waiting behind GPS/camera/audio work. /contacts intentionally returns
-      // all active members of the triggering user's collection except the
-      // triggering user.
-      const collectionSmsRecipientsPromise = (async () => {
-        const cachedMembers = await sosLocalStore.getCachedCollectionMembers(sosUser?.collectionId);
-        const cachedRecipients = cachedMembers.map(item => item?.mobileNumber).filter(Boolean);
-        try {
-          const result = await listContacts(token);
-          const members = result?.contacts || result?.users || result || [];
-          const freshRecipients = Array.isArray(members)
-            ? members.map(item => item?.mobileNumber || item?.phone || item?.phoneNumber).filter(Boolean)
-            : [];
-          if (Array.isArray(members)) {
-            await sosLocalStore.setCachedCollectionMembers(sosUser?.collectionId, members);
-          }
-          return freshRecipients.length ? freshRecipients : cachedRecipients;
-        } catch (error) {
-          if (__DEV__) console.log('[SOS][SMS] CONTACTS_FETCH_FAILED', error?.message || error);
-          return cachedRecipients;
-        }
-      })();
+      // The first SOS SMS must never wait on a live network request for its
+      // recipient list. Use the last-known encrypted-at-rest local cache; the
+      // cache is refreshed in the background whenever internet is available.
+      const cachedMembers = await sosLocalStore.getCachedCollectionMembers(sosUser?.collectionId);
+      const cachedSmsRecipients = cachedMembers.map(item => item?.mobileNumber).filter(Boolean);
+      const collectionSmsRecipientsPromise = Promise.resolve(cachedSmsRecipients);
 
       const result = await activateSosFlow({
         userId: sosUser?._id || sosUser?.id,
@@ -810,6 +755,7 @@ function AppContent() {
               ...event.meta,
               emergencyNumber: collection?.emergencyCallNumber || null,
               emergencyMessage: getUserEmergencyMessage(sosUser),
+              offlineSmsEnabled: await sosLocalStore.getOfflineSmsEnabled(sosUser?._id || sosUser?.id),
             },
           });
           if (__DEV__) {
@@ -824,13 +770,11 @@ function AppContent() {
           // ------------------------------------------------------
           sms: async event => {
             // FIRST SMS: send the user's emergency message as soon as the
-            // three-second SOS hold completes. Do NOT wait indefinitely for
-            // GPS, camera, backend creation, or live-location startup - but
-            // DO give GPS a short, bounded window so the first message can
-            // include the fresh location whenever possible (see
-            // FIRST_SMS_LOCATION_WAIT_MS). If GPS isn't ready in time, the
-            // message goes out on schedule and the `location`/`locationSms`
-            // runners below deliver the location as a prompt follow-up.
+            // three-second SOS hold completes. Do not wait for GPS, camera,
+            // backend creation, audio, or live-location startup. If a valid
+            // location is already persisted it is included; otherwise the
+            // independent location/locationSms path sends the location as a
+            // follow-up when a real fix becomes available.
             //
             // Re-read the persisted event rather than trusting the `event`
             // reference closed over at SOS-creation time: onPending()
@@ -840,16 +784,22 @@ function AppContent() {
             // object, so building off the stale reference would silently
             // drop that data when this runner writes its own update back.
             const priorEvent = (await sosLocalStore.getSosById(event.id)) || event;
-            const fetchedRecipients = await collectionSmsRecipientsPromise;
-            const recipients = fetchedRecipients.length
-              ? fetchedRecipients
+            const cachedRecipients = await collectionSmsRecipientsPromise;
+            const recipients = cachedRecipients.length
+              ? cachedRecipients
               : (priorEvent.meta?.smsRecipients || []);
+            if (!connectivityService.getInternetAvailability() && priorEvent.meta?.offlineSmsEnabled === false) {
+              return {status: 'PENDING', reason: 'Offline SMS Dispatch is disabled; waiting for internet connectivity.'};
+            }
 
-            const quickLocation = await raceLocationForFirstSms(getCurrentLocation());
+            // Do not block the first SMS on GPS. If a valid fix is already
+            // persisted, include it; otherwise the location service will send
+            // a separate follow-up SMS once a real fix is available.
+            const quickLocation = isValidLocation(priorEvent.location) ? priorEvent.location : null;
             const {message, includesLocation} = buildFirstEmergencySms({
               user: sosUser,
               baseMessage: priorEvent.meta?.emergencyMessage,
-              location: isValidLocation(quickLocation) ? quickLocation : null,
+              location: quickLocation,
             });
 
             const selectedSubscriptionId = -1;
@@ -912,20 +862,39 @@ function AppContent() {
           // ------------------------------------------------------
           // CAMERA
           // ------------------------------------------------------
-          camera: async event =>
-            captureEmergencyPhotos({
-              sosId: event.id,
-              event,
-            }),
+          camera: async event => {
+            const capture = await captureEmergencyPhotos({sosId: event.id, event});
+            if (event.backendId && (capture?.frontImagePath || capture?.backImagePath)) {
+              const latest = (await sosLocalStore.getSosById(event.id)) || event;
+              const uploadEvent = {
+                ...latest,
+                backendId: event.backendId,
+                services: {...latest.services, camera: {...latest.services?.camera, ...capture}},
+              };
+              await Promise.allSettled([
+                capture.frontImagePath ? uploadCapturedSosMedia({token, sosEvent: uploadEvent, component: 'frontImage'}) : Promise.resolve(),
+                capture.backImagePath ? uploadCapturedSosMedia({token, sosEvent: uploadEvent, component: 'backImage'}) : Promise.resolve(),
+              ]);
+            }
+            return capture;
+          },
 
           // ------------------------------------------------------
           // AUDIO
           // ------------------------------------------------------
-          audio: async event =>
-            recordEmergencyAudio({
-              sosId: event.id,
-              previousResult: event.services?.audio,
-            }),
+          audio: async event => {
+            const capture = await recordEmergencyAudio({sosId: event.id, previousResult: event.services?.audio});
+            if (event.backendId && capture?.localPath) {
+              const latest = (await sosLocalStore.getSosById(event.id)) || event;
+              const uploadEvent = {
+                ...latest,
+                backendId: event.backendId,
+                services: {...latest.services, audio: {...latest.services?.audio, ...capture}},
+              };
+              await uploadCapturedSosMedia({token, sosEvent: uploadEvent, component: 'audio'});
+            }
+            return capture;
+          },
 
           // ------------------------------------------------------
           // LOCATION
@@ -1013,12 +982,25 @@ function AppContent() {
           // ------------------------------------------------------
           // BACKEND
           // ------------------------------------------------------
-          backend: async event =>
-            syncSosToBackend({
-              token,
-              sosEvent: event,
-              idempotencyKey: event.id,
-            }),
+          backend: async event => {
+            const result = await syncSosToBackend({token, sosEvent: event, idempotencyKey: event.id});
+            if (result?.status === 'COMPLETED' && result.backendId) {
+              const latest = (await sosLocalStore.getSosById(event.id)) || event;
+              const uploadEvent = {...latest, backendId: result.backendId};
+              const readyComponents = [
+                ['frontImage', uploadEvent.services?.camera?.frontImagePath],
+                ['backImage', uploadEvent.services?.camera?.backImagePath],
+                ['audio', uploadEvent.services?.audio?.localPath],
+              ].filter(([, path]) => Boolean(path));
+              for (const [component] of readyComponents) {
+                await enqueueSosJob({sosId: event.id, backendSosId: result.backendId, type: `MEDIA_UPLOAD:${component}`, serviceName: 'mediaUpload', payload: {component}});
+              }
+              void Promise.allSettled(readyComponents.map(([component]) =>
+                uploadCapturedSosMedia({token, sosEvent: uploadEvent, component})
+              ));
+            }
+            return result;
+          },
 
           // ------------------------------------------------------
           // EMAIL

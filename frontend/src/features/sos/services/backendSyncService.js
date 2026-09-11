@@ -175,140 +175,63 @@ export async function uploadCapturedSosMedia({token, sosEvent, component = null}
   if (__DEV__) console.log('MEDIA_UPLOAD_STARTED', {backendId});
 
   const uploadState = {...(sosEvent.mediaUploadState || {})};
-  const uploaded = [];
-  const failures = [];
 
-  for (const item of MEDIA_COMPONENTS.filter(candidate => !component || candidate.component === component)) {
-    // Idempotent skip: this component was already durably stored on a
-    // previous (possibly partially-failed) attempt.
+  const uploadOne = async item => {
     if (uploadState[item.component]?.status === 'SUCCESS') {
-      uploaded.push({component: item.component, storageRef: uploadState[item.component].storageRef});
-      continue;
+      return {component: item.component, storageRef: uploadState[item.component].storageRef};
     }
-
     const capture = sosEvent.services?.[item.service] || {};
     const localPath = capture[item.path];
-    // Per-component error, when the capture layer reports front/back
-    // independently (camera). Falls back to the whole-service error for
-    // single-output services (audio) where there's only one path to begin
-    // with. This must be checked per-component, NOT via capture.status —
-    // capture.status is 'PENDING' for a camera capture where only one lens
-    // failed, and that partial failure still needs to be reported for the
-    // specific missing component instead of silently staying "pending"
-    // forever on the backend/admin panel.
-    const componentErrorKey = item.component === 'frontImage' ? 'frontError'
-      : item.component === 'backImage' ? 'backError'
-      : null;
-    const componentError = componentErrorKey ? capture[componentErrorKey] : capture.error;
-    const componentFailed = !localPath && (componentError || capture.status === 'FAILED');
-
-    try {
-      if (localPath) {
-        emitSosDiagnostic(`SOS DEBUG UPLOAD: ${item.component} started`);
-        if (__DEV__) console.log('[SOS_DEBUG] MEDIA_UPLOAD_START', {
-          component: item.component,
-          localPath,
-          backendId,
-        });
-        const validFile = await validateNativeSosMedia(localPath);
-        if (__DEV__) console.log('[SOS_DEBUG] MEDIA_VALIDATION', {
-          component: item.component,
-          localPath,
-          valid: Boolean(validFile),
-          backendId,
-        });
-        if (!validFile) {
-          // The camera/audio writer may still be finishing its file on slower
-          // devices. Treat this as retryable rather than a permanent failure.
-          // A later queue pass re-validates the exact same local path.
-          emitSosDiagnostic(`SOS DEBUG UPLOAD: ${item.component} waiting for file to become readable`);
-          uploadState[item.component] = {
-            status: 'PENDING',
-            component: item.component === 'frontImage' ? 'FRONT_CAMERA' : item.component === 'backImage' ? 'BACK_CAMERA' : 'AUDIO',
-            error: null,
-          };
-          failures.push({component: item.component, error: `${item.component} file is not readable yet.`});
-          continue;
-        }
-        const uploadFile = {
-          uri: localPath.startsWith('file://') ? localPath : `file://${localPath}`,
-          type: item.mimeType,
-          name: `${item.component}-${Date.now()}${item.component === 'audio' ? '.m4a' : '.jpg'}`,
-        };
-        let response;
-        let lastUploadError = null;
-        for (let uploadAttempt = 1; uploadAttempt <= 3; uploadAttempt += 1) {
-          try {
-            response = await uploadSosMedia(token, backendId, item.component, uploadFile);
-            if (response?.sos?.components?.[item.component]?.status === 'success') break;
-            throw new Error(`Backend did not confirm durable storage for ${item.component}.`);
-          } catch (uploadError) {
-            lastUploadError = uploadError;
-            if (uploadAttempt < 3) await new Promise(resolve => setTimeout(resolve, uploadAttempt * 1200));
-          }
-        }
-        if (!response) throw (lastUploadError || new Error(`Upload failed for ${item.component}.`));
-        emitSosDiagnostic(`SOS DEBUG UPLOAD: ${item.component} completed`);
-        if (__DEV__) console.log('[SOS_DEBUG] MEDIA_UPLOAD_RESULT', {
-          component: item.component,
-          backendId,
-          status: response?.sos?.components?.[item.component]?.status || null,
-          storageRef: response?.sos?.components?.[item.component]?.storageRef || null,
-        });
-        const media = response?.sos?.components?.[item.component];
-        if (media?.status !== 'success' || !media.storageRef) {
-          throw new Error(`Backend did not confirm durable storage for ${item.component}.`);
-        }
-        uploadState[item.component] = {
-          status: 'SUCCESS',
-          component: item.component === 'frontImage' ? 'FRONT_CAMERA' : item.component === 'backImage' ? 'BACK_CAMERA' : 'AUDIO',
-          storageRef: media.storageRef,
-        };
-        uploaded.push({component: item.component, storageRef: media.storageRef});
-        if (__DEV__) {
-          const tag = item.component === 'frontImage' ? 'FRONT_IMAGE_UPLOAD_SUCCESS'
-            : item.component === 'backImage' ? 'BACK_IMAGE_UPLOAD_SUCCESS'
-            : 'AUDIO_UPLOAD_SUCCESS';
-          console.log(tag, {backendId, component: item.component});
-        }
-      } else if (componentFailed) {
-        // A missing device file is not a durable upload failure yet. Camera
-        // capture is independently retryable (especially the back lens), so
-        // marking this component REPORTED_FAILED here would permanently block
-        // the later successful capture from ever being uploaded. Keep it
-        // pending and let the camera/media queue retry.
-        uploadState[item.component] = {
-          status: 'PENDING',
-          error: componentError || `${item.component} capture is still pending.`,
-        };
-        failures.push({component: item.component, error: uploadState[item.component].error});
-      }
-    } catch (error) {
-      emitSosDiagnostic(`SOS DEBUG UPLOAD: ${item.component} failed: ${error?.message || 'Upload failed'}`, 'error');
-      if (__DEV__) console.log('[SOS_DEBUG] MEDIA_UPLOAD_ERROR', {
-        component: item.component,
-        backendId,
-        message: error?.message || 'Upload failed',
-      });
-      // This component stays retryable; every other component still gets
-      // its own attempt below rather than the whole job aborting here.
-      uploadState[item.component] = {status: 'PENDING', error: error?.message || 'Upload failed'};
-      failures.push({component: item.component, error: error?.message || 'Upload failed'});
+    const componentError = item.component === 'frontImage' ? capture.frontError
+      : item.component === 'backImage' ? capture.backError : capture.error;
+    if (!localPath) {
+      return {component: item.component, pending: true, error: componentError || null};
     }
-  }
-
-  await sosLocalStore.upsertSos({...sosEvent, mediaUploadState: uploadState});
-
-  if (failures.length > 0) {
-    const onlyPermanentFailures = failures.every(item => item.permanent);
-    return {
-      status: onlyPermanentFailures ? 'FAILED' : 'PENDING',
-      reason: `Media upload incomplete for: ${failures.map(item => item.component).join(', ')}.`,
-      uploaded,
-      failures,
+    emitSosDiagnostic(`SOS DEBUG UPLOAD: ${item.component} started`);
+    const validFile = await validateNativeSosMedia(localPath);
+    if (!validFile) return {component: item.component, pending: true, error: `${item.component} file is not readable yet.`};
+    const uploadFile = {
+      uri: localPath.startsWith('file://') ? localPath : `file://${localPath}`,
+      type: item.mimeType,
+      name: `${item.component}-${Date.now()}${item.component === 'audio' ? '.m4a' : '.jpg'}`,
     };
-  }
+    let response = null;
+    let lastError = null;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        response = await uploadSosMedia(token, backendId, item.component, uploadFile);
+        if (response?.sos?.components?.[item.component]?.status === 'success') break;
+        throw new Error(`Backend did not confirm durable storage for ${item.component}.`);
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) await new Promise(resolve => setTimeout(resolve, attempt * 1200));
+      }
+    }
+    if (!response) throw lastError || new Error(`Upload failed for ${item.component}.`);
+    const media = response?.sos?.components?.[item.component];
+    if (media?.status !== 'success' || !media.storageRef) throw new Error(`Backend did not confirm durable storage for ${item.component}.`);
+    return {component: item.component, storageRef: media.storageRef};
+  };
 
+  const candidates = MEDIA_COMPONENTS.filter(candidate => !component || candidate.component === component);
+  const settled = await Promise.allSettled(candidates.map(uploadOne));
+  const uploaded = [];
+  const failures = [];
+  settled.forEach((result, index) => {
+    const item = result.status === 'fulfilled' ? result.value : {component: candidates[index].component, error: result.reason?.message || 'Upload failed'};
+    if (item.storageRef) {
+      uploadState[item.component] = {status: 'SUCCESS', component: item.component === 'frontImage' ? 'FRONT_CAMERA' : item.component === 'backImage' ? 'BACK_CAMERA' : 'AUDIO', storageRef: item.storageRef};
+      uploaded.push(item);
+    } else {
+      uploadState[item.component] = {status: 'PENDING', error: item.error || null};
+      failures.push(item);
+    }
+  });
+
+  await sosLocalStore.updateSosMediaUploadState(sosEvent.id, uploadState);
+  if (failures.length > 0) {
+    return {status: 'PENDING', reason: `Media upload incomplete for: ${failures.map(item => item.component).join(', ')}.`, uploaded, failures};
+  }
   return {status: 'COMPLETED', uploaded};
 }
 

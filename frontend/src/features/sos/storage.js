@@ -5,6 +5,7 @@ const SOS_QUEUE_KEY = 'cogg_safe.sos.queue';
 const COLLECTION_CACHE_KEY = 'cogg_safe.sos.collectionCache';
 const COLLECTION_MEMBERS_CACHE_KEY = 'cogg_safe.sos.collectionMembersCache';
 const EMERGENCY_CALL_SIM_KEY = 'cogg_safe.sos.emergencyCallSubscriptionId';
+const OFFLINE_SMS_ENABLED_KEY = 'cogg_safe.sos.offlineSmsEnabled';
 const memoryStore = {};
 let queueMutation = Promise.resolve();
 let eventMutation = Promise.resolve();
@@ -115,12 +116,16 @@ export const sosLocalStore = {
     delete memoryStore[SOS_EVENT_KEY];
     delete memoryStore[SOS_QUEUE_KEY];
     delete memoryStore[EMERGENCY_CALL_SIM_KEY];
+    delete memoryStore[COLLECTION_CACHE_KEY];
     delete memoryStore[COLLECTION_MEMBERS_CACHE_KEY];
+    delete memoryStore[OFFLINE_SMS_ENABLED_KEY];
     await Promise.all([
       safeAsyncStorage.removeItem(SOS_EVENT_KEY),
       safeAsyncStorage.removeItem(SOS_QUEUE_KEY),
-      safeAsyncStorage.removeItem(EMERGENCY_CALL_SIM_KEY),
+      safeAsyncStorage.removeItem(COLLECTION_CACHE_KEY),
       safeAsyncStorage.removeItem(COLLECTION_MEMBERS_CACHE_KEY),
+      safeAsyncStorage.removeItem(EMERGENCY_CALL_SIM_KEY),
+      safeAsyncStorage.removeItem(OFFLINE_SMS_ENABLED_KEY),
     ]);
   },
 
@@ -236,13 +241,51 @@ export const sosLocalStore = {
   async setEmergencyCallSimPreference(subscriptionId, meta = {}) {
     if (subscriptionId == null) {
       delete memoryStore[EMERGENCY_CALL_SIM_KEY];
-    delete memoryStore[COLLECTION_MEMBERS_CACHE_KEY];
       await safeAsyncStorage.removeItem(EMERGENCY_CALL_SIM_KEY);
       return null;
     }
     const value = {subscriptionId, ...meta, savedAt: new Date().toISOString()};
     await writeJson(EMERGENCY_CALL_SIM_KEY, value);
     return value;
+  },
+
+  async getOfflineSmsEnabled(userId) {
+    const stored = await readJson(OFFLINE_SMS_ENABLED_KEY, {});
+    if (!userId) return true;
+    // Legacy boolean values are treated as the default for the current user
+    // during the one-time transition to user-scoped preferences.
+    if (typeof stored === 'boolean') return stored;
+    return stored?.[String(userId)] !== false;
+  },
+
+  async setOfflineSmsEnabled(userId, enabled) {
+    if (!userId) return Boolean(enabled);
+    const stored = await readJson(OFFLINE_SMS_ENABLED_KEY, {});
+    const map = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+    const value = Boolean(enabled);
+    await writeJson(OFFLINE_SMS_ENABLED_KEY, {...map, [String(userId)]: value});
+    return value;
+  },
+
+  async updateSosMediaUploadState(sosId, mediaUploadState) {
+    const mutation = eventMutation.then(async () => {
+      const events = await this.getAllEvents();
+      const index = events.findIndex(item => item.id === sosId);
+      if (index === -1) return null;
+      const event = events[index];
+      const updatedEvent = {
+        ...event,
+        mediaUploadState: {
+          ...(event.mediaUploadState || {}),
+          ...(mediaUploadState || {}),
+        },
+      };
+      events[index] = updatedEvent;
+      await this.saveEvents(events);
+      return updatedEvent;
+    });
+    eventMutation = mutation.catch(() => undefined);
+    return mutation;
   },
 };
 

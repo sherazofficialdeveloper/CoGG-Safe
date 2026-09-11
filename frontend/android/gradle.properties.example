@@ -1,0 +1,5 @@
+# Safe local/CI release signing configuration
+COGGSAFE_RELEASE_STORE_FILE=/absolute/path/to/coggsafe-release.keystore
+COGGSAFE_RELEASE_KEY_ALIAS=coggsafe
+COGGSAFE_RELEASE_STORE_PASSWORD=REPLACE_ME
+COGGSAFE_RELEASE_KEY_PASSWORD=REPLACE_ME

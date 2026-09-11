@@ -25,7 +25,7 @@ export const reportSosService = (token, id, component, body) =>
 export const uploadSosMedia = (token, id, component, file) => {
   const body = new FormData();
   body.append('file', file);
-  return request(`/sos/${id}/media/${component}/upload`, {method: 'PATCH', token, body, timeoutMs: 90000});
+  return request(`/sos/${id}/media/${component}/upload`, {method: 'PATCH', token, body, timeoutMs: 120000});
 };
 export const startLiveLocation = (token, id) => request(`/sos/${id}/live-location/start`, {method: 'POST', token});
 export const pingLiveLocation = (token, id, body) => request(`/sos/${id}/live-location/ping`, {method: 'POST', token, body});
@@ -34,6 +34,7 @@ export const getLiveLocation = (token, id, params, options = {}) => request(`/so
 
 export const listUsers = (token, params, options = {}) => request(`/users${queryString(params)}`, {token, ...options});
 export const listContacts = token => request('/contacts', {token});
+export const listEmergencySmsRecipients = token => request('/contacts/emergency-sms', {token});
 export const updateMyProfile = (token, body) => request('/users/me', {method: 'PATCH', token, body});
 export const getUser = (token, id) => request(`/users/${id}`, {token});
 export const createUser = (token, body) => request('/users', {method: 'POST', token, body});

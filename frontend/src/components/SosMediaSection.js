@@ -123,7 +123,7 @@ const SosMediaSection = ({
                 surfaced as "Audio unavailable" even though the file exists
                 and the public token page (which really does use an
                 unauthenticated endpoint) could play it. */}
-            <AudioPlayer audioUrl={urls.audio} token={token} publicMedia={false} style={styles.audio} />
+            <AudioPlayer audioUrl={urls.audio} token={token} publicMedia={true} style={styles.audio} />
           </View>
         ) : audioPending ? (
           <View style={[styles.audioCard, styles.audioPendingCard]}>

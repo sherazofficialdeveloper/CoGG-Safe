@@ -142,7 +142,6 @@ export async function activateSosFlow({
     call: async () => 'call',
     camera: async () => 'camera',
     audio: async () => 'audio',
-    mediaUpload: async () => 'mediaUpload',
     location: async () => 'location',
     backend: async () => 'backend',
     email: async () => 'email',
@@ -152,7 +151,7 @@ export async function activateSosFlow({
   };
 
   const runners = {...defaultRunners, ...serviceRunners};
-  const executionOrder = ['backend', 'location', 'camera', 'audio', 'mediaUpload', 'sms', 'call', 'email', 'notifications', 'liveLocation', 'linkSms'];
+  const executionOrder = ['backend', 'location', 'camera', 'audio', 'sms', 'call', 'email', 'notifications', 'liveLocation', 'linkSms'];
   const extraNames = Object.keys(runners).filter((name) => !executionOrder.includes(name));
   const names = [...executionOrder.filter(name => Object.prototype.hasOwnProperty.call(runners, name)), ...extraNames];
 
@@ -262,7 +261,12 @@ export async function activateSosFlow({
       if (['PENDING', 'FAILED'].includes(resultStatus)
         && RETRYABLE_SERVICES.has(serviceName)
         && !result?.permanent) {
-        await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
+        await enqueueSosJob({
+          sosId: event.id,
+          type: serviceName.toUpperCase(),
+          serviceName,
+          payload: serviceName === 'sms' ? {offlineSmsEnabled: event.meta?.offlineSmsEnabled !== false} : {},
+        });
       }
 
       if (['linkSms', 'locationSms'].includes(serviceName)
@@ -286,7 +290,12 @@ export async function activateSosFlow({
       event.services[serviceName] = next;
       await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
       if (RETRYABLE_SERVICES.has(serviceName)) {
-        await enqueueSosJob({sosId: event.id, type: serviceName.toUpperCase(), serviceName});
+        await enqueueSosJob({
+          sosId: event.id,
+          type: serviceName.toUpperCase(),
+          serviceName,
+          payload: serviceName === 'sms' ? {offlineSmsEnabled: event.meta?.offlineSmsEnabled !== false} : {},
+        });
       }
       return {serviceName, status: 'FAILED', error: error?.message || 'Service failed'};
     }
@@ -399,9 +408,6 @@ export async function activateSosFlow({
     await enqueueSosJob({sosId: event.id, type: 'LOCATION', serviceName: 'location'});
   }
 
-  if (remainingNames.includes('mediaUpload')) {
-    execution.push(await runService('mediaUpload'));
-  }
   const dispatchPreparationNames = remainingNames.filter(name => !['location', 'camera', 'audio', 'sms', 'call', 'mediaUpload', 'notifications', 'liveLocation', 'linkSms', 'locationSms'].includes(name));
   appendSettled(await Promise.allSettled(dispatchPreparationNames.map(serviceName => runService(serviceName))));
 
