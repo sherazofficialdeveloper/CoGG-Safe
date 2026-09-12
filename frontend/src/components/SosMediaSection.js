@@ -1,162 +1,437 @@
-import React, {useState} from 'react';
-import {ActivityIndicator, Image, Linking, StyleSheet, Text, TouchableOpacity, View} from 'react-native';
-import AudioPlayer from './AudioPlayer';
-import LiveLocationMap from './LiveLocationMap';
-import FullscreenImageViewer from './FullscreenImageViewer';
-import {buildMediaRequestOptions, buildMediaUrl} from '../utils/media';
-import {API_BASE_URL} from '../api/config';
+// AudioPlayer.js - TrackPlayer Version (Fixed - Replayable)
+import React, {useEffect, useState} from 'react';
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import TrackPlayer, {
+  Capability,
+  State,
+  usePlaybackState,
+  useProgress,
+} from 'react-native-track-player';
 
-/**
- * Single media presentation boundary for SOS/notification detail screens.
- * Media URL construction, authenticated image rendering, audio and live map
- * presentation live here so screen implementations do not diverge.
- */
-const SosMediaSection = ({
-  sosId,
+// ================= Setup TrackPlayer =================
+const setupTrackPlayer = async () => {
+  try {
+    await TrackPlayer.setupPlayer();
+    await TrackPlayer.updateOptions({
+      capabilities: [
+        Capability.Play,
+        Capability.Pause,
+        Capability.Stop,
+      ],
+    });
+  } catch (error) {
+    if (!String(error?.message || '').includes('already been initialized')) {
+      console.log('[AudioPlayer] Setup error:', error);
+    }
+  }
+};
+
+const AudioPlayer = ({
+  audioUrl,
   token,
-  sos,
-  mediaUrls: providedMediaUrls = null,
-  initialLocation = null,
-  initialStatus = null,
-  showStopButton = false,
-  isStopping = false,
-  onStopSharing,
-  onLocationUpdate,
-  showEmergencyLink = true,
-  compact = false,
-  // Forwarded to LiveLocationMap - only the post-SOS-trigger screen sets
-  // this (see UserSosActiveScreen). Defaults to false everywhere else so
-  // Admin/notification detail screens keep their existing behavior.
-  justTriggered = false,
+  publicMedia = false,
+  onError = null,
+  style = {},
 }) => {
-  const [selectedImage, setSelectedImage] = useState(null);
-  const [hidden, setHidden] = useState({front: false, back: false});
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isReady, setIsReady] = useState(false);
+  const [isSetup, setIsSetup] = useState(false);
 
-  const authHeaders = buildMediaRequestOptions(token).headers;
+  const playbackState = usePlaybackState();
+  const progress = useProgress();
+  const isPlaying = playbackState === State.Playing;
 
-  // Screens may already provide resolved media URLs. If they do not, derive
-  // them from the canonical SOS component storage references here so the
-  // shared media layer remains the single source of truth.
-  const componentHasMedia = component => Boolean(component?.storageRef || component?.url || component?.path);
-  const urls = {
-    front: providedMediaUrls?.front || (sosId && componentHasMedia(sos?.components?.frontImage) ? buildMediaUrl(API_BASE_URL, sosId, 'frontImage') : null),
-    back: providedMediaUrls?.back || (sosId && componentHasMedia(sos?.components?.backImage) ? buildMediaUrl(API_BASE_URL, sosId, 'backImage') : null),
-    audio: providedMediaUrls?.audio || (sosId && componentHasMedia(sos?.components?.audio) ? buildMediaUrl(API_BASE_URL, sosId, 'audio') : null),
+  // ================= Setup TrackPlayer =================
+  useEffect(() => {
+    let mounted = true;
+
+    const init = async () => {
+      await setupTrackPlayer();
+      if (mounted) setIsSetup(true);
+    };
+
+    init();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // ================= Load Audio =================
+  useEffect(() => {
+    if (!isSetup) return;
+
+    let cancelled = false;
+
+    const loadAudio = async () => {
+      if (!audioUrl) {
+        setError('No audio source');
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        console.log('[AudioPlayer] Loading audio:', audioUrl);
+
+        await TrackPlayer.reset();
+
+        if (cancelled) return;
+
+        const track = {
+          id: `sos-audio-${Date.now()}`,
+          url: audioUrl,
+          type: 'default',
+          title: 'SOS Voice Recording',
+          artist: 'CoGG Safe',
+        };
+
+        if (!publicMedia && token) {
+          track.headers = {
+            Authorization: `Bearer ${token}`,
+          };
+          console.log('[AudioPlayer] Using headers for private media');
+        } else {
+          console.log('[AudioPlayer] Using public media (no headers)');
+        }
+
+        await TrackPlayer.add(track);
+
+        if (cancelled) return;
+
+        setIsReady(true);
+        setIsLoading(false);
+      } catch (err) {
+        if (cancelled) return;
+        console.log('[AudioPlayer] Load error:', err);
+        setError('Could not load audio');
+        setIsLoading(false);
+        if (onError) onError(err);
+      }
+    };
+
+    loadAudio();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [audioUrl, token, publicMedia, isSetup]);
+
+  // ================= Cleanup on unmount =================
+  useEffect(() => {
+    return () => {
+      try {
+        TrackPlayer.reset();
+      } catch (_) {}
+    };
+  }, []);
+
+  // ================= Play / Pause =================
+  const handlePlayPause = async () => {
+    if (!isReady) return;
+    try {
+      if (isPlaying) {
+        await TrackPlayer.pause();
+        return;
+      }
+
+      // ✅ FIX: If track has ended or is at the end, seek to 0 before play
+      const currentProgress = await TrackPlayer.getProgress();
+      const duration = currentProgress.duration || 0;
+      const position = currentProgress.position || 0;
+
+      // If track ended or nearly at end, reset to start
+      if (duration > 0 && position >= duration - 0.5) {
+        await TrackPlayer.seekTo(0);
+        console.log('[AudioPlayer] Rewinding to start before replay');
+      }
+
+      // Also reset if state is Ended
+      const state = await TrackPlayer.getState();
+      if (state === State.Ended) {
+        await TrackPlayer.seekTo(0);
+        console.log('[AudioPlayer] Track ended — seek to 0');
+      }
+
+      await TrackPlayer.play();
+    } catch (err) {
+      console.log('[AudioPlayer] Play/Pause error:', err);
+    }
   };
-  const hasImages = Boolean(urls.front || urls.back);
 
-  // Only meaningful (and only consulted) on the just-triggered screen: a
-  // component with no url yet is either genuinely failed (backend said so)
-  // or still capturing/uploading - which for a freshly-triggered SOS is the
-  // common case, not an absence. componentHasMedia() being false already
-  // covers "there is no url"; this only decides which message that maps to.
-  const componentFailed = component => String(component?.status || '').toLowerCase() === 'failed';
-  const frontPending = justTriggered && !urls.front && !componentFailed(sos?.components?.frontImage);
-  const backPending = justTriggered && !urls.back && !componentFailed(sos?.components?.backImage);
-  const audioPending = justTriggered && !urls.audio && !componentFailed(sos?.components?.audio);
+  // ================= Stop =================
+  const handleStop = async () => {
+    try {
+      await TrackPlayer.stop();
+      await TrackPlayer.seekTo(0);
+      console.log('[AudioPlayer] Stopped and rewound');
+    } catch (err) {
+      console.log('[AudioPlayer] Stop error:', err);
+    }
+  };
 
-  return (
-    <View style={styles.root}>
-      {sosId ? (
-        <LiveLocationMap
-          sosId={sosId}
-          token={token}
-          initialLocation={initialLocation || sos?.liveLocation?.lastLocation || sos?.location}
-          initialStatus={initialStatus || sos?.liveLocation?.status}
-          showStopButton={showStopButton}
-          isStopping={isStopping}
-          onStopSharing={onStopSharing}
-          onLocationUpdate={onLocationUpdate}
-          justTriggered={justTriggered}
-        />
-      ) : null}
+  // ================= Format time =================
+  const formatTime = (seconds) => {
+    const s = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60);
+    return `${m}:${sec < 10 ? '0' : ''}${sec}`;
+  };
 
-      {showEmergencyLink && sos?.emergencyLink ? (
-        <View style={styles.linkSection}>
-          <Text style={styles.sectionLabel}>🔗 EMERGENCY TRACKING LINK</Text>
-          <TouchableOpacity style={styles.linkCard} onPress={() => Linking.openURL(sos.emergencyLink)}>
-            <Text style={styles.linkText}>{sos.emergencyLink}</Text>
+  // ================= Retry =================
+  const handleRetry = async () => {
+    setError(null);
+    setIsLoading(true);
+    setIsReady(false);
+    try {
+      await TrackPlayer.reset();
+    } catch (_) {}
+    setIsSetup(false);
+    setTimeout(() => setIsSetup(true), 100);
+  };
+
+  // ================= Error state =================
+  if (error) {
+    return (
+      <View style={[styles.container, style]}>
+        <View style={styles.errorBox}>
+          <Text style={styles.errorIcon}>⚠️</Text>
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity onPress={handleRetry} style={styles.retryButton}>
+            <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
         </View>
-      ) : null}
-
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>📷 PHOTOS</Text>
-        {hasImages || frontPending || backPending ? (
-          <View style={styles.photosGrid}>
-            {urls.front && !hidden.front ? (
-              <TouchableOpacity style={styles.photoBox} onPress={() => setSelectedImage(urls.front)}>
-                <View style={styles.badge}><Text style={styles.badgeText}>Front</Text></View>
-                <Image source={{uri: urls.front, headers: authHeaders}} style={styles.photo} onError={() => setHidden(v => ({...v, front: true}))} />
-              </TouchableOpacity>
-            ) : frontPending ? (
-              <View style={[styles.photoBox, styles.photoBoxPending]}>
-                <ActivityIndicator size="small" color="#E4002B" />
-                <Text style={styles.photoPendingText}>Uploading…</Text>
-              </View>
-            ) : null}
-            {urls.back && !hidden.back ? (
-              <TouchableOpacity style={styles.photoBox} onPress={() => setSelectedImage(urls.back)}>
-                <View style={styles.badge}><Text style={styles.badgeText}>Back</Text></View>
-                <Image source={{uri: urls.back, headers: authHeaders}} style={styles.photo} onError={() => setHidden(v => ({...v, back: true}))} />
-              </TouchableOpacity>
-            ) : backPending ? (
-              <View style={[styles.photoBox, styles.photoBoxPending]}>
-                <ActivityIndicator size="small" color="#E4002B" />
-                <Text style={styles.photoPendingText}>Uploading…</Text>
-              </View>
-            ) : null}
-          </View>
-        ) : <Text style={styles.empty}>No photos available.</Text>}
       </View>
+    );
+  }
 
-      <View style={styles.section}>
-        <Text style={styles.sectionLabel}>🎙️ VOICE RECORDING</Text>
-        {urls.audio ? (
-          <View style={styles.audioCard}>
-            {/* This URL (buildMediaUrl -> /sos/:id/media/audio/file) is the
-                authenticated per-SOS media route, not the public emergency-
-                token route. publicMedia MUST be false here so AudioPlayer
-                attaches the Bearer token (native authenticated download,
-                falling back to RNFS with the Authorization header) instead
-                of requesting the URL with no auth and getting a 401 that
-                surfaced as "Audio unavailable" even though the file exists
-                and the public token page (which really does use an
-                unauthenticated endpoint) could play it. */}
-            <AudioPlayer audioUrl={urls.audio} token={token} publicMedia={true} style={styles.audio} />
-          </View>
-        ) : audioPending ? (
-          <View style={[styles.audioCard, styles.audioPendingCard]}>
-            <ActivityIndicator size="small" color="#E4002B" />
-            <Text style={styles.audioPendingText}>Recording is uploading…</Text>
-          </View>
-        ) : <Text style={styles.empty}>No audio recording available.</Text>}
+  // ================= Loading state =================
+  if (isLoading) {
+    return (
+      <View style={[styles.container, style]}>
+        <View style={styles.loadingBox}>
+          <ActivityIndicator size="small" color="#E4002B" />
+          <Text style={styles.loadingText}>Loading audio...</Text>
+        </View>
       </View>
+    );
+  }
 
-      <FullscreenImageViewer visible={Boolean(selectedImage)} uri={selectedImage} headers={authHeaders} onClose={() => setSelectedImage(null)} />
+  const duration = progress.duration || 0;
+  const currentTime = progress.position || 0;
+
+  return (
+    <View style={[styles.container, style]}>
+      <View style={[styles.playerBox, !isReady && styles.playerBoxDisabled]}>
+        <View style={styles.controlsRow}>
+          <TouchableOpacity
+            onPress={handlePlayPause}
+            style={[styles.playButton, !isReady && styles.playButtonDisabled]}
+            activeOpacity={0.7}
+            disabled={!isReady}
+          >
+            <Icon
+              name={isPlaying ? 'pause' : 'play'}
+              size={20}
+              color={isReady ? '#FFFFFF' : '#999999'}
+            />
+          </TouchableOpacity>
+
+          <View style={styles.timeInfo}>
+            <Text style={styles.timeText}>
+              {formatTime(currentTime)} / {formatTime(duration)}
+            </Text>
+          </View>
+
+          {isPlaying && isReady && (
+            <TouchableOpacity
+              onPress={handleStop}
+              style={styles.stopButton}
+              activeOpacity={0.7}
+            >
+              <Icon name="stop" size={18} color="#FF6B6B" />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.progressContainer}>
+          <View style={styles.progressBar}>
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${
+                    duration > 0 ? (currentTime / duration) * 100 : 0
+                  }%`,
+                },
+              ]}
+            />
+          </View>
+        </View>
+
+        {!isReady && (
+          <Text style={styles.noSoundText}>Audio not available</Text>
+        )}
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  root: {width: '100%'},
-  section: {marginBottom: 16},
-  sectionLabel: {fontSize: 12, fontWeight: '900', color: '#6E6E73', marginBottom: 8},
-  photosGrid: {flexDirection: 'row', gap: 10},
-  photoBox: {flex: 1, aspectRatio: 4 / 3, backgroundColor: '#F5F6F8', borderWidth: 1, borderColor: '#E8E8EB', borderRadius: 14, overflow: 'hidden', position: 'relative'},
-  photo: {width: '100%', height: '100%', resizeMode: 'cover'},
-  badge: {position: 'absolute', top: 8, left: 8, zIndex: 1, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6},
-  badgeText: {fontSize: 8, fontWeight: '700', color: '#FFFFFF'},
-  photoBoxPending: {alignItems: 'center', justifyContent: 'center'},
-  photoPendingText: {fontSize: 10, color: '#9CA3AF', fontWeight: '600', marginTop: 6},
-  audioCard: {backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E8E8EB', borderRadius: 12, padding: 4},
-  audioPendingCard: {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 14, gap: 8},
-  audioPendingText: {fontSize: 12, color: '#9CA3AF', fontWeight: '600'},
-  audio: {width: '100%'},
-  empty: {color: '#A1A1A6', fontSize: 13, textAlign: 'center', padding: 12},
-  linkSection: {marginBottom: 16},
-  linkCard: {backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E8E8EB', borderRadius: 12, padding: 12},
-  linkText: {color: '#E4002B', fontSize: 12, fontWeight: '700'},
+  container: {
+    width: '100%',
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+  },
+
+  playerBox: {
+    backgroundColor: '#F5F6F8',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+
+  playerBoxDisabled: {
+    opacity: 0.6,
+  },
+
+  controlsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  playButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E4002B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#E4002B',
+    shadowOffset: {width: 0, height: 2},
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+
+  playButtonDisabled: {
+    backgroundColor: '#D1D5DB',
+    shadowOpacity: 0,
+    elevation: 0,
+  },
+
+  timeInfo: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+
+  timeText: {
+    fontSize: 12,
+    color: '#4B5563',
+    fontWeight: '600',
+  },
+
+  stopButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#FFF5F6',
+    borderWidth: 1,
+    borderColor: '#F3B5BF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  progressContainer: {
+    marginTop: 8,
+    width: '100%',
+  },
+
+  progressBar: {
+    height: 3,
+    backgroundColor: '#E5E7EB',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#E4002B',
+    borderRadius: 2,
+  },
+
+  noSoundText: {
+    textAlign: 'center',
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 4,
+  },
+
+  loadingBox: {
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F5F6F8',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+
+  loadingText: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+
+  errorBox: {
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FEF2F2',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+  },
+
+  errorIcon: {
+    fontSize: 20,
+    marginBottom: 4,
+  },
+
+  errorText: {
+    fontSize: 12,
+    color: '#B42318',
+    textAlign: 'center',
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+
+  retryButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#E4002B',
+  },
+
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
 });
 
-export default SosMediaSection;
+export default AudioPlayer;

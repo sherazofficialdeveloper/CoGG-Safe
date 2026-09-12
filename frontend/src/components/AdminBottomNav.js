@@ -18,7 +18,7 @@ const AdminBottomNav = ({
       icon: '⌂',
     },
     {
-      key: 'Groups',  // ✅ Changed from 'Users' to 'Groups'
+      key: 'Groups',
       label: 'Groups',
       icon: '◫',
     },
@@ -34,6 +34,7 @@ const AdminBottomNav = ({
       <View style={styles.navBar}>
         {tabs.map(tab => {
           const isActive = activeTab === tab.key;
+          const isSOS = tab.key === 'SOS';
 
           return (
             <TouchableOpacity
@@ -46,28 +47,27 @@ const AdminBottomNav = ({
                 }
               }}>
               {isActive ? <View style={styles.activeIndicator} /> : null}
+
+              {/* ================= ICON CONTAINER ================= */}
               <View
                 style={[
                   styles.iconContainer,
-                  isActive && styles.activeIconContainer,
-                  tab.key === 'SOS' &&
-                    styles.sosIconContainer,
-                  tab.key === 'SOS' &&
-                    isActive &&
-                    styles.activeSosIconContainer,
+                  // ✅ Non-SOS active tabs (Dashboard, Groups) — pink background
+                  isActive && !isSOS && styles.activeIconContainer,
+                  // ✅ SOS inactive — pink background
+                  isSOS && styles.sosIconContainer,
+                  // ✅ SOS active — red background
+                  isSOS && isActive && styles.activeSosIconContainer,
                 ]}>
                 <Text
                   style={[
                     styles.icon,
-                    tab.key === 'SOS' &&
-                      !isActive &&
-                      styles.sosIcon,
-                    tab.key === 'SOS' &&
-                      isActive &&
-                      styles.activeSosIcon,
-                    tab.key !== 'SOS' &&
-                      isActive &&
-                      styles.activeIcon,
+                    // ✅ Non-SOS active tabs (Dashboard, Groups) — red icon
+                    isActive && !isSOS && styles.activeIcon,
+                    // ✅ SOS inactive — red icon
+                    isSOS && !isActive && styles.sosIcon,
+                    // ✅ SOS active — white icon
+                    isSOS && isActive && styles.activeSosIcon,
                   ]}>
                   {tab.icon}
                 </Text>
