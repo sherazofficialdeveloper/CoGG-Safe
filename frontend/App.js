@@ -991,6 +991,14 @@ function AppContent() {
           // EMERGENCY TRACKING LINK SMS
           // ------------------------------------------------------
           linkSms: async event => {
+            // The primary emergency SMS is the only SMS that may be sent to
+            // collection members. The queue also creates a LINK_SMS job for
+            // recovery, but that job must never create a second emergency
+            // message after the primary SMS succeeded.
+            const latestEvent = (await sosLocalStore.getSosById(event.id)) || event;
+            if (latestEvent.services?.sms?.status === 'COMPLETED') {
+              return {status: 'COMPLETED', reason: 'Primary emergency SMS already sent; duplicate link SMS suppressed.'};
+            }
             if (!event.emergencyLink) {
               return {status: 'PENDING', reason: 'Waiting for the backend emergency link.'};
             }

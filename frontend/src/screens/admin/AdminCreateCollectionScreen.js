@@ -23,7 +23,7 @@ const COLLECTION_TYPES = [
   {value: 'other', label: 'Other'},
 ];
 
-const EMPTY_USER = {username: '', password: '', mobileNumber: '', email: ''};
+const EMPTY_USER = {username: '', password: '', mobileNumber: '+', email: ''};
 
 function validateUser(user, index, users) {
   const errors = {};
@@ -66,12 +66,12 @@ export default function AdminCreateCollectionScreen({onBack, onSave, token}) {
   // ✅ Default type: 'employees' (Workers replaced with Employees)
   const [name, setName] = useState('Employees');
   const [type, setType] = useState('employees');
-  const [emergencyCallNumber, setEmergencyCallNumber] = useState('');
+  const [emergencyCallNumber, setEmergencyCallNumber] = useState('+');
   const [users, setUsers] = useState([{...EMPTY_USER}]);
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
 
-  const updateUser = (index, field, value) => setUsers(current => current.map((user, itemIndex) => itemIndex === index ? {...user, [field]: value} : user));
+  const updateUser = (index, field, value) => setUsers(current => current.map((user, itemIndex) => itemIndex === index ? {...user, [field]: field === 'mobileNumber' ? (String(value || '').startsWith('+') ? String(value) : `+${String(value || '')}`) : value} : user));
   const addUser = () => setUsers(current => [...current, {...EMPTY_USER}]);
   const removeUser = index => setUsers(current => current.filter((_, itemIndex) => itemIndex !== index));
   
@@ -137,7 +137,7 @@ export default function AdminCreateCollectionScreen({onBack, onSave, token}) {
             ))}
           </View>
           
-          <Input label="Emergency call number" required value={emergencyCallNumber} onChangeText={setEmergencyCallNumber} placeholder="15 or +923001234567" keyboardType="phone-pad" error={errors.emergencyCallNumber} />
+          <Input label="Emergency call number" required value={emergencyCallNumber} onChangeText={value => setEmergencyCallNumber(String(value || '').startsWith('+') ? String(value) : `+${String(value || '')}`)} placeholder="15 or +923001234567" keyboardType="phone-pad" error={errors.emergencyCallNumber} />
           
           <Text style={styles.sectionTitle}>USERS</Text>
           {users.map((user, index) => <UserForm key={index} user={user} index={index} users={users} errors={errors[`user-${index}`] || {}} onChange={(field, value) => updateUser(index, field, value)} onRemove={() => removeUser(index)} />)}

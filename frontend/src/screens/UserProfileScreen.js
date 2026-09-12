@@ -1,560 +1,312 @@
-// UserProfileScreen.js
+// UserNotificationDetailScreen.js - COMPLETE FIXED with LiveLocationMap and Audio
 import React, {useEffect, useState} from 'react';
 import {
-  View,
+  Image,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
   Text,
   TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  Switch,
-  Alert,
-  TextInput,
+  View,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
 import Icon from '../components/Icon';
-import {updateMyProfile} from '../api/resources';
-import {getUserEmergencyMessage} from '../features/sos/services/emergencyMessage';
-import {savePendingProfileUpdate, clearPendingProfileUpdate} from '../features/profile/profileSync';
-import {sosLocalStore} from '../features/sos/storage';
+import SosMediaSection from '../components/SosMediaSection';
+import {API_BASE_URL} from '../api/config';
+import {buildMediaUrl} from '../utils/media';
+import {getSos} from '../api/resources';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
-const UserProfileScreen = ({
-  user,
-  onLogout,
-  onBack,
-  token,
-  onUserUpdated,
-}) => {
-  const [offlineSmsEnabled, setOfflineSmsEnabled] = useState(true);
-  const [isLoadingOfflineSmsSetting, setIsLoadingOfflineSmsSetting] = useState(true);
-  const [dailyAlarmEnabled, setDailyAlarmEnabled] = useState(true);
-  // Single source of truth: the same helper used to build the actual SOS
-  // SMS text, so the profile screen can never show different wording than
-  // what actually gets sent.
-  const [emergencyMessage, setEmergencyMessage] = useState(getUserEmergencyMessage(user));
+const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token, showViewSos = false}) => {
+  const insets = useSafeAreaInsets();
 
-  const [isEditingTemplate, setIsEditingTemplate] = useState(false);
-  const [tempTemplate, setTempTemplate] = useState(emergencyMessage);
-  // Tracks the in-flight backend sync only - the local/offline save this
-  // gates is already applied synchronously before this becomes true, so it
-  // never blocks the user from seeing their new message.
-  const [isSavingTemplate, setIsSavingTemplate] = useState(false);
+  const sosId = notification?.sosId && typeof notification.sosId === 'object'
+    ? notification.sosId._id || notification.sosId.id
+    : notification?.sosId;
 
-  useEffect(() => {
-    let mounted = true;
-    sosLocalStore.getOfflineSmsEnabled(user?._id || user?.id).then(enabled => {
-      if (mounted) setOfflineSmsEnabled(enabled);
-    }).finally(() => {
-      if (mounted) setIsLoadingOfflineSmsSetting(false);
-    });
-    return () => { mounted = false; };
-  }, [user?._id, user?.id]);
+  const initialSos = notification?.sosId && typeof notification.sosId === 'object'
+    ? notification.sosId
+    : null;
 
-  useEffect(() => {
-    const latestMessage = getUserEmergencyMessage(user);
-    setEmergencyMessage(latestMessage);
-    if (!isEditingTemplate) setTempTemplate(latestMessage);
-  }, [user?.username, user?.emergencyMessage]);
+  const [detail, setDetail] = useState(initialSos);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [hiddenImages, setHiddenImages] = useState({front: false, back: false});
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [mediaUrls, setMediaUrls] = useState({front: null, back: null, audio: null});
+  const [liveLocation, setLiveLocation] = useState(null);
+  const [liveLocationStatus, setLiveLocationStatus] = useState(null);
+  const [audioError, setAudioError] = useState(null);
 
-  const handleSaveTemplate = async () => {
-    if (isSavingTemplate) return; // guard against duplicate taps while a save is already in flight
-    const messageToSave = tempTemplate.trim();
-    if (!messageToSave) {
-      Alert.alert('Message required', 'Please enter an emergency message.');
-      return;
+  // ================= Fetch SOS Detail =================
+  // The notification opens while media/live-location may still be arriving.
+  // Refresh only the same SOS record in the background until its media and
+  // location settle, without showing a transient error for a poll failure.
+  const fetchSosDetail = async ({silent = false} = {}) => {
+    if (!token || !sosId) {
+      setLoading(false);
+      return {stillPending: false};
     }
 
-    // 1. Apply locally immediately. The user's edit must never be lost or
-    // silently reverted just because the network request that follows is
-    // slow or fails.
-    setEmergencyMessage(messageToSave);
-    setTempTemplate(messageToSave);
-    onUserUpdated?.({emergencyMessage: messageToSave});
-    setIsEditingTemplate(false);
-    await savePendingProfileUpdate(user?._id || user?.id, {emergencyMessage: messageToSave});
-
-    // 2. Try to sync with the backend right away. isSavingTemplate only
-    // covers this network round-trip (the message the user sees is already
-    // updated above), and drives the spinner shown next to EDIT/SAVE below.
-    setIsSavingTemplate(true);
     try {
-      const result = await updateMyProfile(token, {emergencyMessage: messageToSave});
-      const updatedUser = result?.user || result?.data || result;
-      await clearPendingProfileUpdate(user?._id || user?.id);
-      onUserUpdated?.(updatedUser || {emergencyMessage: messageToSave});
-    } catch (error) {
-      if (!error?.status || error.status === 0) {
-        // Offline / server unreachable - keep the local value and the
-        // pending record; it will sync automatically once the network
-        // returns (see profileSync.flushPendingProfileUpdate, triggered
-        // by App.js's connectivity listener). This is expected, not a
-        // failure, so it must never surface as an error to the user.
-      } else {
-        // A genuine rejection from the server (validation, auth, etc.) -
-        // surface the real reason instead of a generic error, and don't
-        // keep retrying a payload the server has already rejected. The
-        // locally-applied message (step 1) stays in effect either way.
-        await clearPendingProfileUpdate(user?._id || user?.id);
-        Alert.alert('Unable to sync message', error.message || 'Please try again.');
+      if (!silent) setLoading(true);
+      const result = await getSos(token, sosId, {forceRefresh: true});
+
+      if (result?.sos) {
+        const sosData = result.sos;
+        setDetail(sosData);
+        const components = sosData.components || {};
+        const frontComp = components.frontImage;
+        const backComp = components.backImage;
+        const audioComp = components.audio;
+
+        const frontUrl = frontComp?.storageRef ? buildMediaUrl(API_BASE_URL, sosId, 'frontImage') : null;
+        const backUrl = backComp?.storageRef ? buildMediaUrl(API_BASE_URL, sosId, 'backImage') : null;
+        const audioUrl = audioComp?.storageRef ? buildMediaUrl(API_BASE_URL, sosId, 'audio') : null;
+
+        setMediaUrls(current => ({
+          front: frontUrl || current.front,
+          back: backUrl || current.back,
+          audio: audioUrl || current.audio,
+        }));
+
+        if (sosData.liveLocation) {
+          setLiveLocationStatus(sosData.liveLocation.status || null);
+          if (sosData.liveLocation.lastLocation) setLiveLocation(sosData.liveLocation.lastLocation);
+        }
+
+        const stillPending = [frontComp, backComp, audioComp].some(component =>
+          component && !component.storageRef && String(component.status || '').toLowerCase() !== 'failed'
+        );
+        return {stillPending};
       }
+      return {stillPending: false};
+    } catch (err) {
+      console.log('[UserNotificationDetail] Fetch error:', err);
+      if (!silent) setError(err.message || 'Unable to load details.');
+      return {stillPending: true};
     } finally {
-      setIsSavingTemplate(false);
+      if (!silent) setLoading(false);
     }
   };
 
+  useEffect(() => {
+    let mounted = true;
+    let timer = null;
+
+    const refresh = async (silent = false) => {
+      const result = await fetchSosDetail({silent});
+      if (!mounted) return;
+      if (result?.stillPending && !timer) {
+        timer = setInterval(() => {
+          fetchSosDetail({silent: true}).then(next => {
+            if (!mounted) return;
+            if (!next?.stillPending && timer) {
+              clearInterval(timer);
+              timer = null;
+            }
+          });
+        }, 1000);
+      }
+    };
+
+    refresh(false);
+    return () => {
+      mounted = false;
+      if (timer) clearInterval(timer);
+    };
+  }, [sosId, token]);
+
+  const currentSos = detail || initialSos;
+  const authHeaders = {Authorization: `Bearer ${token}`};
+
+  const frontMediaUrl = mediaUrls.front;
+  const backMediaUrl = mediaUrls.back;
+  const audioMediaUrl = mediaUrls.audio;
+
+  const hasFrontImage = !!frontMediaUrl;
+  const hasBackImage = !!backMediaUrl;
+  const hasAudio = !!audioMediaUrl;
+  const hasImageData = hasFrontImage || hasBackImage;
+
   return (
-    <ScrollView
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={styles.scrollContent}>
-
-      {/* ================= BACK BUTTON ================= */}
-      <TouchableOpacity style={styles.backButton} onPress={onBack} activeOpacity={0.8}>
-        <Text style={styles.backIcon}>←</Text>
-        <Text style={styles.backText}>Back</Text>
-      </TouchableOpacity>
-
-      {/* ================= PROFILE CARD ================= */}
-      <View style={styles.profileCard}>
-        <View style={styles.profileAccent} />
-
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {user?.username ? user.username[0].toUpperCase() : 'U'}
-          </Text>
-        </View>
-
-        <View style={styles.profileInfo}>
-          <Text style={styles.profileName}>{user?.username || 'User'}</Text>
-          <Text style={[styles.profileRole, {color: String(user?.status || '').toLowerCase() === 'active' ? '#22A447' : '#B42318'}]}>User: {String(user?.status || '').toLowerCase() === 'active' ? 'Active' : 'Deactive'}</Text>
-          <Text style={styles.profileEmail} numberOfLines={2}>
-            {user?.email || 'Email not configured'} : {user?.mobileNumber || 'Mobile not configured'}
-          </Text>
-          <Text style={styles.profileEmail}>{user?.collection?.name || 'Group not assigned'}</Text>
-        </View>
+    <SafeAreaView style={styles.safeArea}>
+      {/* Header */}
+      <View style={[styles.header, {paddingTop: insets.top + 10}]}>
+        <TouchableOpacity onPress={onBack}>
+          <Icon name="back" size={22} color="#1A1A1A" />
+        </TouchableOpacity>
+        <Text style={styles.title}>Notification</Text>
+        <View style={styles.headerRight} />
       </View>
 
-      {/* ================= SECTION TITLE ================= */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>SYSTEM PREFERENCES</Text>
-      </View>
+      {loading ? <View style={styles.topLoading}><ActivityIndicator size="small" color="#E4002B" /><Text style={styles.topLoadingText}>Refreshing latest data...</Text></View> : null}
 
-      {/* ================= OFFLINE SMS ================= */}
-      <View style={styles.settingCard}>
-        <View style={styles.cardAccent} />
+      {notification ? (
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-        <View style={styles.settingTopRow}>
-          <View style={styles.settingIcon}>
-            <Icon name="notifications" size={20} color="#E4002B" />
-          </View>
-          <Switch
-            value={offlineSmsEnabled}
-            disabled={isLoadingOfflineSmsSetting}
-            onValueChange={async value => {
-              setOfflineSmsEnabled(value);
-              await sosLocalStore.setOfflineSmsEnabled(user?._id || user?.id, value);
-            }}
-            trackColor={{false: '#D9DCE1', true: '#E4002B'}}
-            thumbColor="#FFFFFF"
-            style={styles.switch}
-          />
-        </View>
-
-        <Text style={styles.settingTitle}>Offline SMS Dispatch</Text>
-        <Text style={styles.settingDescription}>
-          When enabled, SMS can dispatch even when internet is unavailable. Cellular/SIM service is still required.
-        </Text>
-      </View>
-
-      {/* ================= EMERGENCY MESSAGE ================= */}
-      <View style={styles.settingCard}>
-        <View style={styles.cardAccent} />
-
-        <View style={styles.settingTopRow}>
-          <View style={styles.settingIcon}>
-            <Icon name="notifications" size={20} color="#E4002B" />
-          </View>
-
-          <TouchableOpacity
-            style={styles.editButtonContainer}
-            disabled={isSavingTemplate}
-            onPress={() => {
-              if (isEditingTemplate) {
-                handleSaveTemplate();
-              } else {
-                setTempTemplate(emergencyMessage);
-                setIsEditingTemplate(true);
-              }
-            }}
-            activeOpacity={0.75}>
-            {isSavingTemplate ? (
-              <ActivityIndicator size="small" color="#E4002B" />
-            ) : (
-              <Text style={styles.editButton}>
-                {isEditingTemplate ? 'SAVE' : 'EDIT'}
+          {/* Notification Header */}
+          <View style={styles.notificationHeader}>
+            <View style={styles.notificationIconContainer}>
+              <Icon name={notification.sosId ? 'sos' : 'notifications'} size={32} color="#FFFFFF" />
+            </View>
+            <View style={styles.notificationHeaderContent}>
+              <Text style={styles.heading}>{notification.title || 'Notification'}</Text>
+              <Text style={styles.time}>
+                {notification.createdAt ? new Date(notification.createdAt).toLocaleString() : 'Time unavailable'}
               </Text>
-            )}
-          </TouchableOpacity>
-        </View>
-
-        <Text style={styles.settingTitle}>Emergency SMS Template</Text>
-        <Text style={styles.settingDescription}>
-          {isSavingTemplate ? 'Saving your message…' : 'Dynamic payload fields append automatically during transmission.'}
-        </Text>
-
-        {isEditingTemplate ? (
-          <View style={styles.editContainer}>
-            <TextInput
-              style={styles.templateInput}
-              value={tempTemplate}
-              onChangeText={setTempTemplate}
-              multiline
-              numberOfLines={4}
-              placeholder="Enter your emergency message..."
-              placeholderTextColor="#9CA3AF"
-            />
-
-            <View style={styles.editActions}>
-              <TouchableOpacity
-                style={styles.cancelButtonContainer}
-                onPress={() => setIsEditingTemplate(false)}
-                activeOpacity={0.7}>
-                <Text style={styles.cancelButton}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.saveButton}
-                onPress={handleSaveTemplate}
-                disabled={isSavingTemplate}
-                activeOpacity={0.8}>
-                {isSavingTemplate ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.saveButtonText}>Save Changes</Text>
-                )}
-              </TouchableOpacity>
             </View>
           </View>
-        ) : (
-          <TouchableOpacity
-            style={styles.templatePreview}
-            onPress={() => {
-              setTempTemplate(emergencyMessage);
-              setIsEditingTemplate(true);
+
+          <Text style={styles.body}>{notification.body || 'No notification message was provided.'}</Text>
+
+          {/* SOS Status */}
+          {currentSos && (
+            <View style={styles.metaBox}>
+              <Text style={styles.metaLabel}>SOS STATUS</Text>
+              <Text style={[styles.metaValue, currentSos.status === 'active' && styles.metaValueActive]}>
+                {String(currentSos.status || 'unknown').toUpperCase()}
+              </Text>
+              <Text style={styles.metaLabel}>EMERGENCY MESSAGE</Text>
+              <Text style={styles.metaValue}>{currentSos.emergencyMessage || 'No emergency message recorded.'}</Text>
+            </View>
+          )}
+
+          <SosMediaSection
+            sosId={sosId}
+            token={token}
+            sos={currentSos}
+            mediaUrls={mediaUrls}
+            initialLocation={liveLocation || currentSos?.liveLocation?.lastLocation}
+            initialStatus={liveLocationStatus || currentSos?.liveLocation?.status}
+            onLocationUpdate={(location, status) => {
+              setLiveLocation(location);
+              setLiveLocationStatus(status);
             }}
-            activeOpacity={0.75}>
-            <Text style={styles.templatePreviewText}>
-              "{emergencyMessage}"
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* ================= DAILY SYSTEM TEST ================= */}
-      <View style={styles.settingCard}>
-        <View style={styles.cardAccent} />
-
-        <View style={styles.settingTopRow}>
-          <View style={styles.settingIcon}>
-            <Icon name="notifications" size={20} color="#E4002B" />
-          </View>
-
-          <Switch
-            value={dailyAlarmEnabled}
-            onValueChange={setDailyAlarmEnabled}
-            trackColor={{false: '#D9DCE1', true: '#E4002B'}}
-            thumbColor="#FFFFFF"
-            style={styles.switch}
           />
+
+          {/* View SOS Details */}
+          {showViewSos && sosId && (
+            <TouchableOpacity style={styles.viewSosButton} onPress={() => onViewSos?.(sosId)}>
+              <Text style={styles.viewSosButtonText}>View Full SOS Details</Text>
+            </TouchableOpacity>
+          )}
+
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+        </ScrollView>
+      ) : (
+        <View style={styles.content}>
+          <Text style={styles.heading}>Notification unavailable</Text>
+          <Text style={styles.body}>This notification record is no longer available.</Text>
         </View>
-
-        <Text style={styles.settingTitle}>Daily System Test Alarms</Text>
-        <Text style={styles.settingDescription}>
-          Test sirens and system dispatch capabilities daily.
-        </Text>
-      </View>
-
-    </ScrollView>
+      )}
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 30,
-  },
+  topLoading: {height: 32, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0F2'},
+  topLoadingText: {marginLeft: 8, fontSize: 12, color: '#E4002B', fontWeight: '600'},
+  safeArea: {flex: 1, backgroundColor: '#F7F7F8'},
 
-  /* ================= BACK BUTTON ================= */
-  backButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 22,
-    backgroundColor: '#FFF0F2',
-    borderWidth: 1,
-    borderColor: '#FFD5DA',
-    marginBottom: 16,
-  },
+  loadingContainer: {flex: 1, alignItems: 'center', justifyContent: 'center'},
+  loadingText: {marginTop: 16, fontSize: 14, color: '#6B7280', fontWeight: '600'},
 
-  backIcon: {
-    fontSize: 16,
-    color: '#E4002B',
-    fontWeight: '600',
-    marginRight: 6,
-  },
-
-  backText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#E4002B',
-    letterSpacing: 0.3,
-  },
-
-  /* ================= PROFILE ================= */
-  profileCard: {
-    minHeight: 125,
+  header: {
     backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#E3E6EA',
-    borderRadius: 24,
-    padding: 20,
-    paddingLeft: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    position: 'relative',
-    overflow: 'hidden',
-    marginBottom: 28,
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 5},
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 3,
-  },
-
-  profileAccent: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 6,
-    backgroundColor: '#E4002B',
-  },
-
-  avatar: {
-    width: 74,
-    height: 74,
-    borderRadius: 22,
-    backgroundColor: '#E4002B',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 16,
-    shadowColor: '#E4002B',
-    shadowOffset: {width: 0, height: 5},
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-
-  avatarText: {
-    color: '#FFFFFF',
-    fontSize: 29,
-    fontWeight: '900',
-  },
-
-  profileInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  profileName: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: '#111827',
-    lineHeight: 29,
-  },
-
-  profileRole: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#E4002B',
-    marginTop: 5,
-  },
-
-  profileEmail: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#7B818C',
-    marginTop: 7,
-    lineHeight: 18,
-  },
-
-  /* ================= SECTION ================= */
-  sectionHeader: {
-    marginBottom: 14,
-  },
-
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '900',
-    color: '#7B818C',
-    letterSpacing: 1.6,
-  },
-
-  /* ================= SETTING CARD ================= */
-  settingCard: {
-    minHeight: 165,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: '#E3E6EA',
-    borderRadius: 24,
-    padding: 20,
-    paddingLeft: 24,
-    marginBottom: 14,
-    position: 'relative',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 4},
-    shadowOpacity: 0.045,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-
-  cardAccent: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 5,
-    backgroundColor: '#E5E7EB',
-  },
-
-  settingTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 17,
-  },
-
-  settingIcon: {
-    width: 58,
-    height: 58,
-    borderRadius: 18,
-    backgroundColor: '#F5F6F8',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  settingIconText: {
-    fontSize: 26,
-  },
-
-  settingTitle: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#111827',
-    lineHeight: 24,
-  },
-
-  settingDescription: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#747B86',
-    marginTop: 7,
-    lineHeight: 20,
-  },
-
-  switch: {
-    transform: [{scaleX: 1.05}, {scaleY: 1.05}],
-  },
-
-  editButtonContainer: {
-    minWidth: 62,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: '#FFF0F2',
-    borderWidth: 1,
-    borderColor: '#FFD9DE',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 12,
-  },
-
-  editButton: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#E4002B',
-    letterSpacing: 1,
-  },
-
-  templatePreview: {
-    marginTop: 16,
-    backgroundColor: '#F7F8FA',
-    borderWidth: 1.5,
-    borderColor: '#E2E5E9',
-    borderRadius: 16,
-    padding: 16,
-    minHeight: 72,
-  },
-
-  templatePreviewText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#5F6672',
-    lineHeight: 21,
-  },
-
-  editContainer: {
-    marginTop: 16,
-  },
-
-  templateInput: {
-    backgroundColor: '#F7F8FA',
-    borderWidth: 1.5,
-    borderColor: '#E2E5E9',
-    borderRadius: 16,
-    paddingHorizontal: 15,
-    paddingVertical: 14,
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#111827',
-    minHeight: 110,
-    textAlignVertical: 'top',
-  },
-
-  editActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    marginTop: 12,
-  },
-
-  cancelButtonContainer: {
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginRight: 8,
-  },
-
-  cancelButton: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#747B86',
-  },
-
-  saveButton: {
-    minHeight: 46,
-    borderRadius: 14,
-    backgroundColor: '#E4002B',
-    alignItems: 'center',
-    justifyContent: 'center',
     paddingHorizontal: 18,
+    paddingBottom: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E8E8EB',
   },
 
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '900',
+  title: {fontSize: 18, fontWeight: '900', color: '#1A1A1A', flex: 1, textAlign: 'center'},
+  headerRight: {width: 40},
+
+  content: {padding: 20, paddingBottom: 30},
+
+  notificationHeader: {flexDirection: 'row', alignItems: 'center', marginBottom: 16},
+  notificationIconContainer: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#E4002B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
   },
+  notificationHeaderContent: {flex: 1},
+  heading: {fontSize: 20, fontWeight: '900', color: '#1A1A1A'},
+  time: {fontSize: 12, color: '#A1A1A6', marginTop: 4},
+  body: {fontSize: 15, color: '#59636E', lineHeight: 22, marginBottom: 16},
+
+  metaBox: {
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E8E8EB',
+  },
+
+  metaLabel: {fontSize: 10, fontWeight: '900', color: '#6E6E73', letterSpacing: 0.5, marginTop: 8},
+  metaValue: {fontSize: 15, color: '#1A1A1A', fontWeight: '600', marginTop: 4},
+  metaValueActive: {color: '#E4002B'},
+
+  linkSection: {marginBottom: 16},
+  linkLabel: {fontSize: 11, fontWeight: '900', color: '#6E6E73', letterSpacing: 0.5, marginBottom: 6},
+  linkCard: {backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E8E8EB', borderRadius: 12, padding: 12},
+  linkText: {color: '#E4002B', fontSize: 12, fontWeight: '700'},
+
+  mediaSection: {marginBottom: 16},
+  mediaTitle: {fontSize: 14, fontWeight: '800', color: '#1A1A1A', marginBottom: 8},
+
+  photosGrid: {flexDirection: 'row', gap: 10},
+  photoBox: {
+    flex: 1,
+    aspectRatio: 4 / 3,
+    backgroundColor: '#F5F6F8',
+    borderWidth: 1,
+    borderColor: '#E8E8EB',
+    borderRadius: 14,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  photoBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    zIndex: 1,
+  },
+  photoBadgeText: {fontSize: 8, fontWeight: '700', color: '#FFFFFF', letterSpacing: 0.5},
+  photoImage: {width: '100%', height: '100%', resizeMode: 'cover'},
+
+  audioCard: {backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E8E8EB', borderRadius: 12, padding: 4},
+  audioPlayer: {width: '100%'},
+
+  noMediaText: {color: '#A1A1A6', fontSize: 13, textAlign: 'center', padding: 12},
+
+  viewSosButton: {
+    backgroundColor: '#E4002B',
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 10,
+  },
+
+  viewSosButtonText: {color: '#FFFFFF', fontWeight: '800', fontSize: 15},
+
+  errorText: {color: '#B42318', fontSize: 13, textAlign: 'center', marginTop: 10},
 });
 
-export default UserProfileScreen;
+export default UserNotificationDetailScreen;

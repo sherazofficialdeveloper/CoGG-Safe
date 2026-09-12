@@ -26,7 +26,8 @@ const AdminAddCollectionScreen = ({
   const insets = useSafeAreaInsets();
   const [category, setCategory] = useState(editCollection ? (editCollection.type === 'family' ? 'Personal' : editCollection.type === 'workers' ? 'Employees' : 'Other') : 'Employees');
   const [customName, setCustomName] = useState(editCollection?.type === 'other' ? (editCollection.name || '') : '');
-  const [emergencyNumber, setEmergencyNumber] = useState(editCollection?.emergencyCallNumber || '');
+  const initialEmergencyNumber = String(editCollection?.emergencyCallNumber || '');
+  const [emergencyNumber, setEmergencyNumber] = useState(initialEmergencyNumber.startsWith('+') ? initialEmergencyNumber : `+${initialEmergencyNumber}`);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -140,7 +141,7 @@ const AdminAddCollectionScreen = ({
             placeholder="+1 (800) 555-0199"
             placeholderTextColor="#9CA3AF"
             value={emergencyNumber}
-            onChangeText={setEmergencyNumber}
+            onChangeText={value => setEmergencyNumber(String(value || '').startsWith('+') ? String(value) : `+${String(value || '')}`)}
             keyboardType="phone-pad"
           />
           <Text style={styles.helperText}>

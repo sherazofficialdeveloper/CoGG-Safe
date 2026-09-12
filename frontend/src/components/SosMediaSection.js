@@ -47,7 +47,7 @@ const SosMediaSection = ({
   const PUBLIC_BASE_URL = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
 
   const publicAudioUrl = sos?.emergencyToken
-    ? `${PUBLIC_BASE_URL}/api/emergency/${sos.emergencyToken}/media/audio/file`
+    ? `${PUBLIC_BASE_URL}/api/emergency/${sos.emergencyToken}/media/audio`
     : null;
 
   const urls = {
@@ -134,6 +134,7 @@ const SosMediaSection = ({
               token={urls.audio === publicAudioUrl ? null : token}
               publicMedia={urls.audio === publicAudioUrl}
               style={styles.audio}
+              fallbackDuration={6}
             />
           </View>
         ) : audioPending ? (

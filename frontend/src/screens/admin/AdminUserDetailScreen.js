@@ -33,7 +33,9 @@ const AdminUserDetailScreen = ({
 
   useEffect(() => {
     setIsEditing(startEditing);
-    setEditForm(userEditFormValues(user));
+    const values = userEditFormValues(user);
+    values.mobileNumber = String(values.mobileNumber || '').startsWith('+') ? values.mobileNumber : `+${values.mobileNumber || ''}`;
+    setEditForm(values);
   }, [user, startEditing]);
 
   if (!user) return null;
@@ -201,7 +203,7 @@ const AdminUserDetailScreen = ({
                     <TouchableOpacity style={styles.detailPasswordToggle} onPress={() => setPasswordVisible(value => !value)} accessibilityLabel={passwordVisible ? 'Hide password' : 'Show password'}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} size={20} color="#6B7280" /></TouchableOpacity>
                   </View>
                 ) : (
-                  <TextInput key={field} style={styles.editInput} value={editForm[field] || ''} onChangeText={value => setEditForm(current => ({...current, [field]: value}))} placeholder={placeholder} keyboardType={field === 'mobileNumber' ? 'phone-pad' : field === 'email' ? 'email-address' : 'default'} autoCapitalize="none" />
+                  <TextInput key={field} style={styles.editInput} value={editForm[field] || ''} onChangeText={value => setEditForm(current => ({...current, [field]: field === 'mobileNumber' ? (String(value || '').startsWith('+') ? String(value) : `+${String(value || '')}`) : value}))} placeholder={placeholder} keyboardType={field === 'mobileNumber' ? 'phone-pad' : field === 'email' ? 'email-address' : 'default'} autoCapitalize="none" />
                 )
               ))}
               <View style={styles.editActions}>

@@ -117,7 +117,7 @@ const AdminUsersScreen = ({
     setEditingUser(user);
     setEditForm({
       username: user.username || user.name || '',
-      mobileNumber: user.mobileNumber || user.phone || '',
+      mobileNumber: String(user.mobileNumber || user.phone || '').startsWith('+') ? (user.mobileNumber || user.phone) : `+${user.mobileNumber || user.phone || ''}`,
       email: user.email === 'No email configured' ? '' : (user.email || ''),
       password: '',
     });

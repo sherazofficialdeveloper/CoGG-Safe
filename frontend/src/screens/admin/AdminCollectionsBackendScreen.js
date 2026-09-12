@@ -5,7 +5,7 @@ import {createUser, deleteCollection, deleteUser, getUserCredentials, listCollec
 import {rememberCredential} from '../../utils/adminCredentials';
 import Icon from '../../components/Icon';
 
-const EMPTY_USER = {username: '', mobileNumber: '', email: '', password: ''};
+const EMPTY_USER = {username: '', mobileNumber: '+', email: '', password: ''};
 const TYPES = ['family', 'workers', 'other'];
 const collectionSnapshots = new Map();
 const memberSnapshots = new Map();
@@ -181,7 +181,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
     setEditingUser(member);
     setUserForm({
       username: member.username || '',
-      mobileNumber: member.mobileNumber || '',
+      mobileNumber: String(member.mobileNumber || '').startsWith('+') ? member.mobileNumber : `+${member.mobileNumber || ''}`,
       email: member.email || '',
       password: '',
     });
@@ -330,7 +330,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
 
 export function InlineUserForm({editMode, form, setForm, submitting, onCancel, onSubmit}) {
   const [passwordVisible, setPasswordVisible] = useState(false);
-  const update = field => value => setForm(current => ({...current, [field]: value}));
+  const update = field => value => setForm(current => ({...current, [field]: field === 'mobileNumber' ? (String(value || '').startsWith('+') ? String(value) : `+${String(value || '')}`) : value}));
   const fields = editMode
     ? [['username', 'Username', 'Username'], ['password', 'New password (optional)', 'New password'], ['mobileNumber', 'Mobile number', 'Mobile number with country code'], ['email', 'Email (optional)', 'Email (optional)']]
     : [['username', 'Username', 'Username'], ['password', 'Password', 'Password'], ['mobileNumber', 'Mobile number', 'Mobile number with country code'], ['email', 'Email (optional)', 'Email (optional)']];

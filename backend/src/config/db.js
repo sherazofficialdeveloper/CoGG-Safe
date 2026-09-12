@@ -25,7 +25,7 @@ async function dropLegacyOpenSosIndex() {
 
 async function connectDB() {
   try {
-    await mongoose.connect(env.mongoUri);
+    await mongoose.connect(env.mongoUri, env.mongoDbName ? {dbName: env.mongoDbName} : undefined);
     logger.info(`MongoDB connected: ${mongoose.connection.host}`);
     await dropLegacyOpenSosIndex();
   } catch (err) {

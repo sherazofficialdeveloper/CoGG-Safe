@@ -30,6 +30,7 @@ const env = {
   clientOrigin: process.env.NODE_ENV === 'test' ? '*' : (process.env.CLIENT_ORIGIN || '*'),
 
   mongoUri: process.env.MONGODB_URI,
+  mongoDbName: process.env.MONGODB_DB_NAME || undefined,
 
   jwtSecret: process.env.JWT_SECRET,
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '7d',

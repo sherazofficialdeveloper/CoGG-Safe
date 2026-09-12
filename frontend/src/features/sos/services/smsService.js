@@ -179,7 +179,14 @@ export async function chooseSmsSubscription() {
   }
 }
 
+const activeSmsDispatches = new Set();
+
 export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId, serviceKey = 'sms', preferredSubscriptionId = null}) {
+  const dispatchKey = sosId && serviceKey ? `${sosId}:${serviceKey}` : null;
+  if (dispatchKey && activeSmsDispatches.has(dispatchKey)) {
+    return {status: 'COMPLETED', reason: 'SMS dispatch already in progress; duplicate send suppressed.', recipients: [], sentCount: 0, failedCount: 0, pendingCount: 0};
+  }
+  if (dispatchKey) activeSmsDispatches.add(dispatchKey);
   const uniqueNumbers = [];
   const seenNumbers = new Set();
   for (const value of phoneNumbers || []) {
@@ -194,6 +201,7 @@ export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId, s
   if (__DEV__) console.log('SMS_STARTED', {recipientCount: uniqueNumbers.length});
 
   if (uniqueNumbers.length === 0) {
+    if (dispatchKey) activeSmsDispatches.delete(dispatchKey);
     return {
       status: 'NOT_CONFIGURED',
       reason: 'No emergency SMS numbers are configured for this collection.',
@@ -286,6 +294,8 @@ export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId, s
   } else {
     status = 'UNSUPPORTED';
   }
+
+  if (dispatchKey) activeSmsDispatches.delete(dispatchKey);
 
   return {
     status,
