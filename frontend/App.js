@@ -1438,9 +1438,9 @@ function AppContent() {
           <AdminLayoutNoHeader
             bottomNav={
               <AdminBottomNav
-                activeTab="Collections"
-                onNavigate={handleAdminNavigation}
-              />
+                 activeTab="Groups"
+                  onNavigate={handleAdminNavigation}
+                />
             }>
             <AdminCollectionsScreen
               token={token}
