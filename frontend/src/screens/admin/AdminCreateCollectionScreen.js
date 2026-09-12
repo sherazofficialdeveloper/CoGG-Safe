@@ -28,10 +28,10 @@ const EMPTY_USER = {username: '', password: '', mobileNumber: '', email: ''};
 function validateUser(user, index, users) {
   const errors = {};
   if (!user.username.trim()) errors.username = 'Username is required.';
-  else if (!/^[a-zA-Z0-9._-]{3,50}$/.test(user.username.trim())) errors.username = 'Use 3-50 letters, numbers, dots, underscores or hyphens.';
+  else if (!/^(?=.{3,50}$)[a-zA-Z0-9._-]+(?: [a-zA-Z0-9._-]+)*$/.test(user.username.trim())) errors.username = 'Use 3-50 letters, numbers, dots, underscores, hyphens and spaces.';
   if (!user.password) errors.password = 'Password is required.';
   else if (user.password.length < 8) errors.password = 'Password must be at least 8 characters.';
-  if (!/^\+?[0-9]{7,15}$/.test(user.mobileNumber.trim())) errors.mobileNumber = 'Enter a valid mobile number.';
+  if (!/^\+[0-9]{7,15}$/.test(user.mobileNumber.trim())) errors.mobileNumber = 'Enter mobile number with country code, e.g. +923001234567.';
   if (user.email.trim() && !/^\S+@\S+\.\S+$/.test(user.email.trim())) errors.email = 'Enter a valid email address.';
   const duplicateUsername = users.some((item, itemIndex) => itemIndex !== index && item.username.trim().toLowerCase() === user.username.trim().toLowerCase() && user.username.trim());
   const duplicateMobile = users.some((item, itemIndex) => itemIndex !== index && item.mobileNumber.trim() === user.mobileNumber.trim() && user.mobileNumber.trim());

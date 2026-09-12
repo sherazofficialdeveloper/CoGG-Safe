@@ -21,6 +21,7 @@ router.post('/', createCollectionValidation, validateRequest, collectionControll
 router.get('/', listCollectionsValidation, validateRequest, collectionController.listCollections);
 router.get('/:id', collectionIdParamValidation, validateRequest, collectionController.getCollection);
 router.patch('/:id', updateCollectionValidation, validateRequest, collectionController.updateCollection);
+router.delete('/:id', collectionIdParamValidation, validateRequest, collectionController.deleteCollection);
 router.get('/:id/users', listCollectionUsersValidation, validateRequest, collectionController.listCollectionUsers);
 
 module.exports = router;

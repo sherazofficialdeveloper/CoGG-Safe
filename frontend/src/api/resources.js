@@ -10,6 +10,8 @@ export const listNotifications = (token, params, options = {}) =>
 
 export const markNotificationRead = (token, id) =>
   request(`/notifications/${id}/read`, {method: 'PATCH', token});
+export const markAllNotificationsRead = token =>
+  request('/notifications/read-all', {method: 'PATCH', token});
 
 export const listSos = (token, params, options = {}) => request(`/sos${queryString(params)}`, {token, ...options});
 export const getSos = (token, id, options = {}) => request(`/sos/${id}`, {token, ...options});
@@ -48,4 +50,5 @@ export const listCollections = (token, params, options = {}) => request(`/collec
 export const getCollection = (token, id) => request(`/collections/${id}`, {token});
 export const createCollection = (token, body) => request('/collections', {method: 'POST', token, body});
 export const updateCollection = (token, id, body) => request(`/collections/${id}`, {method: 'PATCH', token, body});
+export const deleteCollection = (token, id) => request(`/collections/${id}`, {method: 'DELETE', token});
 export const listCollectionUsers = (token, id, params, options = {}) => request(`/collections/${id}/users${queryString(params)}`, {token, ...options});

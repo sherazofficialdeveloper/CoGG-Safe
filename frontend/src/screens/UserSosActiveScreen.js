@@ -78,24 +78,24 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
 
       // ================= FIX: Check storageRef properly =================
       const frontUrl = frontComp && frontComp.storageRef
-        ? buildMediaUrl(API_BASE_URL, recordId, 'frontImage')
+        ? `${buildMediaUrl(API_BASE_URL, recordId, 'frontImage')}?v=${encodeURIComponent(frontComp.storageRef)}`
         : null;
 
       const backUrl = backComp && backComp.storageRef
-        ? buildMediaUrl(API_BASE_URL, recordId, 'backImage')
+        ? `${buildMediaUrl(API_BASE_URL, recordId, 'backImage')}?v=${encodeURIComponent(backComp.storageRef)}`
         : null;
 
       const audioUrl = audioComp && audioComp.storageRef
-        ? buildMediaUrl(API_BASE_URL, recordId, 'audio')
+        ? `${buildMediaUrl(API_BASE_URL, recordId, 'audio')}?v=${encodeURIComponent(audioComp.storageRef)}`
         : null;
 
       console.log('[UserSosActive] Media URLs:', {frontUrl: !!frontUrl, backUrl: !!backUrl, audioUrl: !!audioUrl});
 
-      setMediaUrls({
-        front: frontUrl,
-        back: backUrl,
-        audio: audioUrl,
-      });
+      setMediaUrls(current => ({
+        front: frontUrl || current.front,
+        back: backUrl || current.back,
+        audio: audioUrl || current.audio,
+      }));
 
       // ================= Extract Live Location =================
       if (sosData.liveLocation) {
@@ -113,10 +113,7 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
       // A component is still "in progress" until it either has a
       // storageRef (uploaded) or the backend has recorded it as failed -
       // that's exactly when polling can stop.
-      const stillPending = [frontComp, backComp, audioComp].some(component => {
-        if (component?.storageRef) return false;
-        return String(component?.status || '').toLowerCase() !== 'failed';
-      });
+      const stillPending = [frontComp, backComp, audioComp].some(component => !component?.storageRef);
       return stillPending;
     };
 
@@ -128,7 +125,7 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
           const stillPending = applyResult(result.sos);
           if (!silent) setError('');
           if (stillPending && !pollHandle) {
-            pollHandle = setInterval(() => fetchDetail({silent: true}), 6000);
+            pollHandle = setInterval(() => fetchDetail({silent: true}), 1000);
           } else if (!stillPending && pollHandle) {
             clearInterval(pollHandle);
             pollHandle = null;

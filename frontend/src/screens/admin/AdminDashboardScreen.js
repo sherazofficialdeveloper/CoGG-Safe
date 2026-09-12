@@ -306,7 +306,7 @@ const AdminDashboardScreen = ({
                     styles.sosItemLast,
                 ]}
                 activeOpacity={0.75}
-                onPress={onSosDetail}>
+                onPress={() => onSosDetail?.(item)}>
 
                 <View style={styles.sosItemLeft}>
 
@@ -912,7 +912,7 @@ const styles = StyleSheet.create({
   },
 
   sosStatusActiveBadge: {
-    backgroundColor: '#FDE7EA',
+    backgroundColor: '#E8F8EF',
   },
 
   sosStatusResolvedBadge: {
@@ -925,7 +925,7 @@ const styles = StyleSheet.create({
   },
 
   sosStatusActive: {
-    color: '#E4002B',
+    color: '#178A4B',
   },
 
   sosStatusResolved: {

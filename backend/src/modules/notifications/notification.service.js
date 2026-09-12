@@ -79,7 +79,7 @@ async function listForUser(userId, query = {}) {
 
   const [items, total] = await Promise.all([
     Notification.find(filter)
-      .populate({ path: 'sosId', select: 'status emergencyMessage components' })
+      .populate({ path: 'sosId', select: 'status emergencyMessage components liveLocation location emergencyToken' })
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit),
@@ -92,6 +92,14 @@ async function listForUser(userId, query = {}) {
     : items;
 
   return { items: filtered, meta: buildPaginationMeta({ page, limit, total }) };
+}
+
+async function markAllRead(userId) {
+  const result = await Notification.updateMany(
+    { recipientUserId: userId, isRead: false },
+    { $set: { isRead: true } },
+  );
+  return result.modifiedCount || 0;
 }
 
 async function markRead(notificationId, userId) {
@@ -107,4 +115,4 @@ async function markRead(notificationId, userId) {
   return notification;
 }
 
-module.exports = { getRecipientsForSos, createForSos, listForUser, markRead };
+module.exports = { getRecipientsForSos, createForSos, listForUser, markRead, markAllRead };

@@ -43,6 +43,7 @@ const AudioPlayer = ({
   publicMedia = false,
   onError = null,
   style = {},
+  fallbackDuration = 0,
 }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -335,7 +336,7 @@ const AudioPlayer = ({
     );
   }
 
-  const duration = progress.duration || 0;
+  const duration = progress.duration > 0 ? progress.duration : Number(fallbackDuration) || 0;
   const currentTime = progress.position || 0;
 
   const progressPercentage =

@@ -2,8 +2,8 @@ const { body, param, query } = require('express-validator');
 const { USER_STATUS } = require('../../constants/sosConstants');
 const paginationValidation = require('../../utils/paginationValidation');
 
-const USERNAME_REGEX = /^[a-zA-Z0-9._-]+$/;
-const PHONE_REGEX = /^\+?[0-9]{7,15}$/;
+const USERNAME_REGEX = /^[a-zA-Z0-9._-]+(?: [a-zA-Z0-9._-]+)*$/;
+const PHONE_REGEX = /^\+[0-9]{7,15}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
@@ -22,13 +22,13 @@ const createUserValidation = [
     .isLength({ min: 3, max: 50 })
     .withMessage('Username must be between 3 and 50 characters')
     .matches(USERNAME_REGEX)
-    .withMessage('Username may only contain letters, numbers, dots, underscores and hyphens'),
+    .withMessage('Username may only contain letters, numbers, dots, underscores, hyphens and spaces'),
   body('mobileNumber')
     .trim()
     .notEmpty()
     .withMessage('Mobile number is required')
     .matches(PHONE_REGEX)
-    .withMessage('Mobile number must be a valid phone number'),
+    .withMessage('Mobile number must include country code, e.g. +923001234567'),
   body('password')
     .notEmpty()
     .withMessage('Password is required')
@@ -64,12 +64,12 @@ const updateUserValidation = [
     .isLength({ min: 3, max: 50 })
     .withMessage('Username must be between 3 and 50 characters')
     .matches(USERNAME_REGEX)
-    .withMessage('Username may only contain letters, numbers, dots, underscores and hyphens'),
+    .withMessage('Username may only contain letters, numbers, dots, underscores, hyphens and spaces'),
   body('mobileNumber')
     .optional()
     .trim()
     .matches(PHONE_REGEX)
-    .withMessage('Mobile number must be a valid phone number'),
+    .withMessage('Mobile number must include country code, e.g. +923001234567'),
   body('email')
     .optional({ nullable: true })
     .custom((value) => value === null || value === '' || EMAIL_REGEX.test(value))

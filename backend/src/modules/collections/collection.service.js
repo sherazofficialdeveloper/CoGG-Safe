@@ -62,6 +62,12 @@ async function getCollectionById(id) {
   return collection;
 }
 
+async function deleteCollection(id) {
+  const collection = await getCollectionById(id);
+  await Collection.deleteOne({ _id: collection._id });
+  return null;
+}
+
 async function updateCollection(id, updates) {
   const collection = await getCollectionById(id);
 
@@ -79,4 +85,4 @@ async function updateCollection(id, updates) {
   return collection;
 }
 
-module.exports = { createCollection, listCollections, getCollectionById, updateCollection };
+module.exports = { createCollection, listCollections, getCollectionById, updateCollection, deleteCollection };

@@ -248,7 +248,7 @@ export async function activateSosFlow({
         if (!silent) emitSosToast('Back camera captured', 'success', 2000);
       }
       if (resultStatus === 'COMPLETED' && serviceName === 'audio' && result?.localPath) {
-        if (!silent) emitSosToast('Audio recorded (5 seconds)', 'success', 2000);
+        if (!silent) emitSosToast('Audio recorded (6 seconds)', 'success', 2000);
       }
       if (serviceName === 'sms' && resultStatus === 'COMPLETED') {
         const count = result?.sentCount;
@@ -359,11 +359,10 @@ export async function activateSosFlow({
   const mediaCaptureNames = captureNames.filter(name => ['sms', 'camera', 'audio'].includes(name));
   const mediaCaptureJobs = Object.fromEntries(mediaCaptureNames.map(serviceName => [serviceName, runService(serviceName)]));
   const mediaCapturePromise = Promise.allSettled(Object.values(mediaCaptureJobs));
+  // Emergency call is fully independent. Never wait for audio, camera,
+  // location, SMS, or backend creation before attempting the call.
   const delayedCallPromise = captureNames.includes('call')
-    ? Promise.race([
-        mediaCaptureJobs.audio?.then(() => undefined) || Promise.resolve(undefined),
-        new Promise(resolve => setTimeout(resolve, 6500)),
-      ]).then(() => runService('call'))
+    ? runService('call')
     : Promise.resolve(null);
   
   // ================= FIXED: Location SMS waits for location =================

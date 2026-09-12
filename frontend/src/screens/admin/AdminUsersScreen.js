@@ -8,7 +8,7 @@ import {
   ScrollView,
   TextInput,
 } from 'react-native';
-import {listUsers, updateUser} from '../../api/resources';
+import {listUsers, setUserPassword, updateUser} from '../../api/resources';
 import {SafeAreaView as ContextSafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 import {InlineUserForm} from './AdminCollectionsBackendScreen';
 
@@ -131,11 +131,23 @@ const AdminUsersScreen = ({
     }
     setSubmitting(true);
     try {
+      const mobileNumber = editForm.mobileNumber.trim();
+      if (!/^\+[0-9]{7,15}$/.test(mobileNumber)) {
+        setError('Mobile number must include country code, e.g. +923001234567.');
+        setSubmitting(false);
+        return;
+      }
+      if (editForm.password && editForm.password.length < 8) {
+        setError('Password must be at least 8 characters.');
+        setSubmitting(false);
+        return;
+      }
       const updated = await updateUser(token, userId, {
         username: editForm.username.trim(),
-        mobileNumber: editForm.mobileNumber.trim(),
+        mobileNumber,
         ...(editForm.email.trim() ? {email: editForm.email.trim()} : {}),
       });
+      if (editForm.password) await setUserPassword(token, userId, editForm.password);
       const next = updated?.user || updated;
       setUsers(current => current.map(item => (item._id || item.id) === userId ? {
         ...item,

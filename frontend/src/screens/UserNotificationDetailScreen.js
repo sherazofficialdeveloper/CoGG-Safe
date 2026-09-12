@@ -18,7 +18,7 @@ import {buildMediaUrl} from '../utils/media';
 import {getSos} from '../api/resources';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
-const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) => {
+const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token, showViewSos = false}) => {
   const insets = useSafeAreaInsets();
 
   const sosId = notification?.sosId && typeof notification.sosId === 'object'
@@ -173,7 +173,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token}) 
           />
 
           {/* View SOS Details */}
-          {sosId && (
+          {showViewSos && sosId && (
             <TouchableOpacity style={styles.viewSosButton} onPress={() => onViewSos?.(sosId)}>
               <Text style={styles.viewSosButtonText}>View Full SOS Details</Text>
             </TouchableOpacity>

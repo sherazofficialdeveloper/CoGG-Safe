@@ -3,7 +3,7 @@ import {PERMISSION_STATUS, checkPermission} from '../../../permissions/sosPermis
 import {recordNativeSosAudio} from './nativeMedia';
 import {emitSosDiagnostic} from './sosDiagnosticService';
 
-const AUDIO_DURATION_MS = 5000;
+const AUDIO_DURATION_MS = 6000;
 
 export async function recordEmergencyAudio({sosId, previousResult = null}) {
   if (!sosId) {
@@ -40,7 +40,7 @@ export async function recordEmergencyAudio({sosId, previousResult = null}) {
     }
     emitSosDiagnostic('SOS DEBUG AUDIO 03: File path present');
     emitSosDiagnostic('SOS DEBUG AUDIO 04: File validation usable');
-    emitSosDiagnostic('SOS DEBUG AUDIO 06: Duration 5000ms');
+    emitSosDiagnostic('SOS DEBUG AUDIO 06: Duration 6000ms');
     emitSosDiagnostic('SOS DEBUG AUDIO 07: MIME audio/mp4');
     return {
       status: 'COMPLETED',

@@ -24,6 +24,11 @@ const getCollection = asyncHandler(async (req, res) => {
   ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Collection retrieved', data: { collection } });
 });
 
+const deleteCollection = asyncHandler(async (req, res) => {
+  await collectionService.deleteCollection(req.params.id);
+  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Collection deleted', data: {} });
+});
+
 const updateCollection = asyncHandler(async (req, res) => {
   const { type, name, emergencyCallNumber } = req.body;
   const collection = await collectionService.updateCollection(req.params.id, { type, name, emergencyCallNumber });
@@ -46,4 +51,4 @@ const listCollectionUsers = asyncHandler(async (req, res) => {
   });
 });
 
-module.exports = { createCollection, listCollections, getCollection, updateCollection, listCollectionUsers };
+module.exports = { createCollection, listCollections, getCollection, updateCollection, deleteCollection, listCollectionUsers };

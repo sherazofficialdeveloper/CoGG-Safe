@@ -12,9 +12,14 @@ const listMyNotifications = asyncHandler(async (req, res) => {
   });
 });
 
+const markAllRead = asyncHandler(async (req, res) => {
+  const count = await notificationService.markAllRead(req.user.id);
+  ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'All notifications marked as read', data: { count } });
+});
+
 const markRead = asyncHandler(async (req, res) => {
   const notification = await notificationService.markRead(req.params.id, req.user.id);
   ApiResponse.send(res, { statusCode: httpStatus.OK, message: 'Notification marked as read', data: { notification } });
 });
 
-module.exports = { listMyNotifications, markRead };
+module.exports = { listMyNotifications, markRead, markAllRead };

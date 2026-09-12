@@ -11,7 +11,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import Icon from '../components/Icon';
-import {listNotifications, markNotificationRead} from '../api/resources';
+import {listNotifications, markNotificationRead, markAllNotificationsRead} from '../api/resources';
 import {getCachedApiData} from '../api/client';
 
 const notificationSnapshots = new Map();
@@ -70,6 +70,18 @@ const UserNotificationScreen = ({
 
     return notifications;
   }, [filter, notifications]);
+
+  const handleReadAll = async () => {
+    if (!notifications.some(item => !item.isRead)) return;
+    try {
+      await markAllNotificationsRead(token);
+      const next = notifications.map(item => ({...item, isRead: true}));
+      setNotifications(next);
+      notificationSnapshots.set(token, next);
+    } catch (requestError) {
+      setError(requestError.message || 'Unable to mark all notifications as read.');
+    }
+  };
 
   const handleNotificationPress = notification => {
     const notificationId = notification._id || notification.id;
@@ -150,7 +162,7 @@ const UserNotificationScreen = ({
         <TouchableOpacity
           style={styles.markReadButton}
           activeOpacity={0.8}
-          onPress={() => {}}>
+          onPress={handleReadAll}>
           <Icon name="notifications" size={21} color="#E4002B" />
           <Text style={styles.markReadText}>
             Read All

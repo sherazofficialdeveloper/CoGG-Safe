@@ -59,7 +59,7 @@ async function persistPendingCameraMedia(event, {frontImagePath, backImagePath})
  *  - 'FAILED': both lenses failed, or permission/platform blocked capture
  *    entirely.
  */
-export async function captureEmergencyPhotos({sosId, previousResult = null, event = null}) {
+export async function captureEmergencyPhotos({sosId, previousResult = null, event = null, captureFrontOnly = false, captureBackOnly = false}) {
   if (!sosId) {
     throw new Error('Camera capture requires a local SOS identifier.');
   }
@@ -102,8 +102,8 @@ export async function captureEmergencyPhotos({sosId, previousResult = null, even
     emitSosDiagnostic('SOS DEBUG FRONT 01: Capture started');
     emitSosDiagnostic('SOS DEBUG BACK 01: Capture started');
     if (__DEV__) console.log('FRONT_CAMERA_STARTED', {sosId});
-    const needFront = !isUsableMediaPath(previousResult?.frontImagePath);
-    const needBack = !isUsableMediaPath(previousResult?.backImagePath);
+    const needFront = captureBackOnly ? false : !isUsableMediaPath(previousResult?.frontImagePath);
+    const needBack = captureFrontOnly ? false : !isUsableMediaPath(previousResult?.backImagePath);
     const result = await captureNativeSosPhotos(sosId, needFront, needBack);
     emitSosDiagnostic('SOS DEBUG FRONT 02: Native capture returned');
     emitSosDiagnostic('SOS DEBUG BACK 02: Native capture returned');

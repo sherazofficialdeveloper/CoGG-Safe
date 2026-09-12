@@ -6,7 +6,7 @@ const ApiError = require('../../utils/ApiError');
 const env = require('../../config/env');
 const { isAdmin, assertOwnerOrAdmin } = require('../../utils/authz');
 const { parsePagination, buildPaginationMeta } = require('../../utils/paginate');
-const { SOS_STATUS, COMPONENT_STATUS, LIVE_LOCATION_STATUS } = require('../../constants/sosConstants');
+const { SOS_STATUS, COMPONENT_STATUS, LIVE_LOCATION_STATUS, USER_STATUS } = require('../../constants/sosConstants');
 const { generateEmergencyToken } = require('./emergencyLink.service');
 const { setComponentStatus } = require('./component.util');
 const storageProvider = require('../../services/storage/storage.provider');
@@ -145,10 +145,22 @@ async function getSosOrThrow(id) {
   return activateSosIfDue(sos);
 }
 
-/** Owner or admin — read access. */
+/** Owner/admin or an active member of the SOS's collection — read access. */
 async function getSosById(id, reqUser) {
   const sos = await getSosOrThrow(id);
-  assertOwnerOrAdmin(sos.userId, reqUser, 'You do not have permission to access this SOS');
+  const isOwnerOrAdmin = isAdmin(reqUser) || String(sos.userId) === String(reqUser.id);
+  if (!isOwnerOrAdmin) {
+    const requester = await User.findById(reqUser.id).select('collectionId status role deletedAt');
+    const isCollectionMember = requester
+      && requester.status === USER_STATUS.ACTIVE
+      && !requester.deletedAt
+      && requester.role === ROLES.USER
+      && requester.collectionId
+      && String(requester.collectionId) === String(sos.collectionId);
+    if (!isCollectionMember) {
+      throw ApiError.forbidden('You do not have permission to access this SOS');
+    }
+  }
   await enforceLiveLocationExpiry(sos);
   // Legacy records created before backend-component tracking was added are
   // still real backend records. Repair their display state on first read.

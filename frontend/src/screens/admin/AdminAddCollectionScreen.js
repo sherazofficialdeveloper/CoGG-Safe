@@ -12,7 +12,7 @@ import {
   SafeAreaView,
 } from 'react-native';
 
-import {createCollection} from '../../api/resources';
+import {createCollection, updateCollection} from '../../api/resources';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
 const AdminAddCollectionScreen = ({
@@ -20,11 +20,13 @@ const AdminAddCollectionScreen = ({
   onSave,
   onCreated,
   token,
+  editCollection = null,
+  onUpdated,
 }) => {
   const insets = useSafeAreaInsets();
-  const [category, setCategory] = useState('Employees');
-  const [customName, setCustomName] = useState('');
-  const [emergencyNumber, setEmergencyNumber] = useState('');
+  const [category, setCategory] = useState(editCollection ? (editCollection.type === 'family' ? 'Personal' : editCollection.type === 'workers' ? 'Employees' : 'Other') : 'Employees');
+  const [customName, setCustomName] = useState(editCollection?.type === 'other' ? (editCollection.name || '') : '');
+  const [emergencyNumber, setEmergencyNumber] = useState(editCollection?.emergencyCallNumber || '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -49,15 +51,17 @@ const AdminAddCollectionScreen = ({
     setError('');
     setSubmitting(true);
     try {
-      const collectionData = await createCollection(token, {
-        name,
-        type: category.toLowerCase(),
-        emergencyCallNumber: emergencyNumber.trim(),
-      });
-      onCreated?.(collectionData.collection);
-      if (onSave) onSave(collectionData.collection);
+      const type = category === 'Personal' ? 'family' : category === 'Employees' ? 'workers' : 'other';
+      const payload = {name, type, emergencyCallNumber: emergencyNumber.trim()};
+      const collectionData = editCollection
+        ? await updateCollection(token, editCollection._id || editCollection.id, payload)
+        : await createCollection(token, {name, type: category.toLowerCase(), emergencyCallNumber: emergencyNumber.trim()});
+      const savedCollection = collectionData.collection;
+      if (editCollection) onUpdated?.(savedCollection);
+      else onCreated?.(savedCollection);
+      if (onSave) onSave(savedCollection);
     } catch (requestError) {
-      setError(requestError.message || 'Unable to create group.');
+      setError(requestError.message || `Unable to ${editCollection ? 'update' : 'create'} group.`);
     } finally {
       setSubmitting(false);
     }
@@ -73,8 +77,8 @@ const AdminAddCollectionScreen = ({
           <Text style={styles.backIcon}>‹</Text>
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Add group</Text>
-          <Text style={styles.headerSubtitle}>Configure group & assign members</Text>
+          <Text style={styles.headerTitle}>{editCollection ? 'Edit group' : 'Add group'}</Text>
+          <Text style={styles.headerSubtitle}>{editCollection ? 'Update group details' : 'Configure group & assign members'}</Text>
         </View>
         <View style={styles.headerRight} />
       </View>
@@ -158,7 +162,7 @@ const AdminAddCollectionScreen = ({
             onPress={handleSaveCollection}
             disabled={submitting}
             activeOpacity={0.7}>
-            <Text style={styles.saveButtonText}>{submitting ? 'Saving...' : 'Save Group'}</Text>
+            <Text style={styles.saveButtonText}>{submitting ? 'Saving...' : editCollection ? 'Save Changes' : 'Save Group'}</Text>
           </TouchableOpacity>
         </View>
 

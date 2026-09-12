@@ -124,9 +124,9 @@ const UserProfileScreen = ({
 
         <View style={styles.profileInfo}>
           <Text style={styles.profileName}>{user?.username || 'User'}</Text>
-          <Text style={styles.profileRole}>{user?.role || 'user'} · {user?.status || 'unknown'}</Text>
+          <Text style={[styles.profileRole, {color: String(user?.status || '').toLowerCase() === 'active' ? '#22A447' : '#B42318'}]}>User: {String(user?.status || '').toLowerCase() === 'active' ? 'Active' : 'Deactive'}</Text>
           <Text style={styles.profileEmail} numberOfLines={2}>
-            {user?.email || 'Email not configured'} · {user?.mobileNumber || 'Mobile not configured'}
+            {user?.email || 'Email not configured'} : {user?.mobileNumber || 'Mobile not configured'}
           </Text>
           <Text style={styles.profileEmail}>{user?.collection?.name || 'Group not assigned'}</Text>
         </View>

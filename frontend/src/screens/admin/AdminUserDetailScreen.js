@@ -10,7 +10,8 @@ import {
   Alert,
   TextInput,
 } from 'react-native';
-import {deleteUser, setUserStatus, updateUser} from '../../api/resources';
+import {deleteUser, setUserPassword, setUserStatus, updateUser} from '../../api/resources';
+import Icon from '../../components/Icon';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {userEditFormValues} from '../../utils/adminUserForm';
 
@@ -28,6 +29,7 @@ const AdminUserDetailScreen = ({
   const [submitting, setSubmitting] = useState(false);
   const [isEditing, setIsEditing] = useState(startEditing);
   const [editForm, setEditForm] = useState({});
+  const [passwordVisible, setPasswordVisible] = useState(false);
 
   useEffect(() => {
     setIsEditing(startEditing);
@@ -43,11 +45,23 @@ const AdminUserDetailScreen = ({
     if (!id || !editForm.username.trim() || !editForm.mobileNumber.trim()) return;
     setSubmitting(true);
     try {
+      const mobileNumber = editForm.mobileNumber.trim();
+      if (!/^\+[0-9]{7,15}$/.test(mobileNumber)) {
+        Alert.alert('Invalid mobile number', 'Mobile number must include country code, e.g. +923001234567.');
+        setSubmitting(false);
+        return;
+      }
+      if (editForm.password && editForm.password.length < 8) {
+        Alert.alert('Invalid password', 'Password must be at least 8 characters.');
+        setSubmitting(false);
+        return;
+      }
       const response = await updateUser(token, id, {
         username: editForm.username.trim(),
-        mobileNumber: editForm.mobileNumber.trim(),
+        mobileNumber,
         ...(editForm.email.trim() ? {email: editForm.email.trim()} : {}),
       });
+      if (editForm.password) await setUserPassword(token, id, editForm.password);
       const updated = response?.user || response;
       Object.assign(selectedUser, updated, {
         name: updated.username,
@@ -179,16 +193,16 @@ const AdminUserDetailScreen = ({
                 ['username', 'Username'],
                 ['mobileNumber', 'Mobile number'],
                 ['email', 'Email (optional)'],
+                ['password', 'New password (optional)'],
               ].map(([field, placeholder]) => (
-                <TextInput
-                  key={field}
-                  style={styles.editInput}
-                  value={editForm[field]}
-                  onChangeText={value => setEditForm(current => ({...current, [field]: value}))}
-                  placeholder={placeholder}
-                  keyboardType={field === 'mobileNumber' ? 'phone-pad' : field === 'email' ? 'email-address' : 'default'}
-                  autoCapitalize="none"
-                />
+                field === 'password' ? (
+                  <View key={field} style={styles.detailPasswordWrap}>
+                    <TextInput style={[styles.editInput, styles.detailPasswordInput]} value={editForm[field] || ''} onChangeText={value => setEditForm(current => ({...current, [field]: value}))} placeholder={placeholder} secureTextEntry={!passwordVisible} autoCapitalize="none" />
+                    <TouchableOpacity style={styles.detailPasswordToggle} onPress={() => setPasswordVisible(value => !value)} accessibilityLabel={passwordVisible ? 'Hide password' : 'Show password'}><Icon name={passwordVisible ? 'eyeOff' : 'eye'} size={20} color="#6B7280" /></TouchableOpacity>
+                  </View>
+                ) : (
+                  <TextInput key={field} style={styles.editInput} value={editForm[field] || ''} onChangeText={value => setEditForm(current => ({...current, [field]: value}))} placeholder={placeholder} keyboardType={field === 'mobileNumber' ? 'phone-pad' : field === 'email' ? 'email-address' : 'default'} autoCapitalize="none" />
+                )
               ))}
               <View style={styles.editActions}>
                 <TouchableOpacity onPress={() => setIsEditing(false)} style={styles.editCancel}><Text>Cancel</Text></TouchableOpacity>
@@ -224,7 +238,7 @@ const AdminUserDetailScreen = ({
                   ? styles.blockedText
                   : styles.activeText,
               ]}>
-              {isBlocked ? 'Blocked' : selectedUser.status}
+              {isBlocked ? 'User: Deactive' : 'User: Active'}
             </Text>
           </View>
 
@@ -286,9 +300,7 @@ const AdminUserDetailScreen = ({
               </Text>
 
               <Text style={styles.infoValue}>
-                {isBlocked
-                  ? 'Account is blocked'
-                  : 'Account is active'}
+                {isBlocked ? 'User: Deactive' : 'User: Active'}
               </Text>
             </View>
           </View>
@@ -1061,6 +1073,9 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 18,
   },
+  detailPasswordWrap: {position: 'relative'},
+  detailPasswordInput: {paddingRight: 50},
+  detailPasswordToggle: {position: 'absolute', right: 8, top: 0, bottom: 8, width: 42, alignItems: 'center', justifyContent: 'center'},
   editInput: {
     height: 48,
     borderWidth: 1,

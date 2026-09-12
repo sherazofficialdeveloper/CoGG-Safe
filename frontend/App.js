@@ -97,6 +97,7 @@ function AppContent() {
   const [screen, setScreen] = useState('loading');
   const [portal, setPortal] = useState('admin');
   const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedCollection, setSelectedCollection] = useState(null);
   const [adminCredentialMap, setAdminCredentialMap] = useState({});
   const [userDetailBackScreen, setUserDetailBackScreen] = useState('adminUsers');
   const [selectedSos, setSelectedSos] = useState(null);
@@ -863,20 +864,58 @@ function AppContent() {
           // CAMERA
           // ------------------------------------------------------
           camera: async event => {
-            const capture = await captureEmergencyPhotos({sosId: event.id, event});
-            if (event.backendId && (capture?.frontImagePath || capture?.backImagePath)) {
-              const latest = (await sosLocalStore.getSosById(event.id)) || event;
+            // Front and back are independent media components. As soon as one
+            // lens produces a usable file, its upload is kicked off without
+            // waiting for the other lens. The existing default camera service
+            // behavior remains unchanged for retries/recovery elsewhere.
+            const prior = event.services?.camera || {};
+            let combined = {...prior};
+
+            const uploadCapturedComponent = (capture, component) => {
+              if (!event.backendId) return;
+              const path = component === 'frontImage' ? capture?.frontImagePath : capture?.backImagePath;
+              if (!path) return;
               const uploadEvent = {
-                ...latest,
+                ...event,
                 backendId: event.backendId,
-                services: {...latest.services, camera: {...latest.services?.camera, ...capture}},
+                services: {...event.services, camera: {...combined, ...capture}},
               };
-              await Promise.allSettled([
-                capture.frontImagePath ? uploadCapturedSosMedia({token, sosEvent: uploadEvent, component: 'frontImage'}) : Promise.resolve(),
-                capture.backImagePath ? uploadCapturedSosMedia({token, sosEvent: uploadEvent, component: 'backImage'}) : Promise.resolve(),
-              ]);
+              // Do not await upload: network time must never block the next
+              // camera operation or the independent audio/call/SMS services.
+              void uploadCapturedSosMedia({token, sosEvent: uploadEvent, component})
+                .catch(() => undefined);
+            };
+
+            if (!combined.frontImagePath) {
+              const front = await captureEmergencyPhotos({
+                sosId: event.id,
+                previousResult: combined,
+                event,
+                captureFrontOnly: true,
+              });
+              combined = {...combined, ...front};
+              uploadCapturedComponent(front, 'frontImage');
             }
-            return capture;
+
+            if (!combined.backImagePath) {
+              const latestEvent = (await sosLocalStore.getSosById(event.id)) || event;
+              const back = await captureEmergencyPhotos({
+                sosId: event.id,
+                previousResult: {...(latestEvent.services?.camera || {}), ...combined},
+                event: latestEvent,
+                captureBackOnly: true,
+              });
+              combined = {...combined, ...back};
+              uploadCapturedComponent(back, 'backImage');
+            }
+
+            const frontReady = Boolean(combined.frontImagePath);
+            const backReady = Boolean(combined.backImagePath);
+            return {
+              ...combined,
+              status: frontReady && backReady ? 'COMPLETED' : frontReady || backReady ? 'PENDING' : 'FAILED',
+              ...(frontReady && backReady ? {completedAt: new Date().toISOString()} : {}),
+            };
           },
 
           // ------------------------------------------------------
@@ -1254,6 +1293,7 @@ function AppContent() {
             <UserNotificationDetailScreen
               token={token}
               notification={selectedNotification}
+              showViewSos={false}
               onBack={() => setScreen('userNotifications')}
               onViewSos={sosId => {
                 setSelectedSos({
@@ -1448,7 +1488,8 @@ function AppContent() {
               onCredentialRemember={(createdUser, password) => {
                 setAdminCredentialMap(current => rememberCredential(current, createdUser, password));
               }}
-              onAddCollection={() => setScreen('adminAddCollection')}
+              onAddCollection={() => { setSelectedCollection(null); setScreen('adminAddCollection'); }}
+              onEditCollection={collection => { setSelectedCollection(collection); setScreen('adminAddCollection'); }}
               onUserDetail={userData => {
                 setSelectedUser(userData);
                 setUserDetailBackScreen('adminCollections');
@@ -1480,16 +1521,19 @@ function AppContent() {
             }>
             <AdminAddCollectionScreen
               token={token}
+              editCollection={selectedCollection}
+              onUpdated={() => { clearDashboardSnapshots(); clearCollectionSnapshots(); }}
               onCreated={() => { clearDashboardSnapshots(); clearCollectionSnapshots(); }}
-              onBack={() => setScreen('adminDashboard')}
+              onBack={() => { setSelectedCollection(null); setScreen('adminCollections'); }}
               onSave={(collectionData, credentials) => {
-                setAdminCredentialMap(credentials || {});
+                if (credentials) setAdminCredentialMap(credentials);
                 showToast(
-                  `Collection "${collectionData.name}" created!`,
+                  selectedCollection ? `Collection "${collectionData.name}" updated!` : `Collection "${collectionData.name}" created!`,
                   'success',
                 );
 
-                setScreen('adminDashboard');
+                setSelectedCollection(null);
+                setScreen(selectedCollection ? 'adminCollections' : 'adminDashboard');
               }}
             />
           </AdminLayoutNoHeader>
@@ -1630,6 +1674,7 @@ function AppContent() {
             <UserNotificationDetailScreen
               token={token}
               notification={selectedNotification}
+              showViewSos={true}
               onBack={() => setScreen('adminNotifications')}
               onViewSos={sosId => {
                 setSelectedSos({id: sosId});
