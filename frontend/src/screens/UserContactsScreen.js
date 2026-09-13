@@ -1,4 +1,5 @@
 // UserContactsScreen.js
+import {getUserInitials} from '../utils/userInitials';
 import React, {useEffect, useState} from 'react';
 import {
   View,
@@ -96,7 +97,7 @@ const UserContactsScreen = ({token, onBack}) => {
 
             <View style={[styles.contactAvatar, {backgroundColor: '#F3F4F6'}]}>
               <Text style={styles.contactAvatarText}>
-                {(contact.username || 'C').slice(0, 2).toUpperCase()}
+                {getUserInitials(contact.username, 'C')}
               </Text>
             </View>
 

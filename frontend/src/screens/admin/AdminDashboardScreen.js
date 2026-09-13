@@ -1,4 +1,5 @@
 // AdminDashboardScreen.js
+import {getUserInitials} from '../../utils/userInitials';
 import React, {useCallback, useEffect, useState} from 'react';
 import {View, Text, TouchableOpacity, StyleSheet, ScrollView} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
@@ -62,7 +63,7 @@ const AdminDashboardScreen = ({
           id: record.id || record._id,
           userName: record.userId?.username || 'CoGG Safe user',
           collectionName: record.collectionId?.name || 'Assigned group',
-          initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
+          initials: getUserInitials(record.userId?.username, 'CS'),
           time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
           status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Active',
         }));
@@ -172,7 +173,7 @@ const AdminDashboardScreen = ({
               </View>
 
               <Text style={styles.quickActionText}>
-                groups
+                Groups
               </Text>
             </TouchableOpacity>
 
@@ -204,11 +205,11 @@ const AdminDashboardScreen = ({
           <View style={styles.listHeader}>
             <View>
               <Text style={styles.sectionTitle}>
-                groups
+                Groups
               </Text>
 
               <Text style={styles.sectionSubtitle}>
-                {loading ? 'Loading groups...' : `${totalCollections} groups in the database`}
+                {loading ? 'Loading Groups...' : `${totalCollections} Groups in the database`}
               </Text>
             </View>
 

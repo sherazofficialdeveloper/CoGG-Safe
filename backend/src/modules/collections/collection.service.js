@@ -26,6 +26,8 @@ function resolveName(type, name) {
     }
     return trimmed;
   }
+  if (type === COLLECTION_TYPES.FAMILY) return 'Personal';
+  if (type === COLLECTION_TYPES.WORKERS) return 'Employees';
   return titleCase(type);
 }
 

@@ -90,7 +90,8 @@ export default function AdminCreateCollectionScreen({onBack, onSave, token}) {
 
     setSubmitting(true);
     try {
-      const collectionResponse = await createCollection(token, {name: name.trim(), type, emergencyCallNumber: emergencyCallNumber.trim()});
+      const collectionType = type === 'personal' ? 'family' : type === 'employees' ? 'workers' : 'other';
+      const collectionResponse = await createCollection(token, {name: name.trim(), type: collectionType, emergencyCallNumber: emergencyCallNumber.trim()});
       const collection = collectionResponse.collection;
       let createdUsers = 0;
       const credentials = {};

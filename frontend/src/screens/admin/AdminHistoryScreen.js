@@ -1,3 +1,4 @@
+import {getUserInitials} from '../../utils/userInitials';
 import React, {useEffect, useState} from 'react';
 import {
   View,
@@ -38,7 +39,7 @@ const AdminHistoryScreen = ({
             ...record,
             id: record._id || record.id,
             userName: name,
-            initials: name.slice(0, 2).toUpperCase(),
+            initials: getUserInitials(name, 'CS'),
             location: record.location?.latitude != null && record.location?.longitude != null
               ? `${Number(record.location.latitude).toFixed(5)}, ${Number(record.location.longitude).toFixed(5)}`
               : 'Location unavailable',

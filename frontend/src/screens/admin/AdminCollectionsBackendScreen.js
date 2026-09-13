@@ -1,3 +1,4 @@
+import {getUserInitials} from '../../utils/userInitials';
 import React, {useCallback, useEffect, useState} from 'react';
 import {ActivityIndicator, Alert, Clipboard, KeyboardAvoidingView, Platform, ScrollView, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View} from 'react-native';
 import {SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
@@ -278,9 +279,9 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
             <View key={memberId} style={styles.memberCard}>
               <TouchableOpacity
                 style={styles.memberMain}
-                onPress={() => onUserDetail?.({...member, name: member.username, phone: member.mobileNumber, email: member.email || 'No email configured', accountStatus: member.status, status: statusLabel, initials: (member.username || 'U').slice(0, 2).toUpperCase(), joined: member.createdAt ? new Date(member.createdAt).toLocaleDateString() : 'Date unavailable', color: '#E4002B'})}
+                onPress={() => onUserDetail?.({...member, name: member.username, phone: member.mobileNumber, email: member.email || 'No email configured', accountStatus: member.status, status: statusLabel, initials: getUserInitials(member.username), joined: member.createdAt ? new Date(member.createdAt).toLocaleDateString() : 'Date unavailable', color: '#E4002B'})}
               >
-                <View style={styles.avatar}><Text style={styles.avatarText}>{(member.username || 'U').slice(0, 2).toUpperCase()}</Text></View>
+                <View style={styles.avatar}><Text style={styles.avatarText}>{getUserInitials(member.username)}</Text></View>
                 <View style={styles.memberInfo}>
                   <Text style={styles.memberName}>{member.username}</Text>
                   <Text style={styles.memberMeta}>{member.mobileNumber || 'No mobile number'}</Text>
@@ -316,7 +317,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
         <View key={collection._id} style={styles.collection}>
           <TouchableOpacity style={styles.collectionMain} onPress={() => openCollection(collection)}>
             <View style={styles.collectionIcon}><Text style={styles.collectionIconText}>{capitalizeFirstWord(collection.name).charAt(0)}</Text></View>
-            <View style={styles.collectionInfo}><Text style={styles.collectionName}>{capitalizeFirstWord(collection.name)}</Text><Text style={styles.muted}>{capitalizeFirstWord(collection.type)} · {collection.emergencyCallNumber}</Text></View>
+            <View style={styles.collectionInfo}><Text style={styles.collectionName}>{capitalizeFirstWord(collection.name)}</Text><Text style={styles.muted}>{collection.name} · {collection.emergencyCallNumber}</Text></View>
             <Text style={styles.chevron}>›</Text>
           </TouchableOpacity>
           <View style={styles.collectionActions}>

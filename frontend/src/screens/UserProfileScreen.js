@@ -1,4 +1,5 @@
 // UserProfileScreen.js
+import {getUserInitials} from '../utils/userInitials';
 import React, {useEffect, useState} from 'react';
 import {
   View,
@@ -118,7 +119,7 @@ const UserProfileScreen = ({
 
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>
-            {user?.username ? user.username[0].toUpperCase() : 'U'}
+            {getUserInitials(user?.username)}
           </Text>
         </View>
 
@@ -387,13 +388,13 @@ const styles = StyleSheet.create({
     lineHeight: 29,
   },
 
-  profileStatusRow: {flexDirection: 'row', alignItems: 'center', marginTop: 5},
-  profileStatus: {fontSize: 14, fontWeight: '900', marginLeft: 4},
+  profileStatusRow: {flexDirection: 'row', alignItems: 'center', marginTop: 5, minHeight: 18},
+  profileStatus: {fontSize: 14, fontWeight: '900', marginLeft: 4, lineHeight: 18},
   profileRole: {
     fontSize: 14,
     fontWeight: '900',
     color: '#E4002B',
-    marginTop: 5,
+    lineHeight: 18,
   },
 
   profileEmail: {
