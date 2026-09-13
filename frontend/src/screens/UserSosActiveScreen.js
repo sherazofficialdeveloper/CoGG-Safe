@@ -30,7 +30,7 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
   const [hiddenImages, setHiddenImages] = useState({front: false, back: false});
   const [mediaUrls, setMediaUrls] = useState({front: null, back: null, audio: null});
 
-  const recordId = detail?.id || detail?._id || sos?.id || sos?._id;
+  const recordId = detail?.backendId || detail?._id || sos?.backendId || sos?._id || detail?.id || sos?.id;
 
   if (!recordId) {
     return (

@@ -37,7 +37,6 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token, s
   const [mediaUrls, setMediaUrls] = useState({front: null, back: null, audio: null});
   const [liveLocation, setLiveLocation] = useState(null);
   const [liveLocationStatus, setLiveLocationStatus] = useState(null);
-  const [audioError, setAudioError] = useState(null);
 
   // ================= Fetch SOS Detail =================
   const fetchSosDetail = async () => {
@@ -94,7 +93,13 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token, s
       }
     } catch (err) {
       console.log('[UserNotificationDetail] Fetch error:', err);
-      setError(err.message || 'Unable to load details.');
+      // A notification can already contain enough SOS data to render the
+      // detail/media while a background refresh is temporarily unavailable.
+      // Never show a misleading generic "Something went wrong" message
+      // underneath otherwise working voice/photos.
+      if (!detail && !initialSos) {
+        setError(err.message || 'Unable to load details.');
+      }
     } finally {
       setLoading(false);
     }
@@ -179,7 +184,6 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token, s
             </TouchableOpacity>
           )}
 
-          {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         </ScrollView>
       ) : (

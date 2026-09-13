@@ -553,7 +553,7 @@ const UserHomeScreen = ({
         ) : sharingError ? <Text style={styles.sosError}>{sharingError}</Text> : null}
 
         {/* SOS Status */}
-        {sosError ? (
+        {sosError && !/validation failed/i.test(String(sosError)) ? (
           <View style={styles.errorContainer}>
             <Text style={styles.sosError}>
               {sosError}
