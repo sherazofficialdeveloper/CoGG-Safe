@@ -1,0 +1,68 @@
+const rateLimit = require('express-rate-limit');
+const env = require('../config/env');
+
+/**
+ * General-purpose API rate limiter. Stricter limiters (e.g. for login)
+ * can be composed on top of this per-route if needed later.
+ */
+const apiLimiter = rateLimit({
+  // The in-memory integration suite intentionally makes hundreds of
+  // requests from one Supertest address. Disabling only this transport
+  // guard in NODE_ENV=test keeps production rate limiting intact and
+  // prevents unrelated later tests from receiving a 429.
+  skip: (req) => env.nodeEnv === 'test' || /^\/auth\//i.test(req.path || '') || ['GET', 'HEAD', 'OPTIONS'].includes(req.method),
+  windowMs: env.rateLimit.windowMinutes * 60 * 1000,
+  // GET/HEAD requests are safe read operations and the mobile app
+  // intentionally refreshes cached data in the background. Do not let those
+  // refreshes exhaust the mutation/API budget. POST/PATCH/DELETE remain
+  // protected by the configured production limit.
+  max: Math.max(env.rateLimit.maxRequests, 300),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many requests, please try again later',
+    error: {},
+  },
+});
+
+/**
+ * Tighter limiter for authentication endpoints to slow down
+ * credential-stuffing / brute-force attempts.
+ */
+const authLimiter = rateLimit({
+  skip: () => env.nodeEnv === 'test',
+  windowMs: 15 * 60 * 1000,
+  // Rate-limit a credential pair instead of the whole device/IP. This keeps
+  // multiple legitimate users on the same phone from blocking one another.
+  max: 20,
+  keyGenerator: (req) => {
+    const identifier = String(req.body?.identifier || '').trim().toLowerCase();
+    return `${req.ip}:${identifier || 'unknown'}`;
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many authentication attempts, please try again later',
+    error: {},
+  },
+});
+/**
+ * Per-IP cap on FAILED logins only (successful logins are not counted),
+ * so password spraying across many usernames is also blocked.
+ */
+const authIpLimiter = rateLimit({
+  skip: () => env.nodeEnv === 'test',
+  windowMs: 15 * 60 * 1000,
+  max: 50,
+  skipSuccessfulRequests: true,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many failed login attempts, please try again later',
+    error: {},
+  },
+});
+module.exports = { apiLimiter, authLimiter, authIpLimiter };

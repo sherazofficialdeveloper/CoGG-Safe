@@ -1,0 +1,169 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- Network & Connectivity -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Location - Required for SOS emergency coordinates -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- Camera - Required for front/back emergency photos -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Audio - Required for 5-second emergency audio recording -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- Emergency communications - user-device SMS and call handling -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+    
+    <!-- SMS - Required by the existing direct-SMS SOS flow.
+         Keep this declared for all supported Android versions so the
+         runtime permission request can work on Android 13+. -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
+    <!-- Notifications - Required for push notification badges (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Live Location Service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <!-- Keeps the volume-key SOS accessibility service's process alive in the
+         background/locked so OEM battery managers are less likely to kill it. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- Lets the volume-key SOS trigger show a full-screen alert over the
+         lock screen from the background, without hitting Android's
+         Background Activity Launch restrictions. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <!-- Restarts the keep-alive service after a reboot so the volume-key
+         trigger is live again without requiring the user to open the app. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Lets the app ask the user to exempt it from OEM battery
+         optimization, the single biggest cause of background SOS triggers
+         silently failing. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- Wakes the screen for a few seconds when the volume-key SOS fires while
+         the phone is dark/locked, so the SOS screen can be shown. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+
+    <application
+      android:name=".MainApplication"
+      android:label="@string/app_name"
+      android:icon="@mipmap/ic_launcher"
+      android:roundIcon="@mipmap/ic_launcher_round"
+      android:allowBackup="false"
+      android:theme="@style/AppTheme"
+      android:usesCleartextTraffic="${usesCleartextTraffic}"
+      android:supportsRtl="true">
+      
+      <!-- ================= GOOGLE MAPS API KEY ================= -->
+      <meta-data
+          android:name="com.google.android.geo.API_KEY"
+          android:value="AIzaSyCpmLiVkTY26zGiT2oZ94LTqpli8uQsQ18" />
+      
+      <meta-data
+          android:name="com.google.firebase.messaging.default_notification_channel_id"
+          android:value="@string/default_notification_channel_id"
+          tools:replace="android:value" />
+          
+      <receiver
+          android:name=".SosWidgetProvider"
+          android:exported="true">
+          <intent-filter>
+              <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+          </intent-filter>
+          <meta-data
+              android:name="android.appwidget.provider"
+              android:resource="@xml/coggsafe_sos_widget_info" />
+      </receiver>
+
+      <receiver
+          android:name=".SosWidgetReceiver"
+          android:exported="false" />
+
+      <!-- Volume Down x3 SOS trigger. Android only exposes global hardware
+           volume-key events to an accessibility service after the user
+           explicitly enables that service. -->
+      <service
+          android:name=".SosVolumeAccessibilityService"
+          android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+          android:exported="true">
+          <intent-filter>
+              <action android:name="android.accessibilityservice.AccessibilityService" />
+          </intent-filter>
+          <meta-data
+              android:name="android.accessibilityservice"
+              android:resource="@xml/coggsafe_volume_accessibility_service" />
+      </service>
+
+      <activity
+        android:name=".SosWidgetHoldActivity"
+        android:theme="@style/SosWidgetHoldTheme"
+        android:exported="false"
+        android:excludeFromRecents="true"
+        android:showWhenLocked="true"
+        android:turnScreenOn="true" />
+
+      <activity
+        android:name=".SosVolumeBootstrapActivity"
+        android:theme="@style/SosVolumeBootstrapTheme"
+        android:excludeFromRecents="true"
+        android:showWhenLocked="true"
+        android:turnScreenOn="false"
+        android:exported="false" />
+
+      <activity
+        android:name=".MainActivity"
+        android:label="@string/app_name"
+        android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+        android:launchMode="singleTask"
+        android:windowSoftInputMode="adjustResize"
+        android:showWhenLocked="true"
+        android:turnScreenOn="true"
+        android:exported="true">
+        <intent-filter>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent-filter>
+      </activity>
+      
+      <!-- Foreground service for live location -->
+      <service
+          android:name=".LiveLocationForegroundService"
+          android:enabled="true"
+          android:exported="false"
+          android:foregroundServiceType="location" />
+
+      <!-- Keeps the volume-key SOS accessibility service's process alive
+           while the app is closed or the phone is locked. -->
+      <service
+          android:name=".SosVolumeKeepAliveService"
+          android:enabled="true"
+          android:exported="false"
+          android:foregroundServiceType="specialUse">
+          <property
+              android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+              android:value="Keeps the emergency volume-button SOS trigger listening while the app is closed or the phone is locked, so a panic gesture is never missed." />
+      </service>
+
+      <!-- Restarts the keep-alive service after a reboot if the user has
+           already enabled the volume-key accessibility service. -->
+      <receiver
+          android:name=".SosBootReceiver"
+          android:enabled="true"
+          android:exported="false">
+          <intent-filter>
+              <action android:name="android.intent.action.BOOT_COMPLETED" />
+          </intent-filter>
+      </receiver>
+
+    </application>
+</manifest>

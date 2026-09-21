@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>Emergency Alert</title>
+  <link rel="stylesheet" href="/e/styles.css" />
+</head>
+<body>
+  <main class="page" id="page">
+    <header class="header">
+      <div class="header-badge">🚨</div>
+      <h1>Emergency Alert</h1>
+      <p class="header-sub">This is a shared emergency link. Do not reply to this page.</p>
+    </header>
+
+    <div id="stateBanner" class="state-banner" hidden></div>
+
+    <div id="content" class="content" hidden>
+      <section class="card" id="userCard">
+        <h2>Who needs help</h2>
+        <dl class="kv" id="userInfo"></dl>
+      </section>
+
+      <section class="card" id="messageCard">
+        <h2>Emergency message</h2>
+        <p id="emergencyMessage" class="message"></p>
+        <p class="meta" id="sosMeta"></p>
+      </section>
+
+      <section class="card" id="locationCard">
+        <h2>Location</h2>
+        <div id="locationBadge" class="badge"></div>
+        <div id="mapWrap" class="map-wrap" hidden>
+          <iframe id="mapFrame" title="Location map" loading="lazy"></iframe>
+        </div>
+        <p id="locationText" class="meta"></p>
+        <p id="locationUpdated" class="meta"></p>
+      </section>
+
+      <section class="card" id="mediaCard">
+        <h2>Photos</h2>
+        <div class="media-grid">
+          <div class="media-item">
+            <p class="media-label">Front camera</p>
+            <div id="frontImageWrap"><p class="unavailable" id="frontImageStatus">Loading…</p></div>
+          </div>
+          <div class="media-item">
+            <p class="media-label">Back camera</p>
+            <div id="backImageWrap"><p class="unavailable" id="backImageStatus">Loading…</p></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="audioCard">
+        <h2>Audio recording (5 seconds)</h2>
+        <div id="audioWrap"><p class="unavailable" id="audioStatus">Loading…</p></div>
+      </section>
+    </div>
+
+    <footer class="footer">
+      <p id="lastFetched" class="meta"></p>
+    </footer>
+  </main>
+
+  <script src="/e/app.js" defer></script>
+</body>
+</html>

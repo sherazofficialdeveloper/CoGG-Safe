@@ -1,0 +1,504 @@
+import {sosLocalStore} from './storage';
+import {SOS_STATES, transitionSosState} from './stateMachine';
+import {connectivityService} from './connectivity';
+import {enqueueSosJob} from './queue/queueWorker';
+import {emitSosToast} from './services/sosToastService';
+import {reportServiceResult} from './services/backendSyncService';
+import {reportSosServiceError} from './services/sosErrorReporter';
+import {isValidLocation} from './services/locationService';
+import {emitSosDiagnostic} from './services/sosDiagnosticService';
+
+// email/notifications are intentionally NOT retryable client-side jobs:
+// their real dispatch is a server-side responsibility
+// (backend/src/modules/sos/dispatch.service.js), triggered automatically
+// when the backend SOS is created/activated. Enqueuing them here as client
+// jobs would create queue entries no processor ever consumes (see
+// frontend/App.js processSosQueue processors) — the client only tracks
+// their status locally for display, it never owns their retry.
+// 'camera' is retryable so a single failed lens (front OR back — see
+// cameraService.js's 'PENDING' status for a partial front/back result) gets
+// picked up again by queueWorker's 'camera' processor (App.js), which
+// re-captures only the missing lens instead of the whole pair.
+const RETRYABLE_SERVICES = new Set(['sms', 'call', 'backend', 'location', 'locationSms', 'liveLocation', 'camera', 'audio']);
+
+export function generateClientSosId() {
+  const cryptoRef = (typeof window !== 'undefined' && window.crypto)
+    || (typeof global !== 'undefined' && global.crypto)
+    || null;
+
+  const random = (cryptoRef && typeof cryptoRef.randomUUID === 'function')
+    ? cryptoRef.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+  return `sos_${random.replace(/-/g, '')}`;
+}
+
+export function createBaseServiceState() {
+  return {
+    sms: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null, recipients: []},
+    call: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null},
+    camera: {status: 'PENDING', frontImagePath: null, backImagePath: null, completedAt: null, error: null},
+    audio: {status: 'PENDING', localPath: null, completedAt: null, error: null},
+    location: {status: 'PENDING', completedAt: null, error: null},
+    liveLocation: {status: 'PENDING', startedAt: null, stoppedAt: null, completedAt: null, error: null},
+    backend: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null},
+    email: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null},
+    notifications: {status: 'PENDING', completedAt: null, error: null},
+    linkSms: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null},
+    locationSms: {status: 'PENDING', attempts: 0, lastAttemptAt: null, completedAt: null, error: null, recipients: []},
+  };
+}
+
+export async function createSosLocalEvent({userId, collectionId, meta = {}}) {
+  const event = {
+    id: generateClientSosId(),
+    userId,
+    collectionId,
+    createdAt: new Date().toISOString(),
+    activatedAt: null,
+    status: SOS_STATES.IDLE,
+    location: {
+      latitude: null,
+      longitude: null,
+      accuracy: null,
+      capturedAt: null,
+    },
+    services: createBaseServiceState(),
+    meta,
+  };
+
+  const active = transitionSosState(event, SOS_STATES.ACTIVE);
+  if (!active.ok) {
+    throw new Error(active.reason);
+  }
+  const activeEvent = {
+    ...active.event,
+    activatedAt: event.createdAt,
+  };
+  await sosLocalStore.upsertSos(activeEvent);
+  if (__DEV__) console.log('[SOS_DEBUG] LOCAL_SOS_CREATED', {localSosId: activeEvent.id, status: activeEvent.status});
+  return activeEvent;
+}
+
+export function resolveSosServiceStatus(serviceName, networkState) {
+  const internetAvailable = Boolean(networkState?.isInternetReachable || networkState?.isConnected);
+  const cellularAvailable = Boolean(networkState?.isCellularAvailable);
+  const telephonyStatus = networkState?.telephonyStatus || 'TEMPORARILY_UNAVAILABLE';
+  const telephonySupported = networkState?.telephonySupported !== false;
+
+  if (serviceName === 'backend' || serviceName === 'email' || serviceName === 'notifications') {
+    return internetAvailable ? 'READY' : 'PENDING';
+  }
+
+  if (serviceName === 'sms' || serviceName === 'call' || serviceName === 'locationSms') {
+    if (!cellularAvailable) return 'PENDING';
+    if (telephonyStatus === 'TEMPORARILY_UNAVAILABLE') return 'PENDING';
+    if (telephonyStatus === 'UNSUPPORTED' || !telephonySupported) return 'UNSUPPORTED';
+    if (telephonyStatus === 'FAILED') return 'FAILED';
+    return 'READY';
+  }
+
+  return 'PENDING';
+}
+
+export async function activateSosFlow({
+  userId,
+  collectionId,
+  serviceRunners = {},
+  cancelSignal = null,
+  onPending = null,
+  silent = false,
+} = {}) {
+  if (__DEV__) console.log('[SOS_DEBUG] ACTIVATE_FLOW_START', {
+    timestamp: new Date().toISOString(),
+    userId,
+    collectionId,
+  });
+  if (cancelSignal?.cancelled) {
+    return {event: null, execution: [], cancelled: true};
+  }
+
+  const event = await createSosLocalEvent({userId, collectionId});
+  emitSosDiagnostic('SOS DEBUG 04: Local SOS created');
+  if (__DEV__) console.log('SOS_ACTIVATED', {eventId: event.id, userId, collectionId});
+  if (!silent) emitSosToast('SOS started', 'info', 2000);
+  
+  if (typeof onPending === 'function') {
+    await onPending(event);
+  }
+
+  if (cancelSignal?.cancelled) {
+    const cancellation = transitionSosState(event, SOS_STATES.CANCELLED);
+    if (cancellation.ok) {
+      await sosLocalStore.upsertSos(cancellation.event);
+      return {event: cancellation.event, execution: [], cancelled: true};
+    }
+  }
+
+  await enqueueSosJob({sosId: event.id, type: 'LINK_SMS', serviceName: 'linkSms'});
+
+  const defaultRunners = {
+    sms: async () => 'sms',
+    call: async () => 'call',
+    camera: async () => 'camera',
+    audio: async () => 'audio',
+    location: async () => 'location',
+    backend: async () => 'backend',
+    email: async () => 'email',
+    notifications: async () => 'notifications',
+    liveLocation: async () => 'liveLocation',
+    linkSms: async () => 'linkSms',
+  };
+
+  const runners = {...defaultRunners, ...serviceRunners};
+  const executionOrder = ['backend', 'location', 'camera', 'audio', 'sms', 'call', 'email', 'notifications', 'liveLocation', 'linkSms'];
+  const extraNames = Object.keys(runners).filter((name) => !executionOrder.includes(name));
+  const names = [...executionOrder.filter(name => Object.prototype.hasOwnProperty.call(runners, name)), ...extraNames];
+
+  const execution = [];
+  let backendReady = false;
+
+  if (__DEV__) {
+    console.log('SOS_ORCHESTRATOR_STARTED', {names, userId, collectionId, eventId: event.id});
+  }
+
+  const runService = async serviceName => {
+    const serviceState = event.services[serviceName];
+    const tagPrefix = {
+      backend: 'SOS_SYNC',
+      location: 'SOS_LOCATION',
+      camera: 'SOS_CAMERA',
+      audio: 'SOS_AUDIO',
+      sms: 'SOS_SMS',
+      call: 'SOS_CALL',
+      notifications: 'SOS_NOTIFICATION',
+      liveLocation: 'SOS_LOCATION',
+      email: 'SOS_NOTIFICATION',
+    }[serviceName] || 'SOS_SERVICE';
+
+    if (__DEV__) {
+      console.log(`${tagPrefix}_STARTED`, {eventId: event.id, serviceName});
+      console.log(`[SOS][${serviceName === 'mediaUpload' ? 'UPLOAD' : serviceName.toUpperCase()}] START`, {eventId: event.id});
+    }
+
+    try {
+      const result = await runners[serviceName](event);
+      const resultStatus = result?.status || 'COMPLETED';
+      if (serviceName === 'backend') emitSosDiagnostic(`SOS DEBUG BACKEND 03: Backend result ${resultStatus}`);
+      if (serviceName === 'mediaUpload') emitSosDiagnostic(`SOS DEBUG UPLOAD: Overall ${resultStatus}`);
+
+      if (__DEV__) {
+        console.log(`${tagPrefix}_FINISHED`, {eventId: event.id, serviceName, resultStatus, result});
+      }
+      if (resultStatus === 'PENDING') {
+        if (__DEV__) console.log(`[SOS][${serviceName === 'mediaUpload' ? 'UPLOAD' : serviceName.toUpperCase()}] QUEUED`, {eventId: event.id, reason: result?.reason});
+        if (result?.reason) reportSosServiceError(serviceName, result, {status: 'QUEUED', eventId: event.id});
+      } else if (['FAILED', 'UNSUPPORTED'].includes(resultStatus)) {
+        reportSosServiceError(serviceName, result, {eventId: event.id});
+      }
+
+      if (serviceName === 'backend') {
+        if (result?.backendId) {
+          event.backendId = result.backendId;
+          event.emergencyLink = result.emergencyLink || null;
+          event.activatedAt = result.activatedAt || event.activatedAt || null;
+          backendReady = true;
+          await sosLocalStore.upsertSos({...event, backendId: event.backendId, emergencyLink: event.emergencyLink});
+        }
+      }
+
+      const next = {
+        ...serviceState,
+        status: resultStatus,
+        ...(resultStatus === 'COMPLETED' || resultStatus === 'NOT_CONFIGURED' ? {completedAt: new Date().toISOString()} : {}),
+        ...(result && typeof result === 'object' ? {
+          lastResult: result,
+          ...(result.frontImagePath !== undefined ? {frontImagePath: result.frontImagePath} : {}),
+          ...(result.backImagePath !== undefined ? {backImagePath: result.backImagePath} : {}),
+          ...(result.frontError !== undefined ? {frontError: result.frontError} : {}),
+          ...(result.backError !== undefined ? {backError: result.backError} : {}),
+          ...(result.localPath !== undefined ? {localPath: result.localPath} : {}),
+          ...(result.error !== undefined ? {error: result.error} : {}),
+        } : {}),
+      };
+
+      if (serviceName === 'location' && result?.latitude != null && result?.longitude != null) {
+        event.location = {...event.location, ...result};
+      }
+      if (serviceName === 'liveLocation' && resultStatus === 'COMPLETED' && result?.startedAt) {
+        event.liveLocationStartedAt = result.startedAt;
+        event.liveLocationStatus = 'ACTIVE';
+      }
+
+      event.services[serviceName] = next;
+      if (serviceName === 'location' && isValidLocation(event.location)) {
+        await sosLocalStore.upsertSos({...event, location: {...event.location}, services: {...event.services}});
+      } else {
+        await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
+      }
+      
+      if (resultStatus === 'COMPLETED' && serviceName === 'location') {
+        const acc = result?.accuracy;
+        if (!silent) emitSosToast(`Location acquired (${acc?.toFixed(1) || 'unknown'}m accuracy)`, 'success', 2000);
+      }
+      if (serviceName === 'camera' && result?.frontImagePath) {
+        if (!silent) emitSosToast('Front camera captured', 'success', 2000);
+      }
+      if (serviceName === 'camera' && result?.backImagePath) {
+        if (!silent) emitSosToast('Back camera captured', 'success', 2000);
+      }
+      if (resultStatus === 'COMPLETED' && serviceName === 'audio' && result?.localPath) {
+        if (!silent) emitSosToast('Audio recorded (6 seconds)', 'success', 2000);
+      }
+      if (serviceName === 'sms' && resultStatus === 'COMPLETED') {
+        const count = result?.sentCount;
+        if (!silent) emitSosToast(count ? `Emergency SMS sent to ${count} number${count === 1 ? '' : 's'}` : 'Emergency SMS sent', 'success', 2000);
+      }
+      if (serviceName === 'call' && resultStatus === 'INITIATED') {
+        if (!silent) emitSosToast('Emergency call initiated', 'success', 2000);
+      }
+      
+      if (['PENDING', 'FAILED'].includes(resultStatus)
+        && RETRYABLE_SERVICES.has(serviceName)
+        && !result?.permanent) {
+        await enqueueSosJob({
+          sosId: event.id,
+          type: serviceName.toUpperCase(),
+          serviceName,
+          payload: serviceName === 'sms' ? {offlineSmsEnabled: event.meta?.offlineSmsEnabled !== false} : {},
+        });
+      }
+
+      if (['linkSms', 'locationSms'].includes(serviceName)
+        && ['COMPLETED', 'SENT', 'QUEUED_TO_ANDROID'].includes(resultStatus)) {
+        await sosLocalStore.removeQueueItem(`${event.id}:${serviceName === 'linkSms' ? 'LINK_SMS' : 'LOCATION_SMS'}`);
+      }
+
+      return {serviceName, status: resultStatus, result};
+    } catch (error) {
+      if (__DEV__) {
+        console.log(`${tagPrefix}_FAILED`, {eventId: event.id, serviceName, error: error?.message || error});
+      }
+      reportSosServiceError(serviceName, error, {eventId: event.id});
+
+      const next = {
+        ...serviceState,
+        status: 'FAILED',
+        error: error?.message || 'Service failed',
+        completedAt: new Date().toISOString(),
+      };
+      event.services[serviceName] = next;
+      await sosLocalStore.updateSosServiceState(event.id, serviceName, next);
+      if (RETRYABLE_SERVICES.has(serviceName)) {
+        await enqueueSosJob({
+          sosId: event.id,
+          type: serviceName.toUpperCase(),
+          serviceName,
+          payload: serviceName === 'sms' ? {offlineSmsEnabled: event.meta?.offlineSmsEnabled !== false} : {},
+        });
+      }
+      return {serviceName, status: 'FAILED', error: error?.message || 'Service failed'};
+    }
+  };
+
+  const remainingNames = names.filter(name => name !== 'backend');
+  const appendSettled = settled => execution.push(...settled.map(result => result.status === 'fulfilled' ? result.value : {
+    serviceName: result.reason?.serviceName || 'unknown',
+    status: 'FAILED',
+    error: result.reason?.message || 'Service failed',
+  }));
+
+  // ================= FIXED: Location with retry logic =================
+  // Location capture should retry up to 3 times before giving up
+  const locationCapturePromise = (async () => {
+    let locationResult = null;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (retryCount < maxRetries) {
+      try {
+        const result = await runService('location');
+        if (result && result.status !== 'PENDING' && isValidLocation(result.result)) {
+          locationResult = result;
+          break;
+        }
+        
+        // If pending, wait and retry
+        if (result?.status === 'PENDING') {
+          emitSosDiagnostic(`SOS DEBUG LOCATION RETRY ${retryCount + 1}/${maxRetries}`);
+          const waitTime = 2000 * (retryCount + 1);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          retryCount++;
+        } else {
+          break;
+        }
+      } catch (error) {
+        emitSosDiagnostic(`SOS DEBUG LOCATION ERROR: ${error?.message || 'Unknown'}`);
+        retryCount++;
+        if (retryCount < maxRetries) {
+          const waitTime = 2000 * retryCount;
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+      }
+    }
+    
+    return locationResult;
+  })();
+
+  // SMS, location, camera, audio and call are independent emergency services:
+  // they must start immediately once the SOS is triggered and must never wait
+  // for the backend SOS record to be created (backend requires internet; SMS
+  // does not). Backend creation and the capture-phase services therefore run
+  // concurrently instead of backend-first. Media upload is the only phase that
+  // genuinely needs the backend SOS id, so it still runs after both finish.
+  const captureNames = remainingNames.filter(name => ['location', 'camera', 'audio', 'sms', 'call'].includes(name));
+  const backendPromise = names.includes('backend') ? runService('backend') : null;
+  const liveLocationPromise = backendPromise && names.includes('liveLocation')
+    ? backendPromise.then(() => runService('liveLocation'))
+    : Promise.resolve(null);
+  const mediaCaptureNames = captureNames.filter(name => ['sms', 'camera', 'audio'].includes(name));
+  const mediaCaptureJobs = Object.fromEntries(mediaCaptureNames.map(serviceName => [serviceName, runService(serviceName)]));
+  const mediaCapturePromise = Promise.allSettled(Object.values(mediaCaptureJobs));
+  // The emergency call starts as soon as the audio recording has finished.
+  // While a cellular call is dialing/active Android hands the microphone to
+  // telephony (and the dialer moves the app to the background), so a
+  // recording that overlaps the call is silent or cut to about a second even
+  // though the file still reports the full length. The wait only ever covers
+  // the recording itself: SMS, camera, location and backend creation are NOT
+  // waited for, and a failed/skipped recording releases the call immediately.
+  // The cap guarantees a hung recorder can never hold the call back for long.
+  const AUDIO_BEFORE_CALL_MAX_WAIT_MS = 10000;
+  const audioJob = mediaCaptureJobs.audio || null;
+  const waitForAudioBeforeCall = audioJob
+    ? Promise.race([
+        audioJob.catch(() => null),
+        new Promise(resolve => setTimeout(resolve, AUDIO_BEFORE_CALL_MAX_WAIT_MS)),
+      ])
+    : Promise.resolve(null);
+  const delayedCallPromise = captureNames.includes('call')
+    ? waitForAudioBeforeCall.then(() => runService('call'))
+    : Promise.resolve(null);
+  
+  // ================= FIXED: Location SMS waits for location =================
+  const locationSmsPromise = locationCapturePromise
+    .then(async locationResult => {
+      if (isValidLocation(event.location) && names.includes('locationSms')) {
+        return runService('locationSms');
+      }
+      return null;
+    })
+    .catch(error => ({
+      serviceName: 'locationSms',
+      status: 'FAILED',
+      error: error?.message || 'Location SMS failed'
+    }));
+  
+  const capturePromise = Promise.all([
+    mediaCapturePromise,
+    delayedCallPromise.then(result => result ? [result] : []),
+    locationCapturePromise ? Promise.allSettled([locationCapturePromise]) : Promise.resolve([]),
+    locationSmsPromise,
+  ]);
+
+  const [backendResult, captureBundle, liveLocationResult] = await Promise.all([backendPromise, capturePromise, liveLocationPromise]);
+  if (backendResult) {
+    execution.push(backendResult);
+  }
+  if (liveLocationResult) {
+    execution.push(liveLocationResult);
+  }
+  const [mediaResults, callResults, locationResults, locationSmsResult] = captureBundle;
+  appendSettled(mediaResults || []);
+  appendSettled(callResults || []);
+  appendSettled(locationResults || []);
+  if (locationSmsResult) execution.push(locationSmsResult);
+
+  if (backendReady && names.includes('linkSms')) {
+    execution.push(await runService('linkSms'));
+  }
+
+  if (backendReady && isValidLocation(event.location)) {
+    await enqueueSosJob({sosId: event.id, type: 'LOCATION', serviceName: 'location'});
+  }
+
+  const dispatchPreparationNames = remainingNames.filter(name => !['location', 'camera', 'audio', 'sms', 'call', 'mediaUpload', 'notifications', 'liveLocation', 'linkSms', 'locationSms'].includes(name));
+  appendSettled(await Promise.allSettled(dispatchPreparationNames.map(serviceName => runService(serviceName))));
+
+  if (remainingNames.includes('notifications')) {
+    execution.push(await runService('notifications'));
+  }
+  if (cancelSignal?.cancelled) {
+    const cancellation = transitionSosState(event, SOS_STATES.CANCELLED);
+    if (cancellation.ok) {
+      await sosLocalStore.upsertSos(cancellation.event);
+      return {event: cancellation.event, execution, cancelled: true, result: {
+      call: false,
+      sms: false,
+      location: false,
+      camera: false,
+      audio: false,
+      upload: false,
+      notification: false,
+      }};
+    }
+  }
+
+  const nextStatus = SOS_STATES.ACTIVE;
+  if (event.status !== nextStatus) {
+    const transition = transitionSosState(event, nextStatus);
+    if (!transition.ok) {
+      throw new Error(transition.reason);
+    }
+    Object.assign(event, transition.event);
+  }
+  const summary = {
+    call: Boolean(event.services?.call?.status === 'COMPLETED' || event.services?.call?.status === 'INITIATED' || event.services?.call?.status === 'SENT'),
+    sms: Boolean(event.services?.sms?.status === 'COMPLETED' || event.services?.sms?.status === 'SENT'),
+    location: Boolean(event.services?.location?.status === 'COMPLETED' || (event.location?.latitude != null && event.location?.longitude != null)),
+    camera: Boolean(event.services?.camera?.status === 'COMPLETED' || (event.services?.camera?.frontImagePath || event.services?.camera?.backImagePath)),
+    audio: Boolean(event.services?.audio?.status === 'COMPLETED' || event.services?.audio?.localPath),
+    upload: Boolean(event.services?.camera?.status === 'COMPLETED' || event.services?.audio?.status === 'COMPLETED' || event.services?.backend?.status === 'COMPLETED'),
+    notification: Boolean(event.services?.notifications?.status === 'COMPLETED' || event.services?.notifications?.status === 'PENDING'),
+  };
+  if (__DEV__) {
+    console.log('SOS_ACTIVATION_FINISHED', {
+      eventId: event.id,
+      status: event.status,
+      backendReady,
+      serviceResults: execution,
+      summary,
+    });
+    console.log('SOS_FLOW_COMPLETED', {eventId: event.id, status: event.status, summary});
+  }
+  await sosLocalStore.upsertSos(event);
+
+  if (
+    event.services?.camera?.frontImagePath ||
+    event.services?.camera?.backImagePath ||
+    event.services?.audio?.localPath ||
+    event.services?.camera?.status === 'FAILED' ||
+    event.services?.audio?.status === 'FAILED'
+  ) {
+    for (const component of ['frontImage', 'backImage', 'audio']) {
+      await enqueueSosJob({
+        sosId: event.id,
+        backendSosId: event.backendId,
+        type: `MEDIA_UPLOAD:${component}`,
+        serviceName: 'mediaUpload',
+        payload: {component},
+      });
+    }
+  }
+
+  return {event, execution, result: summary};
+}
+
+export default {
+  createSosLocalEvent,
+  generateClientSosId,
+  activateSosFlow,
+  resolveSosServiceStatus,
+  connectivityService,
+  SOS_STATES,
+  transitionSosState,
+};

@@ -1,0 +1,279 @@
+plugins {
+    id("com.facebook.react")
+}
+
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
+} else {
+    logger.warn("Firebase Android config missing: add frontend/android/app/google-services.json from your real Firebase project to enable FCM.")
+}
+
+apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
+
+react {
+    autolinkLibrariesWithApp()
+}
+
+def enableProguardInReleaseBuilds = false
+def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    compileSdk rootProject.ext.compileSdkVersion
+
+    namespace "com.coggsafe"
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    defaultConfig {
+        applicationId "com.coggsafe"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 3
+        versionName "1.2"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+
+        release {
+    def releaseStoreFile = project.findProperty('COGGSAFE_RELEASE_STORE_FILE') ?: System.getenv('COGGSAFE_RELEASE_STORE_FILE')
+    def releaseStorePassword = project.findProperty('COGGSAFE_RELEASE_STORE_PASSWORD') ?: System.getenv('COGGSAFE_RELEASE_STORE_PASSWORD')
+    def releaseKeyAlias = project.findProperty('COGGSAFE_RELEASE_KEY_ALIAS') ?: System.getenv('COGGSAFE_RELEASE_KEY_ALIAS')
+    def releaseKeyPassword = project.findProperty('COGGSAFE_RELEASE_KEY_PASSWORD') ?: System.getenv('COGGSAFE_RELEASE_KEY_PASSWORD')
+
+    if (releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword) {
+        storeFile file(releaseStoreFile)
+        storePassword releaseStorePassword
+        keyAlias releaseKeyAlias
+        keyPassword releaseKeyPassword
+    } else if (gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }) {
+        // Sirf release build maangne par error do, debug build par nahi
+        throw new GradleException(
+            'Release signing credentials are not configured. Set COGGSAFE_RELEASE_STORE_FILE, COGGSAFE_RELEASE_STORE_PASSWORD, COGGSAFE_RELEASE_KEY_ALIAS and COGGSAFE_RELEASE_KEY_PASSWORD in ~/.gradle/gradle.properties or CI secrets.'
+        )
+    }
+}
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
+        }
+    }
+}
+
+dependencies {
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("com.facebook.react:react-android")
+
+    // Google Play Services for Maps
+    implementation 'com.google.android.gms:play-services-base:18.0.1'
+    implementation 'com.google.android.gms:play-services-maps:18.0.2'
+
+    def cameraxVersion = "1.4.2"
+    implementation("androidx.camera:camera-core:${cameraxVersion}")
+    implementation("androidx.camera:camera-camera2:${cameraxVersion}")
+    implementation("androidx.camera:camera-lifecycle:${cameraxVersion}")
+
+    if (hermesEnabled.toBoolean()) {
+        implementation("com.facebook.react:hermes-android")
+    } else {
+        implementation jscFlavor
+    }
+}
+
+apply from: "./vector-icons.gradle"
+
+
+// -----------------------------------------------------------------------------
+// React Native 0.87 Prefab compatibility / corrupted-cache recovery
+// -----------------------------------------------------------------------------
+//
+// React Native 0.87's graphicsConversions.h contains:
+//
+//     return std::format("{}%", dimension.value);
+//
+// With the current Android/NDK toolchain this can produce the following
+// native C++ compilation failure:
+//
+//     NumericTypeHelper<folly::Formatter<false, const float &>>
+//
+// The cached React Native Prefab headers therefore need the minimum source
+// replacement below:
+//
+//     return folly::dynamic(std::to_string(dimension.value) + "%");
+//
+// This patch applies to BOTH Debug and Release React Native 0.87 artifacts.
+//
+// The same cache can also become partially extracted if a previous build is
+// interrupted. In that case only the affected React Native Prefab cache is
+// removed so Gradle can extract it again. The complete Gradle cache is NOT
+// deleted.
+// -----------------------------------------------------------------------------
+
+def graphicsConversionsHeaderPattern =
+        "**/react-android-0.87.0-*/prefab/modules/reactnative/include/react/renderer/core/graphicsConversions.h"
+
+def patchReactNativeGraphicsConversions = {
+    def matches = fileTree(gradle.gradleUserHomeDir).matching {
+        include(graphicsConversionsHeaderPattern)
+    }.files
+
+    if (matches.isEmpty()) {
+
+        // Header not found anywhere in the cache.
+        //
+        // Look for an existing React Native 0.87 Prefab extraction that may
+        // be incomplete/corrupted and remove only that React Native cache
+        // subtree so Gradle can extract it again.
+        def findAarRoot = { File f ->
+            def dir = f
+
+            while (dir != null && !dir.name.matches("react-android-0.87.0-.*")) {
+                dir = dir.parentFile
+            }
+
+            return dir
+        }
+
+        def corruptedTransformDirs = fileTree(gradle.gradleUserHomeDir).matching {
+            include("**/react-android-0.87.0-*/prefab/**")
+        }.files
+                .collect(findAarRoot)
+                .findAll { it != null }
+                .unique()
+
+        if (!corruptedTransformDirs.isEmpty()) {
+
+            corruptedTransformDirs.each { dir ->
+                logger.error(
+                    "[CoGGSafe] Removing corrupted/incomplete " +
+                    "react-android-0.87.0-* prefab cache: ${dir}"
+                )
+
+                delete(dir)
+            }
+
+            throw new GradleException(
+                "The cached react-android-0.87.0-* Prefab package was incomplete " +
+                "(missing graphicsConversions.h) and has now been deleted from " +
+                "${corruptedTransformDirs[0].parentFile}. " +
+                "This was a corrupted Gradle transform cache entry, most likely " +
+                "left behind by a previous build that was interrupted " +
+                "(killed/out of disk/cancelled) while extracting the AAR. " +
+                "Re-run the build now (do NOT delete the whole Gradle cache) - " +
+                "Gradle will re-extract the package from scratch."
+            )
+        }
+
+        // No cached extraction exists yet.
+        //
+        // Prefab will extract it before the native build needs it.
+        return
+    }
+
+    matches.each { header ->
+
+        def contents = header.getText("UTF-8")
+
+        def patchedContents = contents.replace(
+                'return std::format("{}%", dimension.value);',
+                'return folly::dynamic(std::to_string(dimension.value) + "%");'
+        )
+
+        if (contents != patchedContents) {
+
+            logger.lifecycle(
+                "[CoGGSafe] Patching React Native graphicsConversions.h: ${header}"
+            )
+
+            header.setText(patchedContents, "UTF-8")
+        }
+    }
+}
+
+
+// -----------------------------------------------------------------------------
+// React Native JSI Prefab header synchronization
+// -----------------------------------------------------------------------------
+//
+// Keep the cached JSI Prefab header synchronized with the corresponding
+// React Native source header.
+//
+// Applies to both Debug and Release Prefab artifacts.
+// -----------------------------------------------------------------------------
+
+def patchReactNativeJsiPrefabHeader = {
+
+    def source = file("../node_modules/react-native/ReactCommon/jsi/jsi/JSIDynamic.h")
+
+    if (!source.exists()) {
+        return
+    }
+
+    fileTree(gradle.gradleUserHomeDir).matching {
+        include("**/react-android-0.87.0-*/prefab/modules/jsi/include/jsi/jsi.h")
+    }.files.each { jsiHeader ->
+
+        def destination = new File(
+                jsiHeader.parentFile,
+                "JSIDynamic.h"
+        )
+
+        if (
+                !destination.exists() ||
+                destination.getText("UTF-8") != source.getText("UTF-8")
+        ) {
+            logger.lifecycle(
+                "[CoGGSafe] Updating React Native JSI Prefab header: ${destination}"
+            )
+
+            destination.setText(
+                    source.getText("UTF-8"),
+                    "UTF-8"
+            )
+        }
+    }
+}
+
+
+// -----------------------------------------------------------------------------
+// Apply React Native Prefab patches before CMake configuration/build
+// -----------------------------------------------------------------------------
+
+tasks.configureEach { task ->
+
+    if (
+            task.name.startsWith("configureCMake") ||
+            task.name.startsWith("buildCMake")
+    ) {
+        task.doFirst {
+
+            patchReactNativeGraphicsConversions()
+            patchReactNativeJsiPrefabHeader()
+        }
+    }
+}
