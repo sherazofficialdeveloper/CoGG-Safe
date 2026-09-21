@@ -24,7 +24,7 @@ const AdminAddCollectionScreen = ({
   onUpdated,
 }) => {
   const insets = useSafeAreaInsets();
-  const [category, setCategory] = useState(editCollection ? (editCollection.type === 'family' ? 'Personal' : editCollection.type === 'workers' ? 'Employees' : 'Other') : 'Employees');
+  const [category, setCategory] = useState(editCollection ? (editCollection.type === 'family' || editCollection.type === 'personal' ? 'Personal' : editCollection.type === 'workers' || editCollection.type === 'employees' ? 'Employees' : 'Other') : 'Employees');
   const [customName, setCustomName] = useState(editCollection?.type === 'other' ? (editCollection.name || '') : '');
   const initialEmergencyNumber = String(editCollection?.emergencyCallNumber || '');
   const [emergencyNumber, setEmergencyNumber] = useState(initialEmergencyNumber.startsWith('+') ? initialEmergencyNumber : `+${initialEmergencyNumber}`);
@@ -52,11 +52,11 @@ const AdminAddCollectionScreen = ({
     setError('');
     setSubmitting(true);
     try {
-      const type = category === 'Personal' ? 'family' : category === 'Employees' ? 'workers' : 'other';
+      const type = category === 'Personal' ? 'personal' : category === 'Employees' ? 'employees' : 'other';
       const payload = {name, type, emergencyCallNumber: emergencyNumber.trim()};
       const collectionData = editCollection
         ? await updateCollection(token, editCollection._id || editCollection.id, payload)
-        : await createCollection(token, {name, type: category.toLowerCase(), emergencyCallNumber: emergencyNumber.trim()});
+        : await createCollection(token, payload);
       const savedCollection = collectionData.collection;
       if (editCollection) onUpdated?.(savedCollection);
       else onCreated?.(savedCollection);

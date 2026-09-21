@@ -26,7 +26,13 @@ function resolveName(type, name) {
     }
     return trimmed;
   }
-  return titleCase(type);
+  if (type === COLLECTION_TYPES.PERSONAL) return 'Personal';
+  if (type === COLLECTION_TYPES.EMPLOYEES) return 'Employees';
+  // Preserve legacy records/clients exactly as they were stored.
+  if (type === COLLECTION_TYPES.LEGACY_FAMILY || type === COLLECTION_TYPES.LEGACY_WORKERS) {
+    return titleCase(type);
+  }
+  return trimmed || titleCase(type);
 }
 
 async function createCollection({ type, name, emergencyCallNumber }) {

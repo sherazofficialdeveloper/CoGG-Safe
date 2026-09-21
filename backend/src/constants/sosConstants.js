@@ -24,10 +24,14 @@ const COMPONENT_STATUS = Object.freeze({
   SKIPPED: 'skipped', // e.g. email skipped because none configured
 });
 
+// Canonical collection types used by the Admin UI.
+// Legacy values are kept only for compatibility with existing database records.
 const COLLECTION_TYPES = Object.freeze({
-  FAMILY: 'family',
-  WORKERS: 'workers',
+  PERSONAL: 'personal',
+  EMPLOYEES: 'employees',
   OTHER: 'other',
+  LEGACY_FAMILY: 'family',
+  LEGACY_WORKERS: 'workers',
 });
 
 const USER_STATUS = Object.freeze({

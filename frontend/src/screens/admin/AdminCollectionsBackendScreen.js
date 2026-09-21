@@ -6,7 +6,7 @@ import {rememberCredential} from '../../utils/adminCredentials';
 import Icon from '../../components/Icon';
 
 const EMPTY_USER = {username: '', mobileNumber: '+', email: '', password: ''};
-const TYPES = ['family', 'workers', 'other'];
+const TYPES = ['personal', 'employees', 'other'];
 const collectionSnapshots = new Map();
 const memberSnapshots = new Map();
 export const clearCollectionSnapshots = () => { collectionSnapshots.clear(); memberSnapshots.clear(); };
@@ -316,7 +316,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
         <View key={collection._id} style={styles.collection}>
           <TouchableOpacity style={styles.collectionMain} onPress={() => openCollection(collection)}>
             <View style={styles.collectionIcon}><Text style={styles.collectionIconText}>{capitalizeFirstWord(collection.name).charAt(0)}</Text></View>
-            <View style={styles.collectionInfo}><Text style={styles.collectionName}>{capitalizeFirstWord(collection.name)}</Text><Text style={styles.muted}>{capitalizeFirstWord(collection.type)} · {collection.emergencyCallNumber}</Text></View>
+            <View style={styles.collectionInfo}><Text style={styles.collectionName}>{capitalizeFirstWord(collection.name)}</Text><Text style={styles.muted}>{collection.type === 'family' ? 'Personal' : collection.type === 'workers' ? 'Employees' : capitalizeFirstWord(collection.type)} · {collection.emergencyCallNumber}</Text></View>
             <Text style={styles.chevron}>›</Text>
           </TouchableOpacity>
           <View style={styles.collectionActions}>
