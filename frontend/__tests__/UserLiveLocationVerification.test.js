@@ -44,7 +44,7 @@ test('user shows Stop Sharing only after backend confirms active live location, 
   mockListSos.mockResolvedValue({sos: [{id: 'sos-1', status: 'active', liveLocation: {status: 'active'}}]});
   mockStopLiveLocation.mockResolvedValue({sos: {liveLocation: {status: 'stopped_by_user'}}});
   const renderer = await renderHome();
-  expect(mockListSos).toHaveBeenCalledWith('user-token', {status: 'active', limit: 10});
+  expect(mockListSos).toHaveBeenCalledWith('user-token', {status: 'active', limit: 10}, {forceRefresh: true});
   expect(renderer.root.findAllByType(Text).map(node => textContent(node))).toEqual(expect.arrayContaining(['Stop Sharing']));
 
   let stopButton = renderer.root.findAllByType(TouchableOpacity).find(button =>

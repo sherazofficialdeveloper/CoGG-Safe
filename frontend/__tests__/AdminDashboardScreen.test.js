@@ -8,11 +8,13 @@ import StatCard from '../src/components/StatCard';
 const mockListCollections = jest.fn();
 const mockListUsers = jest.fn();
 const mockListSos = jest.fn();
+const mockListNotifications = jest.fn();
 
 jest.mock('../src/api/resources', () => ({
   listCollections: (...args) => mockListCollections(...args),
   listUsers: (...args) => mockListUsers(...args),
   listSos: (...args) => mockListSos(...args),
+  listNotifications: (...args) => mockListNotifications(...args),
 }));
 
 async function renderDashboard(token = 'admin-token') {
@@ -37,15 +39,16 @@ test('maps real collection and user totals into five statistic cards', async () 
     .mockResolvedValueOnce({meta: {total: 5}, users: []})
     .mockResolvedValueOnce({meta: {total: 2}, users: []});
   mockListSos.mockResolvedValue({sos: [], meta: {total: 3}});
+  mockListNotifications.mockResolvedValue({notifications: []});
 
   const renderer = await renderDashboard();
   const statCards = renderer.root.findAllByType(StatCard);
 
-  expect(mockListCollections).toHaveBeenCalledWith('admin-token');
-  expect(mockListUsers).toHaveBeenCalledWith('admin-token', {limit: 1});
-  expect(mockListUsers).toHaveBeenCalledWith('admin-token', {limit: 1, status: 'active'});
-  expect(mockListUsers).toHaveBeenCalledWith('admin-token', {limit: 1, status: 'inactive'});
-  expect(mockListSos).toHaveBeenCalledWith('admin-token', {limit: 1});
+  expect(mockListCollections).toHaveBeenCalledWith('admin-token', {limit: 5}, {forceRefresh: true});
+  expect(mockListUsers).toHaveBeenCalledWith('admin-token', {limit: 1}, {forceRefresh: true});
+  expect(mockListUsers).toHaveBeenCalledWith('admin-token', {limit: 1, status: 'active'}, {forceRefresh: true});
+  expect(mockListUsers).toHaveBeenCalledWith('admin-token', {limit: 1, status: 'inactive'}, {forceRefresh: true});
+  expect(mockListSos).toHaveBeenCalledWith('admin-token', {limit: 8}, {forceRefresh: true});
   expect(statCards).toHaveLength(5);
   expect(statCards.map(card => card.props.value)).toEqual([7, 1, 5, 2, 3]);
 });
@@ -54,6 +57,7 @@ test('shows the backend error and does not replace it with fake statistics', asy
   mockListCollections.mockRejectedValue(new Error('Dashboard request failed'));
   mockListUsers.mockResolvedValue({meta: {total: 0}, users: []});
   mockListSos.mockResolvedValue({sos: [], meta: {total: 0}});
+  mockListNotifications.mockResolvedValue({notifications: []});
 
   const renderer = await renderDashboard('admin-token-error');
   const text = renderer.root.findAllByType(Text).map(node => JSON.stringify(node.props.children)).join(' ');

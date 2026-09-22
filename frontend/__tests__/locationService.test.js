@@ -1,3 +1,21 @@
+jest.mock('react-native', () => ({
+  Platform: {OS: 'android', Version: 33},
+  Alert: {
+    alert: jest.fn((title, message, actions) => {
+      // Simulate user cancelling
+      if (actions && actions.length > 0) {
+        actions[0].onPress();
+      }
+    }),
+  },
+  NativeModules: {
+    EmergencyMedia: {
+      isLocationEnabled: jest.fn(() => true),
+      promptEnableLocation: jest.fn(() => true),
+    },
+  },
+}));
+
 jest.mock('@react-native-community/geolocation', () => ({
   __esModule: true,
   default: {getCurrentPosition: jest.fn()},
@@ -74,12 +92,19 @@ describe('location validation', () => {
     }));
   });
 
-  test('rejects when both current and cached locations are unavailable', async () => {
+  test('returns a retryable pending status when both current and cached locations are unavailable', async () => {
     Geolocation.getCurrentPosition
       .mockImplementationOnce((success, error) => error({message: 'No location provider available', code: 2}))
       .mockImplementationOnce((success, error) => error({message: 'No location provider available', code: 2}));
     sosLocalStore.getAllEvents.mockResolvedValue([]);
 
-    await expect(getCurrentLocation()).rejects.toThrow(/No usable location provider/i);
+    const result = await getCurrentLocation({maxRetries: 0});
+    expect(result).toEqual({
+      status: 'PENDING',
+      error: null,
+      queued: true,
+      retryable: true,
+      reason: 'Location fix is temporarily unavailable; retry queued.',
+    });
   });
 });

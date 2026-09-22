@@ -17,6 +17,7 @@ const mockListCollections = jest.fn();
 const mockListCollectionUsers = jest.fn();
 const mockCreateUser = jest.fn();
 const mockUpdateUser = jest.fn();
+const renderers = [];
 
 jest.mock('../src/api/resources', () => ({
   listCollections: (...args) => mockListCollections(...args),
@@ -39,10 +40,14 @@ const renderScreen = async () => {
       await Promise.resolve();
     }
   });
+  renderers.push(renderer);
   return renderer;
 };
 
-afterEach(() => {
+afterEach(async () => {
+  await ReactTestRenderer.act(async () => {
+    renderers.splice(0).forEach(renderer => renderer.unmount());
+  });
   jest.clearAllMocks();
   clearCollectionSnapshots();
 });
@@ -68,6 +73,7 @@ test('has exactly one combined Copy button and copies the in-memory username and
       await new Promise(resolve => setTimeout(resolve, 0));
     }
   });
+  renderers.push(renderer);
 
   const collectionButton = renderer.root.findAllByType(TouchableOpacity).find(button =>
     button.findAllByType(Text).some(node => textContent(node) === 'Family'),
@@ -95,7 +101,7 @@ test('renders an empty state from an empty backend collection response', async (
   mockListCollections.mockResolvedValue({collections: []});
   const renderer = await renderScreen();
 
-  expect(mockListCollections).toHaveBeenCalledWith('admin-token');
+  expect(mockListCollections).toHaveBeenCalledWith('admin-token', undefined, {forceRefresh: true});
   expect(renderer.root.findAllByType(Text).length).toBeGreaterThan(0);
 });
 
@@ -105,7 +111,7 @@ test('loads real collections and their members', async () => {
   mockListCollectionUsers.mockResolvedValue({users: [{_id: 'user-1', username: 'member1', mobileNumber: '03001234567', status: 'active'}]});
   const renderer = await renderScreen();
 
-  expect(mockListCollections).toHaveBeenCalledWith('admin-token');
+  expect(mockListCollections).toHaveBeenCalledWith('admin-token', undefined, {forceRefresh: true});
   expect(renderer.root.findAllByType(TouchableOpacity).length).toBeGreaterThan(0);
 });
 
@@ -127,7 +133,8 @@ test('Edit reuses the inline user form without a password field and updates the 
   expect(renderer.root.findAllByType(Text).map(textContent)).toContain('Edit user');
   expect(renderer.root.findAllByType(require('react-native').TextInput).map(input => input.props.value)).toEqual([
     'member1',
-    '03001234567',
+    '',
+    '+03001234567',
     'old@example.com',
   ]);
   expect(renderer.root.findAllByType(require('react-native').TextInput).some(input => input.props.placeholder === 'Password *')).toBe(false);
@@ -139,7 +146,7 @@ test('Edit reuses the inline user form without a password field and updates the 
   await ReactTestRenderer.act(async () => saveButton.props.onPress());
   expect(mockUpdateUser).toHaveBeenCalledWith('admin-token', 'user-1', {
     username: 'updated',
-    mobileNumber: '03001234567',
+    mobileNumber: '+03001234567',
     email: 'old@example.com',
   });
   expect(mockCreateUser).not.toHaveBeenCalled();

@@ -72,7 +72,8 @@ test('Role mismatch is rejected during login', async () => {
     await auth.login('user123', 'user123', 'admin');
     fail('Should have thrown an error');
   } catch (err) {
-    expect(err.message).toContain('credentials');
+    expect(err).toBeInstanceOf(Error);
+    if (err instanceof Error) expect(err.message).toContain('credentials');
   }
 });
 
@@ -83,7 +84,8 @@ test('Invalid credentials are rejected', async () => {
     await auth.login('user123', 'wrongpassword', 'user');
     fail('Should have thrown an error');
   } catch (err) {
-    expect(err.message).toContain('credentials');
+    expect(err).toBeInstanceOf(Error);
+    if (err instanceof Error) expect(err.message).toContain('credentials');
   }
 });
 
@@ -94,7 +96,8 @@ test('Non-existent user is rejected', async () => {
     await auth.login('nonexistent', 'password', 'user');
     fail('Should have thrown an error');
   } catch (err) {
-    expect(err.message).toContain('credentials');
+    expect(err).toBeInstanceOf(Error);
+    if (err instanceof Error) expect(err.message).toContain('credentials');
   }
 });
 

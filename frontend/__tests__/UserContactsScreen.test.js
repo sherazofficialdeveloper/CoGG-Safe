@@ -25,6 +25,12 @@ describe('UserContactsScreen', () => {
     await act(async () => {
       renderer = ReactTestRenderer.create(<UserContactsScreen token="abc" onBack={jest.fn()} />);
     });
+    // Wait for async effect to complete - multiple ticks needed
+    await act(async () => {
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+    });
 
     expect(listContacts).toHaveBeenCalledWith('abc');
 
@@ -45,6 +51,6 @@ describe('UserContactsScreen', () => {
     });
 
     const textValues = renderer.root.findAllByType(Text).map(node => node.props.children).flat(Infinity).join('');
-    expect(textValues).toContain('No other users are assigned to your collection.');
+    expect(textValues).toContain('No other users are assigned to your group.');
   });
 });

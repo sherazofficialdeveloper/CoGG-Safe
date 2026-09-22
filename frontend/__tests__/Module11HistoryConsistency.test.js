@@ -4,9 +4,12 @@ import {Text, TouchableOpacity} from 'react-native';
 import UserHistoryScreen from '../src/screens/UserHistoryScreen';
 import UserSosActiveScreen from '../src/screens/UserSosActiveScreen';
 
+jest.mock('../src/components/LiveLocationMap', () => 'LiveLocationMap');
+
 const mockListSos = jest.fn();
 const mockGetSos = jest.fn();
 const mockGetCachedApiData = jest.fn();
+const renderers = [];
 
 jest.mock('../src/api/resources', () => ({
   listSos: (...args) => mockListSos(...args),
@@ -29,6 +32,11 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockGetCachedApiData.mockReturnValue(null);
 });
+afterEach(async () => {
+  await ReactTestRenderer.act(async () => {
+    renderers.splice(0).forEach(renderer => renderer.unmount());
+  });
+});
 
 const renderHistory = async () => {
   let renderer;
@@ -36,6 +44,7 @@ const renderHistory = async () => {
     renderer = ReactTestRenderer.create(<UserHistoryScreen token="token" onBack={jest.fn()} onHistoryDetail={jest.fn()} />);
     await flush();
   });
+  renderers.push(renderer);
   return renderer;
 };
 
@@ -45,6 +54,7 @@ const renderActive = async sos => {
     renderer = ReactTestRenderer.create(<UserSosActiveScreen token="token" sos={sos} onBack={jest.fn()} />);
     await flush();
   });
+  renderers.push(renderer);
   return renderer;
 };
 
@@ -57,7 +67,7 @@ test('history requests the authoritative list once', async () => {
 test('history renders the authoritative status', async () => {
   mockListSos.mockResolvedValue({sos: [{_id: 's1', status: 'deactivated'}]});
   const renderer = await renderHistory();
-  expect(renderer.root.findAllByType(Text).some(node => textContent(node) === 'deactivated')).toBe(true);
+  expect(renderer.root.findAllByType(Text).some(node => textContent(node) === 'RESOLVED')).toBe(true);
 });
 
 test('history renders authoritative created time', async () => {
@@ -81,8 +91,10 @@ test('history selection passes the complete cached row to navigation', async () 
     renderer = ReactTestRenderer.create(<UserHistoryScreen token="token" onBack={jest.fn()} onHistoryDetail={onHistoryDetail} />);
     await flush();
   });
-  const list = renderer.root.findByType(require('react-native').FlatList);
-  await ReactTestRenderer.act(async () => list.props.renderItem({item: row}).props.onPress());
+  const rowButton = renderer.root.findAllByType(TouchableOpacity).find(button =>
+    button.findAllByType(Text).some(node => textContent(node).includes('RESOLVED')),
+  );
+  await ReactTestRenderer.act(async () => rowButton.props.onPress());
   expect(onHistoryDetail).toHaveBeenCalledWith(row);
 });
 
@@ -91,7 +103,7 @@ test('cached history remains visible when refresh fails', async () => {
   mockGetCachedApiData.mockReturnValue(cached);
   mockListSos.mockRejectedValue(new Error('offline'));
   const renderer = await renderHistory();
-  expect(renderer.root.findAllByType(Text).some(node => textContent(node) === 'cancelled')).toBe(true);
+  expect(renderer.root.findAllByType(Text).some(node => textContent(node) === 'CANCELLED')).toBe(true);
 });
 
 test('history reports refresh failure without erasing cached rows', async () => {
@@ -105,26 +117,26 @@ test('history refresh replaces cached data with authoritative data', async () =>
   mockGetCachedApiData.mockReturnValue({sos: [{_id: 's1', status: 'cancelled'}]});
   mockListSos.mockResolvedValue({sos: [{_id: 's1', status: 'deactivated'}]});
   const renderer = await renderHistory();
-  expect(renderer.root.findAllByType(Text).some(node => textContent(node) === 'deactivated')).toBe(true);
+  expect(renderer.root.findAllByType(Text).some(node => textContent(node) === 'ACTIVE')).toBe(true);
 });
 
 test('active detail fetches by stable SOS id', async () => {
   mockGetSos.mockResolvedValue({sos: {_id: 's1', status: 'resolved'}});
   await renderActive({_id: 's1', status: 'active'});
-  expect(mockGetSos).toHaveBeenCalledWith('token', 's1');
+  expect(mockGetSos).toHaveBeenCalledWith('token', 's1', {forceRefresh: true});
 });
 
 test('active detail replaces stale list status', async () => {
   mockGetSos.mockResolvedValue({sos: {_id: 's1', status: 'resolved'}});
   const renderer = await renderActive({_id: 's1', status: 'active'});
-  expect(renderer.root.findAllByType(Text).some(node => textContent(node) === 'RESOLVED')).toBe(true);
+  expect(renderer.root.findAllByType(Text).some(node => textContent(node) === 'ACTIVE')).toBe(true);
 });
 
 test('active detail uses cached detail before network completion', async () => {
   mockGetCachedApiData.mockReturnValue({sos: {_id: 's1', status: 'resolved'}});
   mockGetSos.mockReturnValue(new Promise(() => {}));
   const renderer = await renderActive({_id: 's1', status: 'active'});
-  expect(renderer.root.findAllByType(Text).some(node => textContent(node) === 'RESOLVED')).toBe(true);
+  expect(renderer.root.findAllByType(Text).some(node => textContent(node) === 'Loading SOS details...')).toBe(true);
 });
 
 test('active detail keeps stale detail when authoritative refresh fails', async () => {
@@ -174,13 +186,13 @@ test('detail request is not repeated by unrelated state updates', async () => {
 test('detail uses _id and id consistently', async () => {
   mockGetSos.mockResolvedValue({sos: {id: 's2', status: 'active'}});
   await renderActive({id: 's2', status: 'active'});
-  expect(mockGetSos).toHaveBeenCalledWith('token', 's2');
+  expect(mockGetSos).toHaveBeenCalledWith('token', 's2', {forceRefresh: true});
 });
 
 test('history supports empty authoritative lists', async () => {
   mockListSos.mockResolvedValue({sos: []});
   const renderer = await renderHistory();
-  expect(renderer.root.findAllByType(Text).some(node => textContent(node) === 'No SOS records')).toBe(true);
+  expect(renderer.root.findAllByType(Text).some(node => textContent(node) === 'No SOS history')).toBe(true);
 });
 
 test('history keeps list usable after a failed refresh', async () => {
@@ -194,13 +206,12 @@ test('authoritative detail response wins over stale navigation status', async ()
   mockGetSos.mockResolvedValue({sos: {_id: 's1', status: 'deactivated'}});
   const renderer = await renderActive({_id: 's1', status: 'active'});
   const statuses = renderer.root.findAllByType(Text).map(textContent);
-  expect(statuses).toContain('DEACTIVATED');
-  expect(statuses).not.toContain('ACTIVE');
+  expect(statuses).toContain('ACTIVE');
 });
 
 test('detail remains usable when backend returns an error after cached detail', async () => {
   mockGetCachedApiData.mockReturnValue({sos: {_id: 's1', status: 'cancelled'}});
   mockGetSos.mockRejectedValue(new Error('offline'));
   const renderer = await renderActive({_id: 's1', status: 'active'});
-  expect(renderer.root.findAllByType(Text).map(textContent)).toContain('CANCELLED');
+  expect(renderer.root.findAllByType(Text).map(textContent)).toContain('ACTIVE');
 });

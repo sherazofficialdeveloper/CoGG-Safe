@@ -17,7 +17,9 @@ const Collection = require('../src/modules/collections/collection.model');
 const { ROLES } = require('../src/constants/roles');
 const { COMPONENT_STATUS } = require('../src/constants/sosConstants');
 
-const ACTIVATION_WAIT_MS = 1600;
+jest.setTimeout(10000);
+
+const ACTIVATION_WAIT_MS = 1100;
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

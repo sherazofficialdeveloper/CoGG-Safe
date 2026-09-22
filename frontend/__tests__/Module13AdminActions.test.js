@@ -65,14 +65,14 @@ test('resolve action requires confirmation', async () => {
   const renderer = await renderDetail();
   const button = renderer.root.findAllByType(TouchableOpacity).find(item => item.findAllByType(Text).some(node => textContent(node).includes('Mark Resolved')));
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-  button.props.onPress();
+  await ReactTestRenderer.act(async () => button.props.onPress());
   expect(Alert.alert).toHaveBeenCalledWith('Mark as Resolved', expect.any(String), expect.any(Array));
 });
 
 test('admin deactivate sends the authenticated token and stable id', async () => {
   const renderer = await renderDetail();
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-  renderer.root.findAllByType(TouchableOpacity).find(item => item.findAllByType(Text).some(node => textContent(node).includes('Mark Resolved'))).props.onPress();
+  await ReactTestRenderer.act(async () => renderer.root.findAllByType(TouchableOpacity).find(item => item.findAllByType(Text).some(node => textContent(node).includes('Mark Resolved'))).props.onPress());
   mockDeactivateSos.mockResolvedValue({sos: activeSos({status: 'deactivated'})});
   await ReactTestRenderer.act(async () => resolveAction());
   expect(mockDeactivateSos).toHaveBeenCalledWith('admin-token', 'sos-1');
@@ -81,7 +81,7 @@ test('admin deactivate sends the authenticated token and stable id', async () =>
 test('successful deactivation updates the authoritative detail status', async () => {
   const renderer = await renderDetail();
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-  renderer.root.findAllByType(TouchableOpacity).find(item => item.findAllByType(Text).some(node => textContent(node).includes('Mark Resolved'))).props.onPress();
+  await ReactTestRenderer.act(async () => renderer.root.findAllByType(TouchableOpacity).find(item => item.findAllByType(Text).some(node => textContent(node).includes('Mark Resolved'))).props.onPress());
   mockDeactivateSos.mockResolvedValue({sos: activeSos({status: 'deactivated'})});
   await ReactTestRenderer.act(async () => resolveAction());
   expect(renderer.root.findAllByType(Text).map(textContent)).toContain('deactivated');
@@ -90,7 +90,7 @@ test('successful deactivation updates the authoritative detail status', async ()
 test('successful deactivation removes the repeatable resolve action', async () => {
   const renderer = await renderDetail();
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-  renderer.root.findAllByType(TouchableOpacity).find(item => item.findAllByType(Text).some(node => textContent(node).includes('Mark Resolved'))).props.onPress();
+  await ReactTestRenderer.act(async () => renderer.root.findAllByType(TouchableOpacity).find(item => item.findAllByType(Text).some(node => textContent(node).includes('Mark Resolved'))).props.onPress());
   mockDeactivateSos.mockResolvedValue({sos: activeSos({status: 'deactivated'})});
   await ReactTestRenderer.act(async () => resolveAction());
   expect(renderer.root.findAllByType(Text).map(textContent)).not.toContain('✓ Mark Resolved');
@@ -99,7 +99,7 @@ test('successful deactivation removes the repeatable resolve action', async () =
 test('deactivation failure preserves ACTIVE status', async () => {
   const renderer = await renderDetail();
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-  renderer.root.findAllByType(TouchableOpacity).find(item => item.findAllByType(Text).some(node => textContent(node).includes('Mark Resolved'))).props.onPress();
+  await ReactTestRenderer.act(async () => renderer.root.findAllByType(TouchableOpacity).find(item => item.findAllByType(Text).some(node => textContent(node).includes('Mark Resolved'))).props.onPress());
   mockDeactivateSos.mockRejectedValue(new Error('forbidden'));
   await ReactTestRenderer.act(async () => resolveAction());
   expect(renderer.root.findAllByType(Text).map(textContent)).toContain('active');
@@ -116,7 +116,7 @@ test.each([
 ])('deactivation %s keeps the action truthful', async (_name, message) => {
   const renderer = await renderDetail();
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-  renderer.root.findAllByType(TouchableOpacity).find(item => item.findAllByType(Text).some(node => textContent(node).includes('Mark Resolved'))).props.onPress();
+  await ReactTestRenderer.act(async () => renderer.root.findAllByType(TouchableOpacity).find(item => item.findAllByType(Text).some(node => textContent(node).includes('Mark Resolved'))).props.onPress());
   mockDeactivateSos.mockRejectedValue(new Error(message));
   await ReactTestRenderer.act(async () => resolveAction());
   expect(renderer.root.findAllByType(Text).map(textContent)).toContain('active');
@@ -126,11 +126,14 @@ test('double tap cannot issue two confirmations while loading', async () => {
   const renderer = await renderDetail();
   jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   const button = renderer.root.findAllByType(TouchableOpacity).find(item => item.findAllByType(Text).some(node => textContent(node).includes('Mark Resolved')));
-  button.props.onPress();
+  await ReactTestRenderer.act(async () => button.props.onPress());
   let resolveDeactivate;
   mockDeactivateSos.mockReturnValue(new Promise(resolve => {resolveDeactivate = resolve;}));
-  const firstAction = resolveAction();
-  resolveAction();
+  let firstAction;
+  await ReactTestRenderer.act(async () => {
+    firstAction = resolveAction();
+    resolveAction();
+  });
   resolveDeactivate({sos: activeSos({status: 'deactivated'})});
   await ReactTestRenderer.act(async () => firstAction);
   expect(mockDeactivateSos).toHaveBeenCalledTimes(1);
@@ -199,7 +202,7 @@ test('already stopped live location does not trigger an admin stop from deactiva
 
 test('detail always fetches authoritative data by id', async () => {
   await renderDetail(activeSos({_id: 'sos-authoritative'}));
-  expect(mockGetSos).toHaveBeenCalledWith('admin-token', 'sos-authoritative');
+  expect(mockGetSos).toHaveBeenCalledWith('admin-token', 'sos-authoritative', {forceRefresh: true});
 });
 
 test('stale GET cannot overwrite confirmed deactivation', async () => {
