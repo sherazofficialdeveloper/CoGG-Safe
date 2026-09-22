@@ -68,22 +68,9 @@ export async function syncSosToBackend({
       : undefined,
   };
   if (__DEV__) {
-    console.log('[SOS_DEBUG] BACKEND_CREATE_START', {localSosId: sosEvent?.id || null});
-    console.log('[SOS_DEBUG] BACKEND_CREATE_REQUEST', {
-      localSosId: sosEvent?.id || null,
-      idempotencyKey: payload.idempotencyKey,
-      source: diagnosticContext.source || 'unknown',
-      queueJobId: diagnosticContext.queueJobId || null,
-      attempt: diagnosticContext.attempt ?? null,
-      taskType: diagnosticContext.taskType || null,
-      createdAt: sosEvent?.createdAt || null,
-    });
-    console.log('[SOS_DEBUG] IDEMPOTENCY_KEY', {key: payload.idempotencyKey});
-  }
+              }
   if (__DEV__) {
-    console.log('[SOS_DEBUG] CREATE_START', {eventId: sosEvent?.id});
-    console.log('BACKEND_SOS_CREATE_STARTED', {eventId: sosEvent?.id});
-  }
+          }
 
   let response;
   try {
@@ -91,19 +78,12 @@ export async function syncSosToBackend({
     emitSosDiagnostic('SOS DEBUG BACKEND 01: Create SOS request started');
     response = await createSos(token, payload);
   } catch (error) {
-    if (__DEV__) console.log('[SOS_DEBUG] BACKEND_CREATE_ERROR', {
-      localSosId: sosEvent?.id || null,
-      idempotencyKey: payload.idempotencyKey,
-      message: error?.message || 'Backend SOS creation failed',
-      status: error?.status || null,
-    });
-    if (error?.status === 409) {
+        if (error?.status === 409) {
       // Older/deployed backends may still answer with the legacy 409. Treat it
       // as a duplicate-session reconciliation condition, never as a user-facing
       // validation failure. The local SOS stays active and recovery can bind it
       // to the existing server record on the next refresh.
-      if (__DEV__) console.log('[SOS][BACKEND] DUPLICATE_OPEN_SOS_RECONCILE', {localSosId: sosEvent?.id || null});
-      return {
+            return {
         status: 'PENDING',
         error: null,
         reason: 'An SOS session is already active for this user; waiting for reconciliation.',
@@ -111,19 +91,13 @@ export async function syncSosToBackend({
     }
     throw error;
   }
-  if (__DEV__) console.log('[SOS_DEBUG] BACKEND_CREATE_RESPONSE', {
-    localSosId: sosEvent?.id || null,
-    hasResponse: Boolean(response),
-  });
-  const sosRecord = response?.sos || response;
+    const sosRecord = response?.sos || response;
   const backendId = sosRecord?._id || sosRecord?.id || null;
   emitSosDiagnostic(`SOS DEBUG BACKEND 02: Response received ${response ? 'yes' : 'no'}`);
   emitSosDiagnostic(`SOS DEBUG BACKEND 04: backendId ${backendId ? 'received' : 'missing'}`);
   emitSosDiagnostic(`SOS DEBUG BACKEND 05: status ${sosRecord?.status || 'missing'}`);
   if (__DEV__) {
-    console.log('[SOS_DEBUG] CREATE_RESPONSE', {status: 'received', backendId});
-    if (backendId) console.log('BACKEND_SOS_CREATED', {eventId: sosEvent?.id, backendId});
-  }
+          }
 
   if (!backendId) {
     return {
@@ -131,8 +105,7 @@ export async function syncSosToBackend({
       error: 'SOS backend creation did not return a valid SOS identifier.',
     };
   }
-  if (__DEV__) console.log('[SOS_DEBUG] BACKEND_ID', {localSosId: sosEvent?.id || null, backendId});
-
+  
   return {
     status: 'COMPLETED',
     backendId,
@@ -172,8 +145,7 @@ export async function uploadCapturedSosMedia({token, sosEvent, component = null}
     return {status: 'PENDING', reason: 'Internet unavailable; media upload queued.'};
   }
 
-  if (__DEV__) console.log('MEDIA_UPLOAD_STARTED', {backendId});
-
+  
   const uploadState = {...(sosEvent.mediaUploadState || {})};
 
   const uploadOne = async item => {

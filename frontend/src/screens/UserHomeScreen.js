@@ -286,46 +286,21 @@ const UserHomeScreen = ({
 
   const logSosButtonRuntimeState = event => {
     if (__DEV__) {
-      console.log('SOS_TOUCH_START', {
-        event,
-        allRequiredGranted: permissionState.allRequiredGranted,
-        triggerPermissionsGranted: permissionState.triggerPermissionsGranted,
-        isChecking: permissionState.isChecking,
-        requiredPermissions: SOS_TRIGGER_PERMISSIONS.reduce((result, item) => {
-          result[item.key] = permissionState[item.key];
-          return result;
-        }, {}),
-        smsPermissionState: permissionState.sms,
-        sosLoading,
-        hasActiveSosSession,
-        holdPhase: holdPhaseRef.current,
-        activationStarted: activationStartedRef.current,
-        onTriggerSosType: typeof onTriggerSos,
-      });
-    }
+          }
   };
 
   const handleSosPressIn = () => {
     logSosButtonRuntimeState('press-in');
     if (__DEV__) {
-      console.log('SOS_PRESS_IN', {
-        permissionState,
-        sosLoading,
-        hasActiveSosSession,
-        holdPhase,
-        activationStarted: activationStartedRef.current,
-      });
-    }
+          }
 
     if (sosLoading) {
-      if (__DEV__) console.log('SOS_HOLD_CANCELLED', 'another SOS activation is currently being started');
-      return;
+            return;
     }
 
     if (holdPhaseRef.current !== 'IDLE' || activationStartedRef.current) {
       if (__DEV__) {
-        console.log('SOS_HOLD_CANCELLED', 'duplicate hold already active');
-      }
+              }
       return;
     }
 
@@ -333,8 +308,7 @@ const UserHomeScreen = ({
 
     if (!canStartHold) {
       if (__DEV__) {
-        console.log('SOS_HOLD_CANCELLED', 'permissions missing; hold blocked until granted');
-      }
+              }
       return;
     }
 
@@ -347,9 +321,7 @@ const UserHomeScreen = ({
     loggedCountdownRef.current = 3;
 
     if (__DEV__) {
-      console.log('SOS_HOLD_STARTED', {startedAt: holdStartedAtRef.current, durationMs: SOS_HOLD_DURATION_MS});
-      console.log('SOS_COUNTDOWN_3');
-    }
+                }
 
     const tick = () => {
       if (holdPhaseRef.current !== 'HOLDING' || activationStartedRef.current) {
@@ -366,8 +338,7 @@ const UserHomeScreen = ({
       setCountdown(snapshot.countdown);
       if (__DEV__ && snapshot.countdown !== loggedCountdownRef.current) {
         loggedCountdownRef.current = snapshot.countdown;
-        console.log(`SOS_COUNTDOWN_${snapshot.countdown}`, {progress: snapshot.progress});
-      }
+              }
 
       if (snapshot.shouldActivate) {
         clearHoldTimer();
@@ -378,14 +349,9 @@ const UserHomeScreen = ({
         setCountdown(0);
 
         if (__DEV__) {
-          console.log('SOS_HOLD_COMPLETED', {startedAt: holdStartedAtRef.current, progress: snapshot.progress});
-          console.log('[SOS][TRIGGER] 3_SECONDS_REACHED');
-          console.log('[SOS][TRIGGER] ACTIVATING');
-          console.log('SOS_ACTIVATION_STARTED', {source: 'home-button-hold'});
-        }
+                                                }
 
-        if (__DEV__) console.log('SOS_ON_TRIGGER_SOS_CALLED', {source: 'home-button-hold', onTriggerSosType: typeof onTriggerSos});
-        if (typeof onTriggerSos === 'function') onTriggerSos();
+                if (typeof onTriggerSos === 'function') onTriggerSos();
         return;
       }
 
@@ -399,16 +365,14 @@ const UserHomeScreen = ({
   const handleSosPressOut = () => {
     logSosButtonRuntimeState('press-out');
     if (__DEV__) {
-      console.log('SOS_PRESS_OUT', {holdPhase: holdPhaseRef.current, activationStarted: activationStartedRef.current});
-    }
+          }
 
     if (holdPhaseRef.current !== 'HOLDING' || activationStartedRef.current) {
       return;
     }
 
     if (__DEV__) {
-      console.log('SOS_HOLD_CANCELLED', {elapsedMs: Date.now() - holdStartedAtRef.current});
-    }
+          }
     holdPhaseRef.current = 'CANCELLED';
     setHoldPhase('CANCELLED');
     resetHoldState();
@@ -482,8 +446,7 @@ const UserHomeScreen = ({
           pointerEvents="box-none"
           onStartShouldSetResponderCapture={() => {
             if (__DEV__) {
-              console.log('SOS_BUTTON_CONTAINER_TOUCH_START');
-            }
+                          }
             return false;
           }}>
           <View style={styles.sosOuterRing}>

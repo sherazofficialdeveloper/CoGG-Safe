@@ -80,12 +80,9 @@ export async function initiateEmergencyCall({emergencyNumber}) {
   emitSosDiagnostic(`Emergency Number Debug: ${emergencyNumberDebugValue}`);
   const normalizedNumber = normalizePhoneNumber(emergencyNumber);
   showCallDebug(`CALL DEBUG 2: normalized = ${String(normalizedNumber)}`);
-  if (__DEV__) console.log('[SOS][CALL] RUNNER_STARTED', {hasNumber: Boolean(emergencyNumber)});
-  if (__DEV__) console.log('[SOS][CALL] EMERGENCY_NUMBER_RESOLVED', {configured: Boolean(normalizedNumber)});
-  if (!normalizedNumber) {
+      if (!normalizedNumber) {
     emitSosDiagnostic('CALL ERROR — No valid emergency number', 'error');
-    if (__DEV__) console.log('[SOS][CALL] FAILED', {reason: 'No emergency call number is configured'});
-    return {status: 'NOT_CONFIGURED', reason: 'No emergency call number is configured for this collection.'};
+        return {status: 'NOT_CONFIGURED', reason: 'No emergency call number is configured for this collection.'};
   }
 
   emitSosDiagnostic('CALL DEBUG — Number found');
@@ -104,14 +101,12 @@ export async function initiateEmergencyCall({emergencyNumber}) {
   const callPermission = 'android.permission.CALL_PHONE';
   let hasPermission = await checkPermission(callPermission);
   showCallDebug(`CALL DEBUG 3: CALL_PHONE permission = ${hasPermission}`);
-  if (__DEV__) console.log('[SOS][CALL] CALL_PHONE_PERMISSION', {state: hasPermission});
-  if (hasPermission !== PERMISSION_STATUS.GRANTED) {
+    if (hasPermission !== PERMISSION_STATUS.GRANTED) {
     showCallDebug('CALL DEBUG 3: CALL_PHONE permission requested');
     const permissionResult = await requestPermission(callPermission);
     hasPermission = permissionResult;
     showCallDebug(`CALL DEBUG 3: CALL_PHONE permission = ${hasPermission}`);
-    if (__DEV__) console.log('[SOS][CALL] CALL_PHONE_PERMISSION_RESULT', {state: permissionResult});
-  }
+      }
 
   if (hasPermission !== PERMISSION_STATUS.GRANTED) {
     emitSosDiagnostic('CALL ERROR — CALL_PHONE permission denied', 'error');
@@ -121,8 +116,7 @@ export async function initiateEmergencyCall({emergencyNumber}) {
   const emergencyMedia = NativeModules?.EmergencyMedia;
   if (!emergencyMedia || typeof emergencyMedia.placeCall !== 'function') {
     emitSosDiagnostic('CALL ERROR — Native placeCall failed: Native Android emergency call module is unavailable.', 'error');
-    if (__DEV__) console.log('[SOS][CALL] NATIVE_MODULE_UNAVAILABLE');
-    return {status: 'FAILED', reason: 'Native Android emergency call module is unavailable.'};
+        return {status: 'FAILED', reason: 'Native Android emergency call module is unavailable.'};
   }
 
   // SOS communication is automatic: native Android selects physical SIM 1
@@ -131,17 +125,11 @@ export async function initiateEmergencyCall({emergencyNumber}) {
   const preferredSubscriptionId = -1;
 
   try {
-    if (__DEV__) console.log('[SOS][CALL] SERVICE_INVOKED', {
-      numberConfigured: Boolean(emergencyNumber),
-      nativeMethod: 'EmergencyMedia.placeCall',
-    });
-    if (__DEV__) console.log('[SOS][CALL] ATTEMPT_NATIVE', {hasPreferredSubscription: preferredSubscriptionId >= 0});
-    showCallDebug(`CALL DEBUG 4: immediately before NativeModules.EmergencyMedia.placeCall()`);
+            showCallDebug(`CALL DEBUG 4: immediately before NativeModules.EmergencyMedia.placeCall()`);
     emitSosDiagnostic('CALL DEBUG — Native placeCall() invoked');
     const result = await emergencyMedia.placeCall(normalizedNumber, preferredSubscriptionId);
     showCallDebug(`CALL DEBUG 5: native placeCall success result = ${JSON.stringify(result)}`);
-    if (__DEV__) console.log('[SOS][CALL] NATIVE_RESULT', result);
-    const normalized = normalizeCallResult(result);
+        const normalized = normalizeCallResult(result);
     if (normalized.status === 'INITIATED') emitSosDiagnostic('CALL SUCCESS — Call request accepted', 'success');
     else emitSosDiagnostic('CALL ERROR — ' + normalized.reason, 'error');
     return normalized;

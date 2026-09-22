@@ -85,12 +85,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token, s
           ? `${buildMediaUrl(API_BASE_URL, sosId, 'audio')}?token=${encodeURIComponent(token)}`
           : null;
 
-        console.log('[UserNotificationDetail] Media URLs:', {
-          frontUrl: !!frontUrl,
-          backUrl: !!backUrl,
-          audioUrl: !!audioUrl
-        });
-
+        
         setMediaUrls(previous => ({
           front: frontUrl || previous.front,
           back: backUrl || previous.back,
@@ -106,8 +101,7 @@ const UserNotificationDetailScreen = ({notification, onBack, onViewSos, token, s
         }
       }
     } catch (err) {
-      console.log('[UserNotificationDetail] Fetch error:', err);
-      // A notification can already contain enough SOS data to render the
+            // A notification can already contain enough SOS data to render the
       // detail/media while a background refresh is temporarily unavailable.
       // Never show a misleading generic "Something went wrong" message
       // underneath otherwise working voice/photos.

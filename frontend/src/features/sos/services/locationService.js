@@ -42,11 +42,9 @@ async function getLastKnownLocation() {
       .filter(Boolean)
       .filter(isValidLocation)
       .sort((left, right) => new Date(right.capturedAt).getTime() - new Date(left.capturedAt).getTime())[0];
-    if (__DEV__) console.log('[SOS_DEBUG] LAST_KNOWN_RESULT', {found: Boolean(lastKnown)});
-    return lastKnown || null;
+        return lastKnown || null;
   } catch (error) {
-    if (__DEV__) console.log('[SOS][LOCATION] LAST_KNOWN_LOOKUP_FAILED', {reason: error?.message});
-    return null;
+        return null;
   }
 }
 
@@ -57,8 +55,7 @@ async function ensureLocationPermission() {
   const coarsePermission = 'android.permission.ACCESS_COARSE_LOCATION';
   let fineGranted = await checkPermission(finePermission);
   let coarseGranted = await checkPermission(coarsePermission);
-  if (__DEV__) console.log('[SOS_DEBUG] LOCATION_PERMISSION', {fine: fineGranted, coarse: coarseGranted});
-  if (fineGranted !== PERMISSION_STATUS.GRANTED && coarseGranted !== PERMISSION_STATUS.GRANTED) {
+    if (fineGranted !== PERMISSION_STATUS.GRANTED && coarseGranted !== PERMISSION_STATUS.GRANTED) {
     fineGranted = await requestPermission(finePermission);
     if (fineGranted !== PERMISSION_STATUS.GRANTED) {
       coarseGranted = await requestPermission(coarsePermission);
@@ -100,20 +97,14 @@ function attemptLocation(options, attemptName) {
            reject(buildLocationError(`Location ${attemptName} returned invalid coordinates.`, 'INVALID_LOCATION_RESULT', {attempt: attemptName, result}));
            return;
          }
-         if (__DEV__) console.log('[SOS][LOCATION] SUCCESS', {attempt: attemptName, result});
-         resolve(result);
+                  resolve(result);
         }
       },
       (error) => {
         if (!timedOut) {
          clearTimeout(timeoutHandle);
          const reason = error?.message || 'Location provider failed without a message.';
-         if (__DEV__) console.log('[SOS][LOCATION] PROVIDER_ERROR', {
-           attempt: attemptName,
-           code: error?.code ?? null,
-           reason,
-         });
-         reject(buildLocationError(`Location ${attemptName} attempt failed: ${reason}`, 'LOCATION_PROVIDER_UNAVAILABLE', {
+                  reject(buildLocationError(`Location ${attemptName} attempt failed: ${reason}`, 'LOCATION_PROVIDER_UNAVAILABLE', {
            attempt: attemptName,
            code: error?.code ?? null,
            reason,
@@ -170,8 +161,7 @@ export async function checkLocationServicesEnabled() {
     }
     return true;
   } catch (error) {
-    if (__DEV__) console.log('[LOCATION] Check location services failed:', error);
-    return true;
+        return true;
   }
 }
 
@@ -189,8 +179,7 @@ export async function promptEnableLocationServices() {
     }
     return false;
   } catch (error) {
-    if (__DEV__) console.log('[LOCATION] Prompt location services failed:', error);
-    return false;
+        return false;
   }
 }
 
@@ -206,8 +195,7 @@ export async function openLocationSettings() {
 // ================= FIXED: Get current location with auto-enable and retry =================
 export async function getCurrentLocation({retryCount = 0, maxRetries = 3} = {}) {
   emitSosDiagnostic('SOS DEBUG LOCATION 01: Started');
-  if (__DEV__) console.log('[SOS][LOCATION] START');
-
+  
   if (!Geolocation || typeof Geolocation.getCurrentPosition !== 'function') {
     throw buildLocationError('Location provider module is unavailable in the installed app.', 'LOCATION_PROVIDER_MODULE_UNAVAILABLE');
   }
@@ -279,8 +267,7 @@ export async function getCurrentLocation({retryCount = 0, maxRetries = 3} = {}) 
         }
       }
     } catch (nativeError) {
-      if (__DEV__) console.log('[SOS][LOCATION] NATIVE_CURRENT_FAILED', {reason: nativeError?.message || 'unavailable'});
-    }
+          }
   }
 
   // Step 4: Try best-available (network) location
@@ -290,34 +277,27 @@ export async function getCurrentLocation({retryCount = 0, maxRetries = 3} = {}) 
       timeout: 7000,
       maximumAge: 120000,
     }, 'best-available');
-    if (__DEV__) console.log('[SOS_DEBUG] BEST_AVAILABLE_RESULT', {success: true});
-    return quickResult;
+        return quickResult;
   } catch (bestAvailableError) {
-    if (__DEV__) console.log('[SOS_DEBUG] BEST_AVAILABLE_RESULT', {success: false, message: bestAvailableError?.message || 'unavailable'});
-    if (__DEV__) console.log('[SOS][LOCATION] BEST_AVAILABLE_FAILED', {reason: bestAvailableError?.message || 'unavailable'});
-
+        
     // Step 5: Try high-accuracy (GPS) location
     try {
-      if (__DEV__) console.log('[SOS_DEBUG] HIGH_ACCURACY_RETRY');
-      const result = await attemptLocation({
+            const result = await attemptLocation({
         enableHighAccuracy: true,
         timeout: 10000,
         maximumAge: 60000,
       }, 'high-accuracy');
-      if (__DEV__) console.log('[SOS_DEBUG] HIGH_ACCURACY_RETRY_RESULT', {success: true});
-      return result;
+            return result;
     } catch (highAccuracyError) {
       // Step 6: Fallback to last known location
       const lastKnown = await getLastKnownLocation();
       if (lastKnown) {
-        if (__DEV__) console.log('[SOS][LOCATION] LAST_KNOWN_FALLBACK', {location: lastKnown});
-        return lastKnown;
+                return lastKnown;
       }
 
       // Step 7: If retry count allows, retry
       if (retryCount < maxRetries) {
-        if (__DEV__) console.log(`[SOS][LOCATION] RETRY ${retryCount + 1}/${maxRetries}`);
-        emitSosDiagnostic(`SOS DEBUG LOCATION RETRY ${retryCount + 1}/${maxRetries}`);
+                emitSosDiagnostic(`SOS DEBUG LOCATION RETRY ${retryCount + 1}/${maxRetries}`);
         
         // Wait before retry with exponential backoff
         const waitTime = 2000 * (retryCount + 1);
@@ -326,11 +306,7 @@ export async function getCurrentLocation({retryCount = 0, maxRetries = 3} = {}) 
       }
 
       // No location available - mark as PENDING (retryable)
-      if (__DEV__) console.log('[SOS][LOCATION] RETRY_QUEUED', {
-        bestAvailable: bestAvailableError?.message || null,
-        highAccuracy: highAccuracyError?.message || null,
-      });
-      return {
+            return {
         status: 'PENDING',
         error: null,
         queued: true,

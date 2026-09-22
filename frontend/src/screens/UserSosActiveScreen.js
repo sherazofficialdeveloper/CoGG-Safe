@@ -89,8 +89,7 @@ const UserSosActiveScreen = ({sos, token, onBack}) => {
         ? `${buildMediaUrl(API_BASE_URL, recordId, 'audio')}?v=${encodeURIComponent(audioComp.storageRef)}`
         : null;
 
-      console.log('[UserSosActive] Media URLs:', {frontUrl: !!frontUrl, backUrl: !!backUrl, audioUrl: !!audioUrl});
-
+      
       setMediaUrls(current => ({
         front: frontUrl || current.front,
         back: backUrl || current.back,

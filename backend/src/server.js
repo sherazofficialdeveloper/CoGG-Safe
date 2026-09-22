@@ -46,36 +46,26 @@ function warnIfProvidersUnconfigured() {
 
 async function start() {
   try {
-    console.log('[DEBUG 1] start() called');
-
-    console.log('[DEBUG 2] connecting DB...');
-    await connectDB();
-    console.log('[DEBUG 3] DB connected');
-
-    console.log('[DEBUG 4] checking providers...');
-    warnIfProvidersUnconfigured();
-    console.log('[DEBUG 5] providers checked');
-
-    console.log('[DEBUG 6] starting scheduler...');
-    schedulerService.start();
-    console.log('[DEBUG 7] scheduler started');
-
-    console.log('[DEBUG 8] starting HTTP server...');
-
+    
+        await connectDB();
+    
+        warnIfProvidersUnconfigured();
+    
+        schedulerService.start();
+    
+    
     // Railway requires the server to listen on the provided PORT
     // and bind to all network interfaces.
     server = app.listen(env.port, '0.0.0.0', () => {
-      console.log(`[DEBUG 9] SERVER LISTENING ON PORT ${env.port}`);
-      logger.info(`${env.appName} listening on port ${env.port} [${env.nodeEnv}]`);
+            logger.info(`${env.appName} listening on port ${env.port} [${env.nodeEnv}]`);
     });
 
     server.on('error', error => {
-      console.error('[DEBUG SERVER ERROR]', error);
+      logger.error('HTTP server error', { error: error.message, stack: error.stack });
     });
 
   } catch (err) {
-    console.error('[DEBUG START ERROR]', err);
-    logger.error('Failed to start the application server', {
+        logger.error('Failed to start the application server', {
       error: err.message,
       stack: err.stack,
     });

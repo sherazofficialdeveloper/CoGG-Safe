@@ -101,8 +101,7 @@ export async function captureEmergencyPhotos({sosId, previousResult = null, even
   try {
     emitSosDiagnostic('SOS DEBUG FRONT 01: Capture started');
     emitSosDiagnostic('SOS DEBUG BACK 01: Capture started');
-    if (__DEV__) console.log('FRONT_CAMERA_STARTED', {sosId});
-    const needFront = captureBackOnly ? false : !isUsableMediaPath(previousResult?.frontImagePath);
+        const needFront = captureBackOnly ? false : !isUsableMediaPath(previousResult?.frontImagePath);
     const needBack = captureFrontOnly ? false : !isUsableMediaPath(previousResult?.backImagePath);
     const result = await captureNativeSosPhotos(sosId, needFront, needBack);
     emitSosDiagnostic('SOS DEBUG FRONT 02: Native capture returned');
@@ -117,16 +116,11 @@ export async function captureEmergencyPhotos({sosId, previousResult = null, even
     emitSosDiagnostic(`SOS DEBUG FRONT 04: File validation ${frontIsUsable ? 'usable' : 'invalid'}`);
     emitSosDiagnostic(`SOS DEBUG BACK 04: File validation ${backIsUsable ? 'usable' : 'invalid'}`);
     if (__DEV__) {
-      console.log('[SOS_DEBUG] FRONT_CAPTURE_RESULT', {sosId, localPath: frontImagePath, valid: frontIsUsable});
-      console.log('[SOS_DEBUG] BACK_CAPTURE_RESULT', {sosId, localPath: backImagePath, valid: backIsUsable});
-    }
+                }
     const frontError = frontIsUsable ? null : (result?.frontError || 'Front camera capture failed');
     const backError = backIsUsable ? null : (result?.backError || 'Back camera capture failed');
 
-    if (__DEV__ && frontIsUsable) console.log('FRONT_IMAGE_CAPTURED', {sosId});
-    if (__DEV__) console.log('BACK_CAMERA_STARTED', {sosId});
-    if (__DEV__ && backIsUsable) console.log('BACK_IMAGE_CAPTURED', {sosId});
-
+            
     const bothSucceeded = frontIsUsable && backIsUsable;
     const bothFailed = !frontIsUsable && !backIsUsable;
 

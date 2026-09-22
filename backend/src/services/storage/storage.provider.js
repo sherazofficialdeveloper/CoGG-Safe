@@ -125,9 +125,7 @@ async function storeR2({ buffer, folder, originalFilename, contentType }) {
 
     return storageRef;
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('R2 upload error:', err.message);
-    throw ApiError.internal(`R2 upload failed: ${err.message}`);
+        throw ApiError.internal(`R2 upload failed: ${err.message}`);
   }
 }
 
@@ -191,9 +189,7 @@ async function readStreamR2(storageRef) {
 
     return response.Body;
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('R2 read error:', err.message);
-    if (err.name === 'NoSuchKey') {
+        if (err.name === 'NoSuchKey') {
       throw ApiError.notFound('Stored media file not found');
     }
     throw ApiError.internal(`R2 read failed: ${err.message}`);

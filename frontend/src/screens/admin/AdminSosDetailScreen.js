@@ -127,8 +127,7 @@ const AdminSosDetailScreen = ({
         }
       }
     } catch (error) {
-      console.log('[AdminSosDetail] Fetch error:', error);
-      setActionError(error.message || 'Unable to load SOS details.');
+            setActionError(error.message || 'Unable to load SOS details.');
     } finally {
       setIsLoading(false);
     }
@@ -158,8 +157,7 @@ const AdminSosDetailScreen = ({
           );
         }
       } catch (error) {
-        if (mounted) console.log('[LiveLocation] Refresh error:', error);
-      }
+              }
     };
 
     refreshLiveLocation();

@@ -22,12 +22,10 @@ export function emitSosToast(message, type = 'info', duration = DEFAULT_SOS_TOAS
   };
   const key = toastKey(toast);
   if (activeToasts.some(item => toastKey(item) === key)) {
-    if (__DEV__) console.log('[SOS][TOAST] DEDUPED', {type, message});
-    return activeToasts.find(item => toastKey(item) === key) || null;
+        return activeToasts.find(item => toastKey(item) === key) || null;
   }
   activeToasts = [...activeToasts.slice(-4), toast];
-  if (__DEV__) console.log('[SOS][TOAST] SHOW', {id: toast.id, type, message, stackLength: activeToasts.length});
-  notify();
+    notify();
   return toast;
 }
 
@@ -35,8 +33,7 @@ export function dismissSosToast(id) {
   if (!id) return;
   const next = activeToasts.filter(item => item.id !== id);
   if (next.length === activeToasts.length) return;
-  if (__DEV__) console.log('[SOS][TOAST] DISMISS', {id});
-  activeToasts = next;
+    activeToasts = next;
   notify();
 }
 

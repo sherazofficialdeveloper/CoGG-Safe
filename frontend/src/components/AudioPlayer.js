@@ -33,8 +33,7 @@ const setupTrackPlayer = async () => {
         'already been initialized',
       )
     ) {
-      console.log('[AudioPlayer] Setup error:', error);
-    }
+          }
   }
 };
 
@@ -175,16 +174,14 @@ const AudioPlayer = ({
         let lastError = null;
         for (const source of sources) {
           if (cancelled) return;
-          console.log('[AudioPlayer] Loading audio:', source.url);
-          try {
+                    try {
             localAudioPath = await downloadToCache(source);
             lastError = null;
             break;
           } catch (err) {
             localAudioPath = null;
             lastError = err;
-            console.log('[AudioPlayer] Source failed, trying next:', err?.message || err);
-          }
+                      }
         }
 
         if (!localAudioPath) {
@@ -225,8 +222,7 @@ const AudioPlayer = ({
           return;
         }
 
-        console.log('[AudioPlayer] Load error:', err);
-        setError('Could not load audio');
+                setError('Could not load audio');
         setIsLoading(false);
         setIsReady(false);
 
@@ -268,8 +264,7 @@ const AudioPlayer = ({
        * Position wahi rahegi.
        */
       if (isPlaying) {
-        console.log('[AudioPlayer] Pausing audio');
-
+        
         await TrackPlayer.pause();
 
         return;
@@ -280,10 +275,7 @@ const AudioPlayer = ({
        * Next Play click par 0:00 se start karo.
        */
       if (currentPlaybackState === State.Ended) {
-        console.log(
-          '[AudioPlayer] Audio ended, restarting from 0',
-        );
-
+        
         await TrackPlayer.seekTo(0);
       }
 
@@ -291,15 +283,10 @@ const AudioPlayer = ({
        * Paused hai to current position se resume hoga.
        * Ended hai to upar seekTo(0) ke baad 0:00 se chalega.
        */
-      console.log('[AudioPlayer] Playing audio');
-
+      
       await TrackPlayer.play();
     } catch (err) {
-      console.log(
-        '[AudioPlayer] Play/Pause error:',
-        err,
-      );
-    }
+          }
   };
 
   /*
@@ -308,16 +295,11 @@ const AudioPlayer = ({
    */
   const handleStop = async () => {
     try {
-      console.log('[AudioPlayer] Stopping audio');
-
+      
       await TrackPlayer.stop();
       await TrackPlayer.seekTo(0);
     } catch (err) {
-      console.log(
-        '[AudioPlayer] Stop error:',
-        err,
-      );
-    }
+          }
   };
 
   const formatTime = seconds => {

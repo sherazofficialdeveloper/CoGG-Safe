@@ -32,13 +32,11 @@ export async function request(path, {method = 'GET', body, token, timeoutMs, for
   if (normalizedMethod === 'GET') {
     const cached = responseCache.get(key);
     if (!forceRefresh && !isSosMediaFile && cached && Date.now() - cached.cachedAt < cacheTtlMs) {
-      if (__DEV__) console.log('[API] CACHE_HIT', {method: normalizedMethod, path});
-      return cached.data;
+            return cached.data;
     }
     const existingRequest = inFlightRequests.get(key);
     if (existingRequest) {
-      if (__DEV__) console.log('[API] IN_FLIGHT_DEDUP', {method: normalizedMethod, path});
-      return existingRequest;
+            return existingRequest;
     }
   } else {
     invalidateCache();
@@ -52,8 +50,7 @@ export async function request(path, {method = 'GET', body, token, timeoutMs, for
   const timeoutHandle = setTimeout(() => controller?.abort(), effectiveTimeoutMs);
 
   try {
-    if (__DEV__) console.log('[API] REQUEST_START', {method: normalizedMethod, path});
-    response = await fetch(`${API_BASE_URL}${path}`, {
+        response = await fetch(`${API_BASE_URL}${path}`, {
       method: normalizedMethod,
       headers: {
         Accept: 'application/json',
@@ -77,12 +74,10 @@ export async function request(path, {method = 'GET', body, token, timeoutMs, for
     if (path === '/sos' || path.includes('/media/') || path.includes('/location')) {
       emitSosDiagnostic(`SOS DEBUG API FAILED: ${normalizedMethod} ${path} HTTP ${response.status}: ${payload.message || 'request failed'}`, 'error');
     }
-    if (__DEV__ && response.status === 429) console.warn('[API] RATE_LIMITED', {method: normalizedMethod, path});
-    throw new ApiError(payload.message || 'The server could not complete that request.', response.status);
+        throw new ApiError(payload.message || 'The server could not complete that request.', response.status);
   }
 
-  if (__DEV__) console.log('[API] REQUEST_COMPLETE', {method: normalizedMethod, path, status: response.status});
-  return payload.data;
+    return payload.data;
   };
 
   const requestPromise = executeRequest();

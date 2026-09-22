@@ -35,15 +35,7 @@ export const API_BASE_URL = normalizeApiBaseUrl(configuredApiBaseUrl || defaultA
 //     (device and backend must be on the same network/Wi-Fi)
 //   - Production:             https://your-real-domain.com/api
 if (__DEV__ && !configuredApiBaseUrl) {
-  console.warn(
-    '[CoGG Safe] COGGSAFE_API_BASE_URL is not set — falling back to ' +
-    `${defaultApiBaseUrl}. This default only works in the Android emulator. ` +
-    'If you are testing on a physical device, set COGGSAFE_API_BASE_URL in ' +
-    'frontend/.env.local to your backend machine\'s LAN IP, or the app will ' +
-    'never be able to reach the backend (SOS will stay stuck, no notifications ' +
-    'will be sent, nothing will show in the admin panel).',
-  );
-}
+  }
 
 /**
  * One-shot startup reachability check against the unauthenticated
@@ -62,17 +54,10 @@ export async function checkApiReachability() {
     });
     if (timeoutId) clearTimeout(timeoutId);
     if (response.ok) {
-      if (__DEV__) console.log('[CoGG Safe] Backend reachable at', API_BASE_URL);
-      return true;
+            return true;
     }
-    console.warn(`[CoGG Safe] Backend responded but not healthy (HTTP ${response.status}) at ${API_BASE_URL}`);
-    return false;
+        return false;
   } catch (error) {
-    console.warn(
-      `[CoGG Safe] Cannot reach backend at ${API_BASE_URL} — SOS backend sync, ` +
-      'push notifications and admin panel sync will all fail until this is fixed. ' +
-      `Reason: ${error?.message || error}`,
-    );
-    return false;
+        return false;
   }
 }

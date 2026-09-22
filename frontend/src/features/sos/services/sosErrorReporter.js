@@ -28,13 +28,7 @@ export function reportSosServiceError(serviceName, errorOrResult, {status = 'FAI
   const tag = serviceName === 'mediaUpload' ? 'UPLOAD' : serviceName.replace(/([A-Z])/g, '_$1').toUpperCase();
 
   if (__DEV__) {
-    console.log(`[SOS][${tag}] ${status}`, {
-      eventId,
-      service: serviceName,
-      reason,
-      errorCode: errorOrResult?.code || errorOrResult?.errorCode || null,
-    });
-  }
+      }
 
   // Offline/temporary provider failures are intentionally silent here. The
   // durable SOS queue will retry them and the UI should not fill with red
@@ -43,8 +37,7 @@ export function reportSosServiceError(serviceName, errorOrResult, {status = 'FAI
     try {
       emitSosToast(`${label} failed: ${reason}`, 'error', 4500);
     } catch (reportingError) {
-      if (__DEV__) console.log('[SOS][FLOW] ERROR_REPORT_FAILED', {serviceName, reason: reportingError?.message});
-    }
+          }
   }
 
   return {service: serviceName, status, reason};

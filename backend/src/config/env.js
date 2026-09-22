@@ -1,4 +1,5 @@
 require('dotenv').config();
+const logger = require('./logger');
 
 /**
  * Centralized, validated access to environment variables.
@@ -12,8 +13,7 @@ const missing = required.filter((key) => !process.env[key]);
 
 if (missing.length > 0 && process.env.NODE_ENV !== 'test') {
   // Fail fast rather than limping along without critical config.
-  // eslint-disable-next-line no-console
-  console.error(`Missing required environment variables: ${missing.join(', ')}`);
+  logger.error(`Missing required environment variables: ${missing.join(', ')}`);
   process.exit(1);
 }
 if (process.env.NODE_ENV === 'production') {
@@ -28,8 +28,7 @@ if (process.env.NODE_ENV === 'production') {
     problems.push('JWT_SECRET must be at least 32 characters');
   }
   if (problems.length > 0) {
-    // eslint-disable-next-line no-console
-    console.error(`Invalid production configuration:\n- ${problems.join('\n- ')}`);
+    logger.error(`Invalid production configuration:\n- ${problems.join('\n- ')}`);
     process.exit(1);
   }
 }

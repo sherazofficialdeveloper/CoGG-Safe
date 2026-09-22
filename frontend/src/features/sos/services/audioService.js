@@ -32,8 +32,7 @@ export async function recordEmergencyAudio({sosId, previousResult = null}) {
   }
   try {
     emitSosDiagnostic('SOS DEBUG AUDIO 01: Recording started');
-    if (__DEV__) console.log('AUDIO_STARTED', {sosId, durationMs: AUDIO_DURATION_MS});
-    const localPath = await recordNativeSosAudio(sosId, AUDIO_DURATION_MS);
+        const localPath = await recordNativeSosAudio(sosId, AUDIO_DURATION_MS);
     emitSosDiagnostic('SOS DEBUG AUDIO 02: Recording finished');
     if (typeof localPath !== 'string' || !localPath.trim()) {
       throw new Error('Audio recording returned an invalid file.');

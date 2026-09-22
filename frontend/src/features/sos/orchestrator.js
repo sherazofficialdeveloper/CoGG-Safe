@@ -76,8 +76,7 @@ export async function createSosLocalEvent({userId, collectionId, meta = {}}) {
     activatedAt: event.createdAt,
   };
   await sosLocalStore.upsertSos(activeEvent);
-  if (__DEV__) console.log('[SOS_DEBUG] LOCAL_SOS_CREATED', {localSosId: activeEvent.id, status: activeEvent.status});
-  return activeEvent;
+    return activeEvent;
 }
 
 export function resolveSosServiceStatus(serviceName, networkState) {
@@ -109,19 +108,13 @@ export async function activateSosFlow({
   onPending = null,
   silent = false,
 } = {}) {
-  if (__DEV__) console.log('[SOS_DEBUG] ACTIVATE_FLOW_START', {
-    timestamp: new Date().toISOString(),
-    userId,
-    collectionId,
-  });
-  if (cancelSignal?.cancelled) {
+    if (cancelSignal?.cancelled) {
     return {event: null, execution: [], cancelled: true};
   }
 
   const event = await createSosLocalEvent({userId, collectionId});
   emitSosDiagnostic('SOS DEBUG 04: Local SOS created');
-  if (__DEV__) console.log('SOS_ACTIVATED', {eventId: event.id, userId, collectionId});
-  if (!silent) emitSosToast('SOS started', 'info', 2000);
+    if (!silent) emitSosToast('SOS started', 'info', 2000);
   
   if (typeof onPending === 'function') {
     await onPending(event);
@@ -159,8 +152,7 @@ export async function activateSosFlow({
   let backendReady = false;
 
   if (__DEV__) {
-    console.log('SOS_ORCHESTRATOR_STARTED', {names, userId, collectionId, eventId: event.id});
-  }
+      }
 
   const runService = async serviceName => {
     const serviceState = event.services[serviceName];
@@ -177,9 +169,7 @@ export async function activateSosFlow({
     }[serviceName] || 'SOS_SERVICE';
 
     if (__DEV__) {
-      console.log(`${tagPrefix}_STARTED`, {eventId: event.id, serviceName});
-      console.log(`[SOS][${serviceName === 'mediaUpload' ? 'UPLOAD' : serviceName.toUpperCase()}] START`, {eventId: event.id});
-    }
+                }
 
     try {
       const result = await runners[serviceName](event);
@@ -188,11 +178,9 @@ export async function activateSosFlow({
       if (serviceName === 'mediaUpload') emitSosDiagnostic(`SOS DEBUG UPLOAD: Overall ${resultStatus}`);
 
       if (__DEV__) {
-        console.log(`${tagPrefix}_FINISHED`, {eventId: event.id, serviceName, resultStatus, result});
-      }
+              }
       if (resultStatus === 'PENDING') {
-        if (__DEV__) console.log(`[SOS][${serviceName === 'mediaUpload' ? 'UPLOAD' : serviceName.toUpperCase()}] QUEUED`, {eventId: event.id, reason: result?.reason});
-        if (result?.reason) reportSosServiceError(serviceName, result, {status: 'QUEUED', eventId: event.id});
+                if (result?.reason) reportSosServiceError(serviceName, result, {status: 'QUEUED', eventId: event.id});
       } else if (['FAILED', 'UNSUPPORTED'].includes(resultStatus)) {
         reportSosServiceError(serviceName, result, {eventId: event.id});
       }
@@ -277,8 +265,7 @@ export async function activateSosFlow({
       return {serviceName, status: resultStatus, result};
     } catch (error) {
       if (__DEV__) {
-        console.log(`${tagPrefix}_FAILED`, {eventId: event.id, serviceName, error: error?.message || error});
-      }
+              }
       reportSosServiceError(serviceName, error, {eventId: event.id});
 
       const next = {
@@ -461,15 +448,7 @@ export async function activateSosFlow({
     notification: Boolean(event.services?.notifications?.status === 'COMPLETED' || event.services?.notifications?.status === 'PENDING'),
   };
   if (__DEV__) {
-    console.log('SOS_ACTIVATION_FINISHED', {
-      eventId: event.id,
-      status: event.status,
-      backendReady,
-      serviceResults: execution,
-      summary,
-    });
-    console.log('SOS_FLOW_COMPLETED', {eventId: event.id, status: event.status, summary});
-  }
+          }
   await sosLocalStore.upsertSos(event);
 
   if (

@@ -60,8 +60,7 @@ export async function checkPermission(permission) {
     if (result === false || result === PermissionsAndroid.RESULTS.DENIED) return PERMISSION_STATUS.DENIED;
     return PERMISSION_STATUS.UNAVAILABLE;
   } catch (error) {
-    if (__DEV__) console.warn('[PERMISSIONS] CHECK_FAILED', {permission, reason: error?.message || 'unknown'});
-    return PERMISSION_STATUS.UNAVAILABLE;
+        return PERMISSION_STATUS.UNAVAILABLE;
   }
 }
 
@@ -80,8 +79,7 @@ export async function requestPermission(permission) {
           ? PERMISSION_STATUS.BLOCKED
           : PERMISSION_STATUS.DENIED;
     } catch (error) {
-      if (__DEV__) console.warn('[PERMISSIONS] REQUEST_FAILED', {permission, reason: error?.message || 'unknown'});
-      return PERMISSION_STATUS.UNAVAILABLE;
+            return PERMISSION_STATUS.UNAVAILABLE;
     }
   })();
   pendingRequests.set(permission, requestPromise);
@@ -203,21 +201,18 @@ export async function requestRequiredPermissions() {
   }
 
   try {
-    if (__DEV__) console.log('PERMISSION_CHECK_STARTED');
-    const current = await checkRequiredAndroidPermissions();
+        const current = await checkRequiredAndroidPermissions();
     const results = {};
 
     for (const item of REQUIRED_PERMISSIONS) {
       if (current[item.permission] === PermissionsAndroid.RESULTS.GRANTED) continue;
       const result = await requestPermission(item.permission);
       results[item.permission] = result;
-      if (__DEV__) console.log(`PERMISSION_RESULT_${item.key.toUpperCase()}`, {result});
-    }
+          }
 
     const verifiedState = await checkRequiredAndroidPermissions();
     const nextState = buildPermissionStateFromCheckedResults(verifiedState, results);
-    if (__DEV__ && nextState.allRequiredGranted) console.log('ALL_REQUIRED_PERMISSIONS_GRANTED');
-    return nextState;
+        return nextState;
   } catch (error) {
     return {...buildPermissionState({}), error: error?.message || 'Unable to request SOS permissions.'};
   }
@@ -231,8 +226,7 @@ export async function requestSosPermission(key) {
     const alreadyGranted = await checkPermission(item.permission);
     if (alreadyGranted === PERMISSION_STATUS.GRANTED) return checkSosPermissions();
     const result = await requestPermission(item.permission);
-    if (__DEV__) console.log(`PERMISSION_RESULT_${item.key.toUpperCase()}`, {result});
-    const verifiedState = await checkRequiredAndroidPermissions();
+        const verifiedState = await checkRequiredAndroidPermissions();
     return buildPermissionStateFromCheckedResults(verifiedState, {[item.permission]: result});
   } catch (error) {
     return {...buildPermissionState({}), error: error?.message || `Unable to request ${item.title} permission.`};
@@ -256,8 +250,7 @@ export async function openSmsPermissionSettings() {
     await Linking.openSettings();
     return true;
   } catch (error) {
-    console.log('[SMS] Open SMS settings error:', error);
-    return false;
+        return false;
   }
 }
 
@@ -279,8 +272,7 @@ export async function openSmsSettings() {
     await Linking.openSettings();
     return true;
   } catch (error) {
-    console.log('[SMS] Open settings error:', error);
-    return false;
+        return false;
   }
 }
 
@@ -349,8 +341,7 @@ export async function requestSmsPermission() {
       ? PERMISSION_STATUS.UNAVAILABLE
       : PERMISSION_STATUS.DENIED;
   } catch (error) {
-    if (__DEV__) console.warn('[SMS] REQUEST_FAILED', {reason: error?.message || 'unknown'});
-    return PERMISSION_STATUS.UNAVAILABLE;
+        return PERMISSION_STATUS.UNAVAILABLE;
   }
 }
 

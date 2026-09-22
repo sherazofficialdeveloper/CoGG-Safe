@@ -1,3 +1,4 @@
+const logger = require('../../config/logger');
 const Sos = require('./sos.model');
 const LiveLocationUpdate = require('./liveLocationUpdate.model');
 const Notification = require('../notifications/notification.model');
@@ -55,17 +56,12 @@ function resolveEmergencyMessage(user, clientSuppliedMessage) {
  * lifecycle. New SOS creation never schedules this job.
  */
 async function activateSosIfPending({ sosId, dispatch = true }) {
-  console.log('[SOS_DEBUG] ACTIVATION_STARTED', { sosId: String(sosId) });
-  const activated = await Sos.findOneAndUpdate(
+    const activated = await Sos.findOneAndUpdate(
     { _id: sosId, status: SOS_STATUS.PENDING },
     { $set: { status: SOS_STATUS.ACTIVE, activatedAt: new Date() } },
     { new: true }
   );
-  console.log('[SOS_DEBUG] ACTIVATION_RESULT', {
-    sosId: String(sosId),
-    status: activated ? activated.status : 'not_updated',
-  });
-  if (activated && dispatch) {
+    if (activated && dispatch) {
     await dispatchService.dispatchSos(activated);
   }
   return activated;
@@ -235,8 +231,7 @@ async function createSos({ userId, idempotencyKey, location, emergencyMessage })
         backend: {status: COMPONENT_STATUS.SUCCESS, error: null},
       },
     });
-    console.log('[SOS_DEBUG] MONGO_CREATED', { sosId: String(sos._id) });
-  } catch (err) {
+      } catch (err) {
     if (err.code === 11000 && idempotencyKey) {
       const existing = await Sos.findOne({ userId, idempotencyKey });
       if (existing) return { sos: existing, alreadyExisted: true };
@@ -264,7 +259,7 @@ async function createSos({ userId, idempotencyKey, location, emergencyMessage })
   // started after the response path so a slow provider cannot delay SOS
   // creation; dispatchSos isolates and records each channel failure.
   void dispatchService.dispatchSos(sos).catch((err) => {
-    console.error('[SOS_DEBUG] DISPATCH_UNHANDLED', {
+    logger.error('SOS dispatch failed unexpectedly', {
       sosId: String(sos._id),
       error: err?.message || 'SOS dispatch failed unexpectedly',
     });

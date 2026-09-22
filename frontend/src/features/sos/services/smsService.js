@@ -9,8 +9,7 @@ import {getDefaultEmergencyMessage} from './emergencyMessage';
 export async function sendEmergencySms({phoneNumber, message, preferredSubscriptionId = null}) {
   ensureSosNativeDiagnosticListener();
   emitSosDiagnostic('SMS DEBUG — Service reached');
-  if (__DEV__) console.log('[SOS][SMS] RUNNER_STARTED', {hasRecipient: Boolean(phoneNumber)});
-  if (!phoneNumber) {
+    if (!phoneNumber) {
     emitSosDiagnostic('SMS ERROR — No valid recipient', 'error');
     return {status: 'NOT_CONFIGURED', reason: 'No emergency SMS number is configured for this collection.'};
   }
@@ -40,8 +39,7 @@ export async function sendEmergencySms({phoneNumber, message, preferredSubscript
     // ================= FIX: Check SMS permission =================
     let permissionState = await checkSmsPermission();
     
-    if (__DEV__) console.log('[SOS_DEBUG] SMS_PERMISSION_STATE', {state: permissionState});
-    
+        
     // SEND_SMS is a hard-restricted permission on current Android releases.
     // A runtime request can only succeed when the installer/distribution path
     // has legitimately allowlisted the permission. Always verify the real
@@ -90,10 +88,8 @@ export async function sendEmergencySms({phoneNumber, message, preferredSubscript
     
     // ================= Continue with SMS sending =================
     if (typeof emergencyMedia.sendEmergencySms === 'function') {
-      if (__DEV__) console.log('[SOS][SMS] SERVICE_INVOKED', {nativeMethod: 'EmergencyMedia.sendEmergencySms'});
-      emitSosDiagnostic('SMS DEBUG — Native SMS method invoked');
-      if (__DEV__) console.log('[SOS][SMS] ATTEMPT_NATIVE', {recipient: `${phoneNumber.slice(0, 3)}***`});
-      
+            emitSosDiagnostic('SMS DEBUG — Native SMS method invoked');
+            
       // Native Android selects physical SIM 1 (slot 0), or SIM 2 (slot 1)
       // when SIM 1 is unavailable. No chooser and no saved SIM preference is used.
       const selectedSubscriptionId = -1;
@@ -109,17 +105,10 @@ export async function sendEmergencySms({phoneNumber, message, preferredSubscript
         message || getDefaultEmergencyMessage(),
         selectedSubscriptionId,
       );
-      if (__DEV__) console.log('[SOS_DEBUG] SMS_SEND_ATTEMPT', {recipient: `${phoneNumber.slice(0, 3)}***`});
-      if (__DEV__) console.log('[SOS_DEBUG] SMS_SEND_RESULT', {
-        status: result?.status || null,
-        subscriptionId: result?.subscriptionId || null,
-        reason: result?.reason || null,
-      });
-
+            
       const normalizedStatus = String(result?.status || '').toUpperCase();
       if (normalizedStatus === 'SENT' || normalizedStatus === 'COMPLETED') {
-        if (__DEV__) console.log('[SOS][SMS] NATIVE_ACCEPTED', {recipient: `${phoneNumber.slice(0, 3)}***`});
-        emitSosDiagnostic('SMS SUCCESS — SMS send request accepted', 'success');
+                emitSosDiagnostic('SMS SUCCESS — SMS send request accepted', 'success');
         return {
           status: 'COMPLETED',
           reason: result?.reason || 'SMS sent via carrier network.',
@@ -129,8 +118,7 @@ export async function sendEmergencySms({phoneNumber, message, preferredSubscript
       }
 
       if (normalizedStatus === 'UNSUPPORTED' || /SIM|subscription|carrier|device|SMS application/i.test(String(result?.reason || ''))) {
-        if (__DEV__) console.log('[SOS][SMS] FAILED', {reason: result?.reason || 'SMS unsupported'});
-        emitSosDiagnostic('SMS ERROR — ' + (result?.reason || 'SMS capability unavailable on this device.'), 'error');
+                emitSosDiagnostic('SMS ERROR — ' + (result?.reason || 'SMS capability unavailable on this device.'), 'error');
         return {
           status: 'UNSUPPORTED',
           reason: result?.reason || 'SMS capability unavailable on this device.',
@@ -143,10 +131,8 @@ export async function sendEmergencySms({phoneNumber, message, preferredSubscript
       reason: 'Direct Android SMS sending is unavailable on this device.',
     };
   } catch (error) {
-    if (__DEV__) console.log('[SOS_DEBUG] SMS_SEND_ERROR', {message: error?.message || 'unknown'});
-    emitSosDiagnostic('SMS ERROR — ' + (error?.message || 'Android could not send the SMS.'), 'error');
-    if (__DEV__) console.log('[SOS][SMS] FAILED', {reason: error?.message || 'Android could not send the SMS.'});
-    return {
+        emitSosDiagnostic('SMS ERROR — ' + (error?.message || 'Android could not send the SMS.'), 'error');
+        return {
       status: /permission|module|capability|unsupported|no Android SMS|No SMS application|SMS application unavailable/i.test(error?.message || '')
         ? 'UNSUPPORTED'
         : 'FAILED',
@@ -198,8 +184,7 @@ export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId, s
     }
   }
 
-  if (__DEV__) console.log('SMS_STARTED', {recipientCount: uniqueNumbers.length});
-
+  
   if (uniqueNumbers.length === 0) {
     if (dispatchKey) activeSmsDispatches.delete(dispatchKey);
     return {
@@ -209,8 +194,7 @@ export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId, s
     };
   }
 
-  if (__DEV__) console.log('SMS_RECIPIENTS_FOUND', uniqueNumbers.length);
-
+  
   const event = sosId ? await sosLocalStore.getSosById(sosId) : null;
   const previousRecipients = event?.services?.[serviceKey]?.recipients || [];
   const previousByNumber = new Map(previousRecipients.map(item => [item.normalizedRecipient || item.phoneNumber, item]));
@@ -283,10 +267,7 @@ export async function sendEmergencySmsToNumbers({phoneNumbers, message, sosId, s
   const pendingCount = results.filter(r => r.status === 'RETRY_WAITING').length;
 
   if (__DEV__) {
-    console.log('SMS_SENT', sentCount);
-    console.log('SMS_FAILED', failedCount);
-    console.log('[SOS][SMS] SUMMARY', {sent: sentCount, failed: failedCount, queued: pendingCount});
-  }
+              }
 
   let status;
   if (pendingCount > 0 || failedCount > 0) {

@@ -30,39 +30,32 @@ export const getNativeCurrentLocation = async () => {
 
 // ================= FIX: downloadAuthenticatedMedia =================
 export const downloadAuthenticatedSosMedia = async (url, token) => {
-  console.log('[NativeMedia] Download called');
-  
+    
   // If no token, can't download private media
   if (!token || token.trim().length === 0) {
-    console.log('[NativeMedia] No token provided');
-    throw new Error('Authentication required');
+        throw new Error('Authentication required');
   }
 
   try {
     const module = requireAndroidModule();
     
     if (typeof module.downloadAuthenticatedMedia === 'function') {
-      console.log('[NativeMedia] Using native download method');
-      const path = await module.downloadAuthenticatedMedia(url, token);
+            const path = await module.downloadAuthenticatedMedia(url, token);
       
       // ================= FIX: Check if path is a valid local file =================
       if (path && typeof path === 'string' && path.length > 0) {
         // Check if it's a local file path (not a URL)
         const isLocalFile = !path.startsWith('http://') && !path.startsWith('https://');
         if (isLocalFile) {
-          console.log('[NativeMedia] Native download success:', path);
-          return path;
+                    return path;
         } else {
-          console.log('[NativeMedia] Native download returned URL, not local file');
-          throw new Error('Download did not return a local file');
+                    throw new Error('Download did not return a local file');
         }
       }
     }
     
-    console.log('[NativeMedia] Native download not available');
-    throw new Error('Native download not available');
+        throw new Error('Native download not available');
   } catch (err) {
-    console.log('[NativeMedia] Download error:', err);
-    throw err;
+        throw err;
   }
 };
