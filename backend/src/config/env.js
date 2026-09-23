@@ -21,8 +21,8 @@ if (process.env.NODE_ENV === 'production') {
   if (!process.env.CLIENT_ORIGIN || process.env.CLIENT_ORIGIN === '*') {
     problems.push('CLIENT_ORIGIN must be a specific origin, not "*"');
   }
-  if (!process.env.CREDENTIAL_ENCRYPTION_KEY) {
-    problems.push('CREDENTIAL_ENCRYPTION_KEY is required');
+  if (!process.env.CREDENTIAL_ENCRYPTION_KEY && !process.env.JWT_SECRET) {
+    problems.push('CREDENTIAL_ENCRYPTION_KEY or JWT_SECRET is required');
   }
   if ((process.env.JWT_SECRET || '').length < 32) {
     problems.push('JWT_SECRET must be at least 32 characters');
