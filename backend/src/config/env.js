@@ -13,7 +13,9 @@ const missing = required.filter((key) => !process.env[key]);
 
 if (missing.length > 0 && process.env.NODE_ENV !== 'test') {
   // Fail fast rather than limping along without critical config.
-  logger.error(`Missing required environment variables: ${missing.join(', ')}`);
+  const message = `Missing required environment variables: ${missing.join(', ')}`;
+  console.error(message);
+  logger.error(message);
   process.exit(1);
 }
 if (process.env.NODE_ENV === 'production') {
@@ -28,7 +30,9 @@ if (process.env.NODE_ENV === 'production') {
     problems.push('JWT_SECRET must be at least 32 characters');
   }
   if (problems.length > 0) {
-    logger.error(`Invalid production configuration:\n- ${problems.join('\n- ')}`);
+    const message = `Invalid production configuration:\n- ${problems.join('\n- ')}`;
+    console.error(message);
+    logger.error(message);
     process.exit(1);
   }
 }

@@ -65,7 +65,8 @@ async function start() {
     });
 
   } catch (err) {
-        logger.error('Failed to start the application server', {
+    console.error(`Failed to start the application server: ${err.message}`);
+    logger.error('Failed to start the application server', {
       error: err.message,
       stack: err.stack,
     });

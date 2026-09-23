@@ -25,11 +25,17 @@ async function dropLegacyOpenSosIndex() {
 
 async function connectDB() {
   try {
-    await mongoose.connect(env.mongoUri, env.mongoDbName ? {dbName: env.mongoDbName} : undefined);
+    const options = {
+      ...(env.mongoDbName ? {dbName: env.mongoDbName} : {}),
+      serverSelectionTimeoutMS: 10000,
+    };
+    await mongoose.connect(env.mongoUri, options);
     logger.info(`MongoDB connected: ${mongoose.connection.host}`);
     await dropLegacyOpenSosIndex();
   } catch (err) {
-    logger.error('MongoDB connection failed', { error: err.message });
+    const message = `MongoDB connection failed: ${err.message}`;
+    console.error(message);
+    logger.error(message, { error: err.message });
     process.exit(1);
   }
 
