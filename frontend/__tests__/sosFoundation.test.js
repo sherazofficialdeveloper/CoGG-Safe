@@ -14,7 +14,7 @@ jest.mock('@react-native-community/netinfo', () => ({
   },
 }));
 
-import {activateSosFlow, createSosLocalEvent, generateClientSosId, resolveSosServiceStatus} from '../src/features/sos/orchestrator';
+import {activateSosFlow, createSosLocalEvent, resolveSosServiceStatus} from '../src/features/sos/orchestrator';
 import {sosLocalStore} from '../src/features/sos/storage';
 import {connectivityService} from '../src/features/sos/connectivity';
 import {enqueueSosJob, processSosQueue} from '../src/features/sos/queue/queueWorker';

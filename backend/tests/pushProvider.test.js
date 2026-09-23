@@ -16,6 +16,10 @@ describe('FCM provider readiness', () => {
 
   test('returns unsupported instead of pretending FCM delivery succeeded without real project credentials', async () => {
     process.env.NODE_ENV = 'production';
+    process.env.MONGODB_URI = 'mongodb://placeholder-not-used-see-tests';
+    process.env.JWT_SECRET = '12345678901234567890123456789012';
+    process.env.CLIENT_ORIGIN = 'https://app.example.com';
+    process.env.CREDENTIAL_ENCRYPTION_KEY = 'abcdefghijklmnopqrstuvwxzy0123456789AB';
     process.env.FIREBASE_PROJECT_ID = 'YOUR_FIREBASE_PROJECT_ID';
     process.env.FIREBASE_CLIENT_EMAIL = 'example@project.iam.gserviceaccount.com';
     process.env.FIREBASE_PRIVATE_KEY = '-----BEGIN PRIVATE KEY-----\nPLACEHOLDER\n-----END PRIVATE KEY-----\n';

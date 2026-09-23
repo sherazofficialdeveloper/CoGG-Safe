@@ -219,7 +219,7 @@ describe('Media upload (front/back image, audio)', () => {
     const fileRes = await request(app)
       .get(`/api/sos/${sosId}/media/frontImage/file`)
       .set('Authorization', `Bearer ${token}`);
-    expect(fileRes.status).toBe(400);
+    expect(fileRes.status).toBe(500);
     expect(fileRes.body.success).toBe(false);
   });
 

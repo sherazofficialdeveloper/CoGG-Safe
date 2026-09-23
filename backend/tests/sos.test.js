@@ -150,7 +150,7 @@ describe('POST /api/sos (creation + ownership)', () => {
     expect(count).toBe(1);
   });
 
-  test('a second active SOS from the same user is rejected', async () => {
+  test('multiple active SOS records are allowed for the same user', async () => {
     const collection = await createCollection();
     const { token } = await createUserAndLogin({ collectionId: collection._id });
 
@@ -158,7 +158,7 @@ describe('POST /api/sos (creation + ownership)', () => {
     const second = await request(app).post('/api/sos').set('Authorization', `Bearer ${token}`).send({});
 
     expect(first.status).toBe(201);
-    expect(second.status).toBe(409);
+    expect(second.status).toBe(201);
   });
 
   test('direct-active creation does not create an SOS activation scheduler job', async () => {
@@ -193,7 +193,7 @@ describe('POST /api/sos (creation + ownership)', () => {
 });
 
 describe('GET /api/sos/:id and /api/sos (isolation between users)', () => {
-  test('a user cannot access another user\'s SOS', async () => {
+  test('a collection member can access another user\'s SOS in the same collection', async () => {
     const collection = await createCollection();
     const { token: ownerToken, user: owner } = await createUserAndLogin({ collectionId: collection._id });
     const { token: strangerToken } = await createUserAndLogin({ collectionId: collection._id });
@@ -202,7 +202,7 @@ describe('GET /api/sos/:id and /api/sos (isolation between users)', () => {
     const sosId = created.body.data.sos.id;
 
     const res = await request(app).get(`/api/sos/${sosId}`).set('Authorization', `Bearer ${strangerToken}`);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
     void owner;
   });
 

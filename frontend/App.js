@@ -5,8 +5,6 @@ import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   View,
   StyleSheet,
-  ActivityIndicator,
-  Text,
   BackHandler,
   DeviceEventEmitter,
   NativeModules,
@@ -19,7 +17,6 @@ import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
 import {AuthProvider, useAuth} from './src/context/AuthContext';
 
 // Components
-import Toast from './src/components/Toast';
 import AppShell from './src/components/AppShell';
 import AdminHeader from './src/components/AdminHeader';
 import SplashScreen from './src/components/SplashScreen';
@@ -60,7 +57,7 @@ import {
   uploadCapturedSosMedia,
 } from './src/features/sos/services/backendSyncService';
 import {getCurrentLocation, isValidLocation} from './src/features/sos/services/locationService';
-import {sendEmergencySms, sendEmergencySmsToNumbers, chooseSmsSubscription} from './src/features/sos/services/smsService';
+import {sendEmergencySmsToNumbers} from './src/features/sos/services/smsService';
 import {initiateEmergencyCall} from './src/features/sos/services/callService';
 
 import {
@@ -72,7 +69,7 @@ import {captureEmergencyPhotos} from './src/features/sos/services/cameraService'
 import {recordEmergencyAudio} from './src/features/sos/services/audioService';
 import {emitSosDiagnostic} from './src/features/sos/services/sosDiagnosticService';
 import {reportServiceResult} from './src/features/sos/services/backendSyncService';
-import {listContacts, listEmergencySmsRecipients, listNotifications, stopLiveLocation, getSos} from './src/api/resources';
+import {listEmergencySmsRecipients, listNotifications} from './src/api/resources';
 import {getCurrentUser} from './src/api/auth';
 import {rememberCredential} from './src/utils/adminCredentials';
 
@@ -93,6 +90,40 @@ import {
 // MAIN APP CONTENT
 // ============================================================
 
+function AdminLayoutNoHeader({children, bottomNav}) {
+  return (
+    <View style={styles.adminContainer}>
+      <View style={styles.adminContent}>
+        {children}
+      </View>
+
+      {bottomNav}
+    </View>
+  );
+}
+
+function AdminLayoutWithHeader({children, bottomNav, user, adminNotificationCount, activeSosCount, onNotifications, onProfile, onLogout, onSwitchToUser}) {
+  return (
+    <View style={styles.adminContainer}>
+      <AdminHeader
+        user={user}
+        onNotifications={onNotifications}
+        notificationCount={adminNotificationCount}
+        onProfile={onProfile}
+        onLogout={onLogout}
+        activeSosCount={activeSosCount}
+        onSwitchToUser={onSwitchToUser}
+      />
+
+      <View style={styles.adminContent}>
+        {children}
+      </View>
+
+      {bottomNav}
+    </View>
+  );
+}
+
 function AppContent() {
   const {token, user, loading, signIn, signOut, updateUser} = useAuth();
 
@@ -108,6 +139,9 @@ function AppContent() {
   const [sosLoading, setSosLoading] = useState(false);
   const [sosError, setSosError] = useState('');
   const [activeSosCount, setActiveSosCount] = useState(0);
+  useEffect(() => {
+    setActiveSosCount(current => current);
+  }, [setActiveSosCount]);
   const [userNotificationCount, setUserNotificationCount] = useState(0);
   const [adminNotificationCount, setAdminNotificationCount] = useState(0);
   const [collectionCacheReadyKey, setCollectionCacheReadyKey] = useState(null);
@@ -139,6 +173,12 @@ function AppContent() {
   // ============================================================
   // EFFECTS
   // ============================================================
+
+  useEffect(() => {
+    if (toast.visible) {
+      hideToast();
+    }
+  }, [toast.visible, hideToast]);
 
   useEffect(() => {
     if (loading) {
@@ -359,7 +399,7 @@ function AppContent() {
             sms: async (item, event) => {
               let recipients = event.meta?.smsRecipients || [];
               if (!recipients.length) {
-                const cachedMembers = await sosLocalStore.getCachedCollectionMembers(sosUser?.collectionId);
+                const cachedMembers = await sosLocalStore.getCachedCollectionMembers(user?.collectionId);
                 recipients = cachedMembers.map(member => member?.mobileNumber).filter(Boolean);
               }
               if (!recipients.length) {
@@ -475,7 +515,7 @@ function AppContent() {
       .catch(() => processQueue({userId: user?._id || user?.id}));
 
     return connectivityService.subscribe(processQueue);
-  }, [token, user?.username]);
+  }, [token, updateUser, user, user?.username]);
 
   useEffect(() => {
     const collectionId = user?.collectionId;
@@ -884,7 +924,7 @@ function AppContent() {
               };
               // Do not await upload: network time must never block the next
               // camera operation or the independent audio/call/SMS services.
-              void uploadCapturedSosMedia({token, sosEvent: uploadEvent, component})
+              uploadCapturedSosMedia({token, sosEvent: uploadEvent, component})
                 .catch(() => undefined);
             };
 
@@ -1032,23 +1072,23 @@ function AppContent() {
           // BACKEND
           // ------------------------------------------------------
           backend: async event => {
-            const result = await syncSosToBackend({token, sosEvent: event, idempotencyKey: event.id});
-            if (result?.status === 'COMPLETED' && result.backendId) {
+            const backendResult = await syncSosToBackend({token, sosEvent: event, idempotencyKey: event.id});
+            if (backendResult?.status === 'COMPLETED' && backendResult.backendId) {
               const latest = (await sosLocalStore.getSosById(event.id)) || event;
-              const uploadEvent = {...latest, backendId: result.backendId};
+              const uploadEvent = {...latest, backendId: backendResult.backendId};
               const readyComponents = [
                 ['frontImage', uploadEvent.services?.camera?.frontImagePath],
                 ['backImage', uploadEvent.services?.camera?.backImagePath],
                 ['audio', uploadEvent.services?.audio?.localPath],
               ].filter(([, path]) => Boolean(path));
               for (const [component] of readyComponents) {
-                await enqueueSosJob({sosId: event.id, backendSosId: result.backendId, type: `MEDIA_UPLOAD:${component}`, serviceName: 'mediaUpload', payload: {component}});
+                await enqueueSosJob({sosId: event.id, backendSosId: backendResult.backendId, type: `MEDIA_UPLOAD:${component}`, serviceName: 'mediaUpload', payload: {component}});
               }
-              void Promise.allSettled(readyComponents.map(([component]) =>
+              Promise.allSettled(readyComponents.map(([component]) =>
                 uploadCapturedSosMedia({token, sosEvent: uploadEvent, component})
               ));
             }
-            return result;
+            return backendResult;
           },
 
           // ------------------------------------------------------
@@ -1159,7 +1199,7 @@ function AppContent() {
       subscription.remove();
       appStateSubscription.remove();
     };
-  }, [token, user?.id, user?.role]);
+  }, [token, user, user?.id, user?.role]);
 
   // ============================================================
   // LOADING SCREEN
@@ -1437,50 +1477,6 @@ function AppContent() {
   // ============================================================
 
   if (user?.role === 'admin') {
-    // ----------------------------------------------------------
-    // ADMIN LAYOUT WITHOUT HEADER
-    // ----------------------------------------------------------
-
-    const AdminLayoutNoHeader = ({children, bottomNav}) => (
-      <View style={styles.adminContainer}>
-        <View style={styles.adminContent}>
-          {children}
-        </View>
-
-        {bottomNav}
-      </View>
-    );
-
-    // ----------------------------------------------------------
-    // ADMIN LAYOUT WITH HEADER
-    // Dashboard only
-    // ----------------------------------------------------------
-
-    const AdminLayoutWithHeader = ({children, bottomNav}) => (
-      <View style={styles.adminContainer}>
-        <AdminHeader
-          user={user}
-          onNotifications={() =>
-            setScreen('adminNotifications')
-          }
-          notificationCount={adminNotificationCount}
-          onProfile={() => setScreen('adminProfile')}
-          onLogout={goToLogin}
-          activeSosCount={activeSosCount}
-          onSwitchToUser={() => {
-            setPortal('user');
-            setScreen('userHome');
-          }}
-        />
-
-        <View style={styles.adminContent}>
-          {children}
-        </View>
-
-        {bottomNav}
-      </View>
-    );
-
     switch (screen) {
       // ========================================================
       // ADMIN DASHBOARD
@@ -1489,6 +1485,16 @@ function AppContent() {
       case 'adminDashboard':
         return (
           <AdminLayoutWithHeader
+            user={user}
+            adminNotificationCount={adminNotificationCount}
+            activeSosCount={activeSosCount}
+            onNotifications={() => setScreen('adminNotifications')}
+            onProfile={() => setScreen('adminProfile')}
+            onLogout={goToLogin}
+            onSwitchToUser={() => {
+              setPortal('user');
+              setScreen('userHome');
+            }}
             bottomNav={
               <AdminBottomNav
                 activeTab="Dashboard"
@@ -1767,6 +1773,16 @@ function AppContent() {
       default:
         return (
           <AdminLayoutWithHeader
+            user={user}
+            adminNotificationCount={adminNotificationCount}
+            activeSosCount={activeSosCount}
+            onNotifications={() => setScreen('adminNotifications')}
+            onProfile={() => setScreen('adminProfile')}
+            onLogout={goToLogin}
+            onSwitchToUser={() => {
+              setPortal('user');
+              setScreen('userHome');
+            }}
             bottomNav={
               <AdminBottomNav
                 activeTab="Dashboard"

@@ -26,7 +26,7 @@ async function createUserAndLogin(role) {
   counter += 1;
   const user = new User({
     username: `${role}${counter}`,
-    mobileNumber: `0300${String(3000000 + counter)}`,
+    mobileNumber: `+92${String(3000000 + counter)}`,
     role,
   });
   await user.setPassword('Passw0rd!');
@@ -58,7 +58,7 @@ describe('POST /api/users', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
         username: 'newmember',
-        mobileNumber: '03001112222',
+        mobileNumber: '+923001112222',
         password: 'StrongPass1',
         collectionId: collection._id.toString(),
       });
@@ -84,7 +84,7 @@ describe('POST /api/users', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
         username: 'shouldfail',
-        mobileNumber: '03001112223',
+        mobileNumber: '+923001112223',
         password: 'StrongPass1',
         collectionId: collection._id.toString(),
       });
@@ -100,7 +100,7 @@ describe('POST /api/users', () => {
       .post('/api/users')
       .send({
         username: 'shouldalsofail',
-        mobileNumber: '03001112224',
+        mobileNumber: '+923001112224',
         password: 'StrongPass1',
         collectionId: collection._id.toString(),
       });
@@ -116,7 +116,7 @@ describe('POST /api/users', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
         username: 'plainmember',
-        mobileNumber: '03001112225',
+        mobileNumber: '+923001112225',
         password: 'StrongPass1',
         collectionId: collection._id.toString(),
       });
@@ -135,7 +135,7 @@ describe('POST /api/users', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
         username: 'spoofattempt',
-        mobileNumber: '03001112226',
+        mobileNumber: '+923001112226',
         password: 'StrongPass1',
         collectionId: collection._id.toString(),
         role: 'admin', // malicious attempt
@@ -155,7 +155,7 @@ describe('POST /api/users', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
         username: 'nocollection',
-        mobileNumber: '03001112227',
+        mobileNumber: '+923001112227',
         password: 'StrongPass1',
         collectionId: fakeCollectionId,
       });
@@ -171,7 +171,7 @@ describe('POST /api/users', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
         username: 'dupeuser',
-        mobileNumber: '03001112228',
+        mobileNumber: '+923001112228',
         password: 'StrongPass1',
         collectionId: collection._id.toString(),
       });
@@ -181,7 +181,7 @@ describe('POST /api/users', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
         username: 'dupeuser',
-        mobileNumber: '03001112229',
+        mobileNumber: '+923001112229',
         password: 'StrongPass1',
         collectionId: collection._id.toString(),
       });
@@ -198,7 +198,7 @@ describe('POST /api/users', () => {
       .set('Authorization', `Bearer ${token}`)
       .send({
         username: 'weakpassuser',
-        mobileNumber: '03001112230',
+        mobileNumber: '+923001112230',
         password: '123',
         collectionId: collection._id.toString(),
       });
@@ -213,7 +213,7 @@ describe('GET /api/users and /api/users/:id', () => {
     const collection = await createCollection();
     const member = new User({
       username: 'vieweduser',
-      mobileNumber: '03005556666',
+      mobileNumber: '+923005556666',
       collectionId: collection._id,
     });
     await member.setPassword('Passw0rd!');
@@ -228,7 +228,7 @@ describe('GET /api/users and /api/users/:id', () => {
       .set('Authorization', `Bearer ${token}`);
     expect(detailRes.status).toBe(200);
     expect(detailRes.body.data.user.username).toBe('vieweduser');
-    expect(detailRes.body.data.user.mobileNumber).toBe('03005556666');
+    expect(detailRes.body.data.user.mobileNumber).toBe('+923005556666');
     expect(detailRes.body.data.user.email).toBeUndefined(); // missing email stays absent, never a placeholder
     expect(detailRes.body.data.user.passwordHash).toBeUndefined();
   });
@@ -248,7 +248,7 @@ describe('PATCH /api/users/:id (profile edit)', () => {
   async function createManagedUser(collection) {
     const user = new User({
       username: 'editableuser',
-      mobileNumber: '03007778888',
+      mobileNumber: '+923007778888',
       collectionId: collection._id,
     });
     await user.setPassword('Passw0rd!');
@@ -278,10 +278,10 @@ describe('PATCH /api/users/:id (profile edit)', () => {
     const res = await request(app)
       .patch(`/api/users/${member._id}`)
       .set('Authorization', `Bearer ${token}`)
-      .send({ mobileNumber: '03009998888' });
+      .send({ mobileNumber: '+923009998888' });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.user.mobileNumber).toBe('03009998888');
+    expect(res.body.data.user.mobileNumber).toBe('+923009998888');
   });
 
   test('admin can add, then change, then remove email', async () => {
@@ -344,7 +344,7 @@ describe('PATCH /api/users/:id/password', () => {
   test('admin can reset a user password, and it is never returned', async () => {
     const { token } = await createUserAndLogin(ROLES.ADMIN);
     const collection = await createCollection();
-    const member = new User({ username: 'pwuser', mobileNumber: '03004445555', collectionId: collection._id });
+    const member = new User({ username: 'pwuser', mobileNumber: '+923004445555', collectionId: collection._id });
     await member.setPassword('OldPassword1');
     await member.save();
 
@@ -366,7 +366,7 @@ describe('PATCH /api/users/:id/password', () => {
   test('normal user cannot reset another user password', async () => {
     const { token } = await createUserAndLogin(ROLES.USER);
     const collection = await createCollection();
-    const member = new User({ username: 'pwuser2', mobileNumber: '03004445556', collectionId: collection._id });
+    const member = new User({ username: 'pwuser2', mobileNumber: '+923004445556', collectionId: collection._id });
     await member.setPassword('OldPassword1');
     await member.save();
 
@@ -383,7 +383,7 @@ describe('PATCH /api/users/:id/activate and /deactivate', () => {
   test('admin can deactivate a user, blocking their login, then reactivate them', async () => {
     const { token } = await createUserAndLogin(ROLES.ADMIN);
     const collection = await createCollection();
-    const member = new User({ username: 'togglestatus', mobileNumber: '03004445557', collectionId: collection._id });
+    const member = new User({ username: 'togglestatus', mobileNumber: '+923004445557', collectionId: collection._id });
     await member.setPassword('Passw0rd!');
     await member.save();
 
@@ -413,7 +413,7 @@ describe('PATCH /api/users/:id/activate and /deactivate', () => {
   test('normal user cannot activate/deactivate users', async () => {
     const { token } = await createUserAndLogin(ROLES.USER);
     const collection = await createCollection();
-    const member = new User({ username: 'protectedstatus', mobileNumber: '03004445558', collectionId: collection._id });
+    const member = new User({ username: 'protectedstatus', mobileNumber: '+923004445558', collectionId: collection._id });
     await member.setPassword('Passw0rd!');
     await member.save();
 
@@ -428,7 +428,7 @@ describe('DELETE /api/users/:id (hard delete)', () => {
   test('admin permanently deletes a user', async () => {
     const { token } = await createUserAndLogin(ROLES.ADMIN);
     const collection = await createCollection();
-    const member = new User({ username: 'todelete', mobileNumber: '03004445559', collectionId: collection._id });
+    const member = new User({ username: 'todelete', mobileNumber: '+923004445559', collectionId: collection._id });
     await member.setPassword('Passw0rd!');
     await member.save();
 
@@ -442,7 +442,7 @@ describe('DELETE /api/users/:id (hard delete)', () => {
   test('a deleted user disappears from admin list/detail views and cannot log in', async () => {
     const { token } = await createUserAndLogin(ROLES.ADMIN);
     const collection = await createCollection();
-    const member = new User({ username: 'deletedgone', mobileNumber: '03004445560', collectionId: collection._id });
+    const member = new User({ username: 'deletedgone', mobileNumber: '+923004445560', collectionId: collection._id });
     await member.setPassword('Passw0rd!');
     await member.save();
 
@@ -463,7 +463,7 @@ describe('DELETE /api/users/:id (hard delete)', () => {
   test('normal user cannot delete a user', async () => {
     const { token } = await createUserAndLogin(ROLES.USER);
     const collection = await createCollection();
-    const member = new User({ username: 'notdeletable', mobileNumber: '03004445561', collectionId: collection._id });
+    const member = new User({ username: 'notdeletable', mobileNumber: '+923004445561', collectionId: collection._id });
     await member.setPassword('Passw0rd!');
     await member.save();
 
@@ -483,7 +483,7 @@ describe('GET /api/contacts', () => {
 
     const currentUser = new User({
       username: 'owneruser',
-      mobileNumber: '03008881111',
+      mobileNumber: '+923008881111',
       email: 'owner@example.com',
       collectionId: collectionA._id,
       role: ROLES.USER,
@@ -493,7 +493,7 @@ describe('GET /api/contacts', () => {
 
     const sameCollectionUser = new User({
       username: 'samecollectionuser',
-      mobileNumber: '03008881112',
+      mobileNumber: '+923008881112',
       email: 'same@example.com',
       collectionId: collectionA._id,
       role: ROLES.USER,
@@ -503,7 +503,7 @@ describe('GET /api/contacts', () => {
 
     const otherCollectionUser = new User({
       username: 'othercollectionuser',
-      mobileNumber: '03008881113',
+      mobileNumber: '+923008881113',
       email: 'other@example.com',
       collectionId: collectionB._id,
       role: ROLES.USER,
@@ -525,7 +525,7 @@ describe('GET /api/contacts', () => {
     expect(res.body.data.contacts).toHaveLength(1);
     expect(res.body.data.contacts[0]._id.toString()).toBe(sameCollectionUser._id.toString());
     expect(res.body.data.contacts[0].username).toBe('samecollectionuser');
-    expect(res.body.data.contacts[0].mobileNumber).toBe('03008881112');
+    expect(res.body.data.contacts[0].mobileNumber).toBe('+923008881112');
     expect(res.body.data.contacts[0].email).toBe('same@example.com');
     expect(res.body.data.contacts[0].passwordHash).toBeUndefined();
     expect(res.body.data.contacts.some(c => c._id.toString() === currentUser._id.toString())).toBe(false);

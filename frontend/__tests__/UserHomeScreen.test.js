@@ -5,26 +5,14 @@ import {
   checkSosPermissions,
   createInitialSosPermissionState,
   openSosPermissionSettings,
-  requestRequiredPermissions,
   requestSosPermission,
-  SOS_TRIGGER_PERMISSIONS,
-  subscribeToPermissionChanges,
 } from '../src/permissions/sosPermissions';
 
 jest.mock('../src/permissions/sosPermissions', () => ({
   checkSosPermissions: jest.fn(),
   createInitialSosPermissionState: jest.fn(),
   openSosPermissionSettings: jest.fn(),
-  requestRequiredPermissions: jest.fn(),
   requestSosPermission: jest.fn(),
-  SOS_TRIGGER_PERMISSIONS: [
-    {key: 'location', title: 'Location', description: 'Location access is required.'},
-    {key: 'camera', title: 'Camera', description: 'Camera access is required.'},
-    {key: 'audio', title: 'Microphone', description: 'Microphone access is required.'},
-    {key: 'call', title: 'Phone', description: 'Phone access is required.'},
-    {key: 'notifications', title: 'Notifications', description: 'Notifications access is required.'},
-  ],
-  subscribeToPermissionChanges: jest.fn(() => jest.fn()),
 }));
 
 const deniedState = {

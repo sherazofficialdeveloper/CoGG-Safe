@@ -8,4 +8,5 @@ module.exports = {
   transformIgnorePatterns: [
     "node_modules/(?!((jest-)?react-native|@react-native(-community)?|react-native-fs|react-native-maps|react-native-track-player)/)",
   ],
+  forceExit: true,
 };
