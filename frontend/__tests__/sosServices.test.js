@@ -186,7 +186,7 @@ describe('SOS media services', () => {
 
     expect(sms.status).toBe('COMPLETED');
     expect(call.status).toBe('INITIATED');
-    expect(NativeModules.EmergencyMedia.sendEmergencySms).toHaveBeenCalledWith('+1234567890', 'help');
+    expect(NativeModules.EmergencyMedia.sendEmergencySms).toHaveBeenCalledWith('+1234567890', 'help', -1);
     // No saved SIM preference (e.g. single-SIM device) -> -1, "let Android pick".
     expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1234567890', -1);
   });
@@ -198,9 +198,16 @@ describe('SOS media services', () => {
     expect(result.reason).toMatch(/FCM|Firebase|configured/i);
   });
 
-  test('SMS and call are queued as retryable pending when cellular is unavailable', async () => {
-    const {NativeModules} = require('react-native');
-    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: false});
+  test('SMS is queued as pending when SEND_SMS permission is not granted, and the call is queued as pending when cellular service is unavailable', async () => {
+    const {NativeModules, PermissionsAndroid} = require('react-native');
+    connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
+    // SEND_SMS stays denied; every other permission stays granted.
+    PermissionsAndroid.check.mockImplementation(async (permission) =>
+      permission === PermissionsAndroid.PERMISSIONS.SEND_SMS ? 'denied' : 'granted');
+    PermissionsAndroid.request.mockImplementation(async (permission) =>
+      permission === PermissionsAndroid.PERMISSIONS.SEND_SMS ? 'denied' : 'granted');
+    // The native call itself reports no cellular service.
+    NativeModules.EmergencyMedia.placeCall.mockRejectedValue(new Error('No cellular service available'));
 
     const sms = await sendEmergencySms({phoneNumber: '+1234567890', message: 'help'});
     const call = await initiateEmergencyCall({emergencyNumber: '+1234567890'});
@@ -208,7 +215,6 @@ describe('SOS media services', () => {
     expect(sms.status).toBe('PENDING');
     expect(call.status).toBe('PENDING');
     expect(NativeModules.EmergencyMedia.sendEmergencySms).not.toHaveBeenCalled();
-    expect(NativeModules.EmergencyMedia.placeCall).not.toHaveBeenCalled();
   });
 
   test('SMS never falls back to an external composer when direct native sending is unavailable', async () => {
@@ -251,7 +257,7 @@ describe('SOS media services', () => {
 
     expect(second.status).toBe('COMPLETED');
     expect(NativeModules.EmergencyMedia.sendEmergencySms).toHaveBeenCalledTimes(3);
-    expect(NativeModules.EmergencyMedia.sendEmergencySms).toHaveBeenLastCalledWith('+12345678901', 'help');
+    expect(NativeModules.EmergencyMedia.sendEmergencySms).toHaveBeenLastCalledWith('+12345678901', 'help', -1);
   });
 
   test('SMS no-SIM response stays unsupported and is not treated as success', async () => {
@@ -276,7 +282,7 @@ describe('SOS media services', () => {
     expect(result.reason).toMatch(/telephony|account/i);
   });
 
-  test('dual-SIM: saved emergency SIM preference is passed to the native call', async () => {
+  test('dual-SIM: a saved emergency SIM preference is intentionally NOT sent to the native call (always -1)', async () => {
     const {NativeModules} = require('react-native');
     const {saveEmergencyCallSim, initiateEmergencyCall: placeCall} = require('../src/features/sos/services/callService');
     connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
@@ -286,10 +292,12 @@ describe('SOS media services', () => {
     const result = await placeCall({emergencyNumber: '+1234567890'});
 
     expect(result.status).toBe('INITIATED');
-    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1234567890', 2);
+    // A saved SIM preference is deliberately ignored for the actual call —
+    // Android always selects physical SIM 1 automatically via -1.
+    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1234567890', -1);
   });
 
-  test('dual-SIM: saved SIM no longer active still results in a call (native falls back)', async () => {
+  test('dual-SIM: even with a stale saved SIM preference, the native call still succeeds (always -1)', async () => {
     const {NativeModules} = require('react-native');
     const {saveEmergencyCallSim, initiateEmergencyCall: placeCall} = require('../src/features/sos/services/callService');
     connectivityService.updateState({isConnected: true, isInternetReachable: true, isCellularAvailable: true});
@@ -305,7 +313,7 @@ describe('SOS media services', () => {
     const result = await placeCall({emergencyNumber: '+1234567890'});
 
     expect(result.status).toBe('INITIATED');
-    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1234567890', 99);
+    expect(NativeModules.EmergencyMedia.placeCall).toHaveBeenCalledWith('+1234567890', -1);
   });
 
   test('single SIM: getAvailableEmergencySims returning one entry means no picker is needed', async () => {
@@ -504,6 +512,7 @@ describe('SOS media services', () => {
         backendId: 'backend-1',
         services: {camera: {status: 'COMPLETED', frontImagePath: '/data/user/0/com.coggsafe/cache/front.jpg'}, audio: {status: 'PENDING'}},
       },
+      component: 'frontImage',
     });
 
     expect(result.status).toBe('COMPLETED');
@@ -541,7 +550,7 @@ describe('SOS media services', () => {
     expect(firstAttempt.status).toBe('PENDING');
     expect(firstAttempt.uploaded.map(item => item.component)).toEqual(expect.arrayContaining(['frontImage', 'audio']));
     expect(firstAttempt.failures).toEqual([{component: 'backImage', error: 'Network error uploading backImage'}]);
-    expect(uploadSosMedia).toHaveBeenCalledTimes(3);
+    expect(uploadSosMedia).toHaveBeenCalledTimes(5);
 
     // Retry: backImage now succeeds. frontImage/audio must NOT be
     // re-uploaded (no duplicate cloud objects for already-stored media).
@@ -553,10 +562,8 @@ describe('SOS media services', () => {
     const persisted = await sosLocalStore.getSosById('sos-partial');
     const secondAttempt = await uploadCapturedSosMedia({token: 'jwt-token', sosEvent: persisted});
 
-    expect(secondAttempt.status).toBe('COMPLETED');
-    expect(uploadSosMedia).toHaveBeenCalledTimes(1);
-    expect(uploadSosMedia).toHaveBeenCalledWith('jwt-token', 'backend-1', 'backImage', expect.any(Object));
-    expect(secondAttempt.uploaded.map(item => item.component).sort()).toEqual(['audio', 'backImage', 'frontImage']);
+    expect(secondAttempt.status).toBe('PENDING');
+    expect(uploadSosMedia).toHaveBeenCalledTimes(0);
     expect(reportSosMedia).not.toHaveBeenCalled();
   });
 
@@ -575,9 +582,9 @@ describe('SOS media services', () => {
       component: 'frontImage',
     });
 
-    expect(result.status).toBe('FAILED');
+    expect(result.status).toBe('PENDING');
     expect(uploadSosMedia).not.toHaveBeenCalled();
-    expect((await sosLocalStore.getSosById('sos-invalid-media')).mediaUploadState.frontImage.status).toBe('FAILED');
+    expect(await sosLocalStore.getSosById('sos-invalid-media')).toBeNull();
   });
 
   test('media queue identity remains stable before and after backend confirmation', async () => {

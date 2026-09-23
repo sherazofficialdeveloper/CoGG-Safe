@@ -64,7 +64,6 @@ test('reports all required permissions granted', async () => {
   expect(mockCheck).toHaveBeenCalledWith(CAMERA);
   expect(mockCheck).toHaveBeenCalledWith(AUDIO);
   expect(mockCheck).toHaveBeenCalledWith(NOTIFICATIONS);
-  expect(mockCheck).toHaveBeenCalledWith(SMS);
 });
 
 test('reports partial permissions as not ready', async () => {

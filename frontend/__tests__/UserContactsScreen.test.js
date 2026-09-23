@@ -32,7 +32,7 @@ describe('UserContactsScreen', () => {
       }
     });
 
-    expect(listContacts).toHaveBeenCalledWith('abc');
+    expect(listContacts).toHaveBeenCalledWith('abc', undefined, {forceRefresh: true});
 
     const textValues = renderer.root.findAllByType(Text).map(node => node.props.children).flat(Infinity).join('');
     expect(textValues).toContain('alice');
