@@ -1,5 +1,6 @@
 // UserProfileScreen.js
 import React, {useEffect, useState} from 'react';
+import {getUserInitials} from '../utils/userInitials';
 import {
   View,
   Text,
@@ -118,7 +119,7 @@ const UserProfileScreen = ({
 
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>
-            {user?.username ? user.username[0].toUpperCase() : 'U'}
+            {getUserInitials(user?.username)}
           </Text>
         </View>
 

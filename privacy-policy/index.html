@@ -1,285 +1,1049 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Privacy Policy — CoGG Safe</title>
-<style>
-  :root {
-    --bg: #0f172a;
-    --card: #ffffff;
-    --text: #1e293b;
-    --muted: #64748b;
-    --accent: #dc2626;
-    --border: #e2e8f0;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    background: #f1f5f9;
-    color: var(--text);
-    line-height: 1.6;
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  header {
-    background: var(--bg);
-    color: #fff;
-    padding: 40px 20px 32px;
-    text-align: center;
-  }
-  header h1 { margin: 0 0 8px; font-size: 1.6rem; }
-  header p { margin: 0; color: #cbd5e1; font-size: 0.95rem; }
-  main {
-    max-width: 760px;
-    margin: -24px auto 60px;
-    padding: 0 16px;
-  }
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 28px 28px 8px;
-    margin-bottom: 20px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-  }
-  h2 {
-    font-size: 1.15rem;
-    margin-top: 0;
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--border);
-  }
-  h3 { font-size: 1rem; margin-bottom: 6px; }
-  p, li { color: var(--text); font-size: 0.97rem; }
-  ul { padding-left: 20px; }
-  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 0.92rem; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; }
-  .muted { color: var(--muted); font-size: 0.88rem; }
-  .toc { columns: 2; column-gap: 24px; padding-left: 18px; }
-  .toc li { margin-bottom: 4px; font-size: 0.92rem; }
-  .toc a { color: var(--text); text-decoration: none; }
-  .toc a:hover { text-decoration: underline; }
-  footer { text-align: center; padding: 24px; color: var(--muted); font-size: 0.85rem; }
-  a { color: var(--accent); }
-  .placeholder { background: #fff7ed; color: #9a3412; padding: 1px 5px; border-radius: 4px; font-size: 0.88em; }
-  code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 0.88em; }
-</style>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  />
+
+  <title>Privacy Policy | CoGG Safe</title>
+
+  <meta
+    name="description"
+    content="Privacy Policy for CoGG Safe, operated by Waqas Bashir under the CityEnforce brand."
+  />
+
+  <meta name="theme-color" content="#0f172a" />
+
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --primary-light: #eff6ff;
+      --text: #172033;
+      --muted: #64748b;
+      --heading: #0f172a;
+      --border: #e2e8f0;
+      --background: #f8fafc;
+      --white: #ffffff;
+      --success: #059669;
+      --shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+      --radius: 18px;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      font-family:
+        Inter,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        Roboto,
+        Helvetica,
+        Arial,
+        sans-serif;
+      background:
+        linear-gradient(
+          180deg,
+          #eff6ff 0,
+          #f8fafc 320px,
+          #f8fafc 100%
+        );
+      color: var(--text);
+      line-height: 1.7;
+    }
+
+    a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .page {
+      width: 100%;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .hero {
+      padding: 70px 20px 90px;
+      color: #ffffff;
+      background:
+        radial-gradient(
+          circle at 15% 20%,
+          rgba(59, 130, 246, 0.25),
+          transparent 32%
+        ),
+        radial-gradient(
+          circle at 85% 10%,
+          rgba(14, 165, 233, 0.2),
+          transparent 28%
+        ),
+        linear-gradient(135deg, #0f172a, #172554 55%, #1e40af);
+    }
+
+    .hero-inner {
+      max-width: 1080px;
+      margin: 0 auto;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 30px;
+    }
+
+    .brand-mark {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      font-size: 21px;
+      font-weight: 800;
+      letter-spacing: -1px;
+      backdrop-filter: blur(10px);
+    }
+
+    .brand-name {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      padding: 7px 12px;
+      margin-bottom: 18px;
+      border: 1px solid rgba(147, 197, 253, 0.35);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      color: #bfdbfe;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+    }
+
+    .hero h1 {
+      max-width: 800px;
+      margin-bottom: 18px;
+      color: #ffffff;
+      font-size: clamp(38px, 6vw, 62px);
+      line-height: 1.08;
+      letter-spacing: -2.5px;
+    }
+
+    .hero-description {
+      max-width: 720px;
+      color: #cbd5e1;
+      font-size: 18px;
+      line-height: 1.75;
+    }
+
+    .effective-date {
+      margin-top: 25px;
+      color: #dbeafe;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    /* Main */
+    .content-wrapper {
+      max-width: 1080px;
+      margin: -45px auto 0;
+      padding: 0 20px 60px;
+      position: relative;
+    }
+
+    .overview {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 30px;
+    }
+
+    .overview-card {
+      padding: 20px;
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+    }
+
+    .overview-label {
+      margin-bottom: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    .overview-value {
+      color: var(--heading);
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .policy {
+      background: var(--white);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .policy-section {
+      padding: 38px 42px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .policy-section:last-child {
+      border-bottom: 0;
+    }
+
+    .section-number {
+      display: inline-flex;
+      width: 34px;
+      height: 34px;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 12px;
+      border-radius: 10px;
+      background: var(--primary-light);
+      color: var(--primary);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    h2 {
+      margin-bottom: 14px;
+      color: var(--heading);
+      font-size: 25px;
+      line-height: 1.3;
+      letter-spacing: -0.5px;
+    }
+
+    h3 {
+      margin: 24px 0 10px;
+      color: var(--heading);
+      font-size: 17px;
+    }
+
+    p {
+      margin-bottom: 15px;
+      color: #475569;
+      font-size: 15px;
+    }
+
+    p:last-child {
+      margin-bottom: 0;
+    }
+
+    ul {
+      margin: 12px 0 18px 20px;
+      color: #475569;
+    }
+
+    li {
+      margin-bottom: 9px;
+      padding-left: 4px;
+      font-size: 15px;
+    }
+
+    strong {
+      color: #1e293b;
+    }
+
+    /* Highlight */
+    .highlight {
+      margin: 20px 0;
+      padding: 18px 20px;
+      border-left: 4px solid var(--primary);
+      border-radius: 10px;
+      background: var(--primary-light);
+      color: #334155;
+    }
+
+    .highlight strong {
+      color: #1d4ed8;
+    }
+
+    .success-box {
+      margin: 20px 0;
+      padding: 18px 20px;
+      border-left: 4px solid var(--success);
+      border-radius: 10px;
+      background: #ecfdf5;
+      color: #334155;
+    }
+
+    .success-box strong {
+      color: #047857;
+    }
+
+    /* Info table */
+    .info-table-wrapper {
+      width: 100%;
+      overflow-x: auto;
+      margin-top: 20px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+
+    .info-table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 600px;
+    }
+
+    .info-table th,
+    .info-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      font-size: 14px;
+    }
+
+    .info-table th {
+      width: 34%;
+      background: #f8fafc;
+      color: #334155;
+      font-weight: 700;
+    }
+
+    .info-table td {
+      color: #475569;
+    }
+
+    .info-table tr:last-child th,
+    .info-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    /* Contact */
+    .contact-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 25px;
+      margin-top: 20px;
+      padding: 22px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: #f8fafc;
+    }
+
+    .contact-title {
+      margin-bottom: 3px;
+      color: var(--heading);
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .contact-description {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .contact-button {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 11px 17px;
+      border-radius: 10px;
+      background: var(--primary);
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: none;
+      transition:
+        background 0.2s ease,
+        transform 0.2s ease;
+    }
+
+    .contact-button:hover {
+      background: var(--primary-dark);
+      text-decoration: none;
+      transform: translateY(-1px);
+    }
+
+    /* Footer */
+    footer {
+      padding: 35px 20px 45px;
+      text-align: center;
+    }
+
+    .footer-inner {
+      max-width: 1080px;
+      margin: 0 auto;
+    }
+
+    .footer-brand {
+      margin-bottom: 8px;
+      color: var(--heading);
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .footer-text {
+      margin-bottom: 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .developer {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .developer a {
+      color: var(--primary);
+      font-weight: 700;
+    }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      .overview {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    @media (max-width: 700px) {
+      .hero {
+        padding: 50px 20px 75px;
+      }
+
+      .hero h1 {
+        font-size: 40px;
+        letter-spacing: -1.5px;
+      }
+
+      .hero-description {
+        font-size: 16px;
+      }
+
+      .content-wrapper {
+        margin-top: -35px;
+      }
+
+      .policy-section {
+        padding: 30px 24px;
+      }
+
+      .overview {
+        grid-template-columns: 1fr;
+      }
+
+      .contact-card {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .contact-button {
+        width: 100%;
+      }
+    }
+
+    @media (max-width: 420px) {
+      .hero h1 {
+        font-size: 34px;
+      }
+
+      .policy-section {
+        padding: 26px 20px;
+      }
+
+      h2 {
+        font-size: 22px;
+      }
+    }
+  </style>
 </head>
+
 <body>
+  <div class="page">
 
-<header>
-  <h1>Privacy Policy</h1>
-  <p>CoGG Safe &nbsp;•&nbsp; Effective date: <span class="placeholder">[EFFECTIVE_DATE]</span></p>
-</header>
+    <!-- Hero -->
+    <header class="hero">
+      <div class="hero-inner">
 
-<main>
+        <div class="brand">
+          <div class="brand-mark">CS</div>
+          <div class="brand-name">CoGG Safe</div>
+        </div>
 
-  <div class="card">
-    <p>
-      This Privacy Policy explains how <strong><span class="placeholder">[COMPANY_NAME]</span></strong>
-      (&ldquo;we&rdquo;, &ldquo;us&rdquo;, &ldquo;our&rdquo;) collects, uses, stores and shares information
-      through the <strong>CoGG Safe</strong> mobile application and related services (together, the
-      &ldquo;Service&rdquo;). CoGG Safe is a personal-safety / SOS application: by its nature it is designed
-      to capture and share sensitive information — including your precise location, photos, audio and
-      messages — <em>at the moment you trigger an SOS</em>, so that your group members, administrators and
-      emergency contacts can respond.
-    </p>
-    <p>Please read this policy carefully before using the app. By using CoGG Safe, you agree to the collection and use of information as described here.</p>
-    <p class="toc-title"><strong>Contents</strong></p>
-    <ul class="toc">
-      <li><a href="#info-we-collect">1. Information we collect</a></li>
-      <li><a href="#how-we-use">2. How we use your information</a></li>
-      <li><a href="#sos-sharing">3. What happens during an SOS</a></li>
-      <li><a href="#permissions">4. Permissions the app requests</a></li>
-      <li><a href="#third-parties">5. Third-party services</a></li>
-      <li><a href="#retention">6. Data retention</a></li>
-      <li><a href="#security">7. Data security</a></li>
-      <li><a href="#sharing">8. Sharing and disclosure</a></li>
-      <li><a href="#rights">9. Your rights and choices</a></li>
-      <li><a href="#children">10. Children's privacy</a></li>
-      <li><a href="#transfers">11. International data transfers</a></li>
-      <li><a href="#changes">12. Changes to this policy</a></li>
-      <li><a href="#contact">13. Contact us</a></li>
-    </ul>
+        <div class="eyebrow">Privacy Policy</div>
+
+        <h1>
+          Your privacy and safety matter to us.
+        </h1>
+
+        <p class="hero-description">
+          This Privacy Policy explains how CoGG Safe collects, uses,
+          stores, protects, and manages information when you use the
+          application and its emergency safety features.
+        </p>
+
+        <div class="effective-date">
+          Effective Date: September 23, 2026
+        </div>
+
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="content-wrapper">
+
+      <!-- Overview -->
+      <section class="overview">
+
+        <div class="overview-card">
+          <div class="overview-label">Operator</div>
+          <div class="overview-value">Waqas Bashir</div>
+        </div>
+
+        <div class="overview-card">
+          <div class="overview-label">Brand</div>
+          <div class="overview-value">CityEnforce</div>
+        </div>
+
+        <div class="overview-card">
+          <div class="overview-label">Availability</div>
+          <div class="overview-value">Worldwide</div>
+        </div>
+
+        <div class="overview-card">
+          <div class="overview-label">Contact</div>
+          <div class="overview-value">cityenforce@gmail.com</div>
+        </div>
+
+      </section>
+
+      <article class="policy">
+
+        <!-- 1 -->
+        <section class="policy-section">
+          <div class="section-number">01</div>
+          <h2>Introduction</h2>
+
+          <p>
+            CoGG Safe is a safety and emergency assistance application
+            operated by <strong>Waqas Bashir</strong> under the
+            <strong>CityEnforce</strong> brand.
+          </p>
+
+          <p>
+            This Privacy Policy describes how information may be
+            collected and processed when you use CoGG Safe, including
+            its SOS, location, communication, account, and media-related
+            features.
+          </p>
+
+          <p>
+            By using CoGG Safe, you acknowledge that you have read and
+            understood this Privacy Policy.
+          </p>
+        </section>
+
+        <!-- 2 -->
+        <section class="policy-section">
+          <div class="section-number">02</div>
+          <h2>Who Operates CoGG Safe?</h2>
+
+          <p>
+            CoGG Safe is operated by:
+          </p>
+
+          <div class="info-table-wrapper">
+            <table class="info-table">
+              <tr>
+                <th>Operator</th>
+                <td>Waqas Bashir</td>
+              </tr>
+
+              <tr>
+                <th>Brand / Business</th>
+                <td>CityEnforce</td>
+              </tr>
+
+              <tr>
+                <th>Contact Email</th>
+                <td>
+                  <a href="mailto:cityenforce@gmail.com">
+                    cityenforce@gmail.com
+                  </a>
+                </td>
+              </tr>
+
+              <tr>
+                <th>Company Address</th>
+                <td>Not provided</td>
+              </tr>
+
+              <tr>
+                <th>Service Availability</th>
+                <td>Worldwide</td>
+              </tr>
+            </table>
+          </div>
+
+          <p style="margin-top: 18px;">
+            CityEnforce is currently operated as an unregistered
+            business/brand. No company registration status is being
+            represented by this Privacy Policy.
+          </p>
+        </section>
+
+        <!-- 3 -->
+        <section class="policy-section">
+          <div class="section-number">03</div>
+          <h2>Information We May Collect</h2>
+
+          <p>
+            Depending on the features you use, CoGG Safe may process
+            the following categories of information:
+          </p>
+
+          <h3>Account Information</h3>
+
+          <ul>
+            <li>Username or account identifier</li>
+            <li>Mobile phone number</li>
+            <li>Email address, where provided</li>
+            <li>Account authentication information</li>
+            <li>User role and account-related information</li>
+          </ul>
+
+          <h3>Emergency and SOS Information</h3>
+
+          <ul>
+            <li>SOS event information</li>
+            <li>Emergency status and timestamps</li>
+            <li>Emergency recipient information</li>
+            <li>Location information associated with an SOS event</li>
+            <li>Images and short audio recordings associated with an SOS event</li>
+          </ul>
+
+          <h3>Location Information</h3>
+
+          <p>
+            When location-related features are enabled and permission
+            is granted, CoGG Safe may process your device location to
+            provide emergency and live-location functionality.
+          </p>
+
+          <div class="highlight">
+            <strong>Live Location Limit:</strong>
+            Live location sharing automatically stops after a maximum
+            period of 3 hours.
+          </div>
+        </section>
+
+        <!-- 4 -->
+        <section class="policy-section">
+          <div class="section-number">04</div>
+          <h2>How We Use Information</h2>
+
+          <p>
+            Information processed by CoGG Safe may be used for purposes
+            including:
+          </p>
+
+          <ul>
+            <li>Creating and managing authorized user accounts</li>
+            <li>Authenticating users</li>
+            <li>Providing SOS and emergency assistance functionality</li>
+            <li>Sharing emergency information with authorized recipients</li>
+            <li>Providing live-location functionality when enabled</li>
+            <li>Sending emergency-related communications</li>
+            <li>Storing and synchronizing SOS information</li>
+            <li>Maintaining and operating the application</li>
+            <li>Protecting the security and integrity of the service</li>
+            <li>Investigating technical problems and service issues</li>
+          </ul>
+
+          <p>
+            Information is not intended to be collected for unrelated
+            purposes outside the functionality and operation of CoGG Safe.
+          </p>
+        </section>
+
+        <!-- 5 -->
+        <section class="policy-section">
+          <div class="section-number">05</div>
+          <h2>SOS and Emergency Data</h2>
+
+          <p>
+            CoGG Safe is designed to provide emergency assistance
+            functionality. When an SOS event is initiated, the
+            application may process information required to support
+            the emergency workflow.
+          </p>
+
+          <p>
+            Depending on the features enabled and available connectivity,
+            this may include location information, emergency contact
+            information, images, short audio recordings, timestamps,
+            and other information associated with the SOS event.
+          </p>
+
+          <div class="success-box">
+            <strong>Emergency media:</strong>
+            SOS-related media may be stored using Cloudflare R2 as part
+            of the application's emergency data infrastructure.
+          </div>
+        </section>
+
+        <!-- 6 -->
+        <section class="policy-section">
+          <div class="section-number">06</div>
+          <h2>Live Location</h2>
+
+          <p>
+            CoGG Safe may provide live-location functionality for
+            emergency and safety purposes when the required permissions
+            have been granted.
+          </p>
+
+          <p>
+            Live location is limited to a maximum period of
+            <strong>3 hours</strong>. After this period, live-location
+            sharing automatically stops.
+          </p>
+
+          <p>
+            Location information may also be associated with an SOS
+            event where required to support emergency functionality.
+          </p>
+        </section>
+
+        <!-- 7 -->
+        <section class="policy-section">
+          <div class="section-number">07</div>
+          <h2>Data Storage and Infrastructure</h2>
+
+          <p>
+            CoGG Safe uses third-party infrastructure providers to
+            operate its backend services and store application data.
+          </p>
+
+          <div class="info-table-wrapper">
+            <table class="info-table">
+              <tr>
+                <th>Backend Hosting</th>
+                <td>Railway</td>
+              </tr>
+
+              <tr>
+                <th>Database</th>
+                <td>MongoDB</td>
+              </tr>
+
+              <tr>
+                <th>SOS Media Storage</th>
+                <td>Cloudflare R2</td>
+              </tr>
+
+              <tr>
+                <th>Email Service</th>
+                <td>Gmail</td>
+              </tr>
+            </table>
+          </div>
+
+          <p style="margin-top: 18px;">
+            These services may process or store information as required
+            to provide the application's functionality. Their processing
+            is also subject to their respective terms and privacy
+            practices.
+          </p>
+        </section>
+
+        <!-- 8 -->
+        <section class="policy-section">
+          <div class="section-number">08</div>
+          <h2>SOS Data Retention</h2>
+
+          <p>
+            SOS information does not have a single fixed automatic
+            deletion period specified by this policy.
+          </p>
+
+          <p>
+            An authorized administrator may delete SOS information after
+            1 day or may retain it for as long as the administrator
+            determines is necessary for the operation of the service.
+          </p>
+
+          <div class="highlight">
+            <strong>Retention control:</strong>
+            SOS data retention is managed through authorized
+            administrative controls.
+          </div>
+        </section>
+
+        <!-- 9 -->
+        <section class="policy-section">
+          <div class="section-number">09</div>
+          <h2>Account Access and Authentication</h2>
+
+          <p>
+            CoGG Safe is not an unrestricted public-registration service.
+            Access is controlled by authorized administrators.
+          </p>
+
+          <p>
+            Only users who receive valid login credentials from an
+            authorized administrator are permitted to log in and use
+            the application.
+          </p>
+
+          <p>
+            Users are responsible for keeping their login credentials
+            confidential and should not share them with unauthorized
+            individuals.
+          </p>
+        </section>
+
+        <!-- 10 -->
+        <section class="policy-section">
+          <div class="section-number">10</div>
+          <h2>Email and Communications</h2>
+
+          <p>
+            CoGG Safe may use email communication for application-related
+            notifications and operational purposes.
+          </p>
+
+          <p>
+            The service uses <strong>Gmail</strong> as its email service.
+          </p>
+
+          <p>
+            The primary contact email for privacy and service-related
+            inquiries is:
+          </p>
+
+          <p>
+            <a href="mailto:cityenforce@gmail.com">
+              <strong>cityenforce@gmail.com</strong>
+            </a>
+          </p>
+        </section>
+
+        <!-- 11 -->
+        <section class="policy-section">
+          <div class="section-number">11</div>
+          <h2>Data Security</h2>
+
+          <p>
+            Reasonable technical and administrative measures are used
+            to help protect information processed through CoGG Safe.
+          </p>
+
+          <p>
+            These measures may include authenticated access, controlled
+            administrative permissions, secure backend communication,
+            protected database access, and controlled access to stored
+            media.
+          </p>
+
+          <p>
+            However, no internet-based service or electronic storage
+            system can be guaranteed to be completely secure.
+          </p>
+        </section>
+
+        <!-- 12 -->
+        <section class="policy-section">
+          <div class="section-number">12</div>
+          <h2>Third-Party Services</h2>
+
+          <p>
+            CoGG Safe relies on infrastructure and communication
+            providers to operate certain features.
+          </p>
+
+          <p>
+            These may include:
+          </p>
+
+          <ul>
+            <li>Railway for backend hosting</li>
+            <li>MongoDB for database services</li>
+            <li>Cloudflare R2 for SOS media storage</li>
+            <li>Gmail for email services</li>
+          </ul>
+
+          <p>
+            Third-party providers may process information according to
+            their own terms, security practices, and privacy policies.
+          </p>
+        </section>
+
+        <!-- 13 -->
+        <section class="policy-section">
+          <div class="section-number">13</div>
+          <h2>International Use</h2>
+
+          <p>
+            CoGG Safe is intended to be available to authorized users
+            worldwide.
+          </p>
+
+          <p>
+            Because the service may be used from different countries,
+            information may be processed through infrastructure located
+            in jurisdictions different from the country where a user
+            accesses the application.
+          </p>
+
+          <p>
+            Users are responsible for using the service in accordance
+            with applicable local laws and regulations.
+          </p>
+        </section>
+
+        <!-- 14 -->
+        <section class="policy-section">
+          <div class="section-number">14</div>
+          <h2>User Responsibilities</h2>
+
+          <p>
+            Users should:
+          </p>
+
+          <ul>
+            <li>Keep their login credentials secure.</li>
+            <li>Use the application only for legitimate safety purposes.</li>
+            <li>Provide accurate information where required.</li>
+            <li>Grant location and other permissions only when they understand the related functionality.</li>
+            <li>Not attempt to access another person's account.</li>
+            <li>Not misuse emergency or SOS functionality.</li>
+          </ul>
+        </section>
+
+        <!-- 15 -->
+        <section class="policy-section">
+          <div class="section-number">15</div>
+          <h2>Children and Minors</h2>
+
+          <p>
+            CoGG Safe is not intended to knowingly collect personal
+            information from children in violation of applicable laws.
+          </p>
+
+          <p>
+            If you believe that a child has provided personal information
+            without appropriate authorization, please contact us so that
+            the matter can be reviewed and appropriate action can be
+            considered.
+          </p>
+        </section>
+
+        <!-- 16 -->
+        <section class="policy-section">
+          <div class="section-number">16</div>
+          <h2>Changes to This Privacy Policy</h2>
+
+          <p>
+            This Privacy Policy may be updated from time to time to
+            reflect changes to the application, its functionality,
+            infrastructure, or applicable requirements.
+          </p>
+
+          <p>
+            When changes are made, the updated policy will be published
+            through the appropriate CoGG Safe privacy-policy page.
+          </p>
+
+          <p>
+            The effective date shown at the beginning of this policy
+            indicates the date from which the current version applies.
+          </p>
+        </section>
+
+        <!-- 17 -->
+        <section class="policy-section">
+          <div class="section-number">17</div>
+          <h2>Contact Us</h2>
+
+          <p>
+            If you have questions, concerns, or requests regarding this
+            Privacy Policy or the handling of information by CoGG Safe,
+            you can contact the operator using the email address below.
+          </p>
+
+          <div class="contact-card">
+            <div>
+              <div class="contact-title">
+                CityEnforce
+              </div>
+
+              <div class="contact-description">
+                Privacy and CoGG Safe inquiries
+              </div>
+            </div>
+
+            <a
+              class="contact-button"
+              href="mailto:cityenforce@gmail.com"
+            >
+              Contact Us
+            </a>
+          </div>
+        </section>
+
+      </article>
+    </main>
+
+    <!-- Footer -->
+    <footer>
+      <div class="footer-inner">
+
+        <div class="footer-brand">
+          CoGG Safe
+        </div>
+
+        <p class="footer-text">
+          Privacy Policy effective September 23, 2026.
+        </p>
+
+        <div class="developer">
+          Developed by
+          <a
+            href="https://wa.me/923486346858"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Sheraz Ali Developer
+          </a>
+        </div>
+
+      </div>
+    </footer>
+
   </div>
-
-  <div class="card" id="info-we-collect">
-    <h2>1. Information we collect</h2>
-
-    <h3>Account &amp; profile information</h3>
-    <ul>
-      <li>Name, username, email address, mobile number</li>
-      <li>Password (stored as a secure hash, never in plain text)</li>
-      <li>Group / collection membership and role (user or administrator)</li>
-      <li>Profile details you choose to add (e.g. emergency contacts)</li>
-    </ul>
-
-    <h3>Information collected automatically</h3>
-    <ul>
-      <li>Push-notification device token</li>
-      <li>App and device diagnostics needed to operate the SOS feature (e.g. device model, OS version, app version)</li>
-    </ul>
-
-    <h3>Information collected when you use the SOS feature</h3>
-    <table>
-      <tr><th>Data</th><th>When it is collected</th></tr>
-      <tr><td>Precise GPS location</td><td>When an SOS is triggered, and continuously while live location sharing is active (up to <span class="placeholder">[MAX_LIVE_LOCATION_HOURS]</span> hours or until you stop it)</td></tr>
-      <tr><td>Front and back camera photos</td><td>Automatically captured when an SOS is triggered, as evidence for responders</td></tr>
-      <tr><td>Audio recording</td><td>Automatically captured when an SOS is triggered</td></tr>
-      <tr><td>SMS content and recipient numbers</td><td>When the app sends an emergency SMS from your device</td></tr>
-      <tr><td>Call metadata (number dialled, time)</td><td>When the app places an emergency call from your device</td></tr>
-    </table>
-    <p class="muted">Media, location, call and SMS data are collected only in connection with an SOS event that you (or, in the case of the volume-button trigger, your device) initiate — the app does not track your location or record audio/video in the background outside of an active SOS.</p>
-  </div>
-
-  <div class="card" id="how-we-use">
-    <h2>2. How we use your information</h2>
-    <ul>
-      <li>To operate the core safety feature: create and dispatch SOS events, and notify your group's administrators and members</li>
-      <li>To authenticate you and maintain your account</li>
-      <li>To generate the public, time-limited emergency link that lets a responder view an active SOS without installing the app</li>
-      <li>To send push notifications and email alerts related to SOS events</li>
-      <li>To maintain SOS and notification history inside the app</li>
-      <li>To monitor, secure and troubleshoot the Service (e.g. rate-limiting abusive logins)</li>
-      <li>To comply with legal obligations, where applicable</li>
-    </ul>
-    <p>We do <strong>not</strong> use your SOS media, location or message content for advertising, and we do not sell this data.</p>
-  </div>
-
-  <div class="card" id="sos-sharing">
-    <h2>3. What happens during an SOS</h2>
-    <p>Triggering an SOS is a deliberate sharing action. When it happens:</p>
-    <ul>
-      <li>Your group's administrators and other active members of your group are notified (push notification and/or email).</li>
-      <li>Your live location, captured photos and audio become visible to your group's administrators from the admin dashboard, and to anyone holding the unique, randomly-generated emergency link while the SOS remains active.</li>
-      <li>The emergency link works without a login, so treat it like any other sensitive link — it is only intended to be shared with people who should be able to see your SOS (e.g. forwarded to a nearby responder).</li>
-      <li>Live location sharing automatically stops after <span class="placeholder">[MAX_LIVE_LOCATION_HOURS]</span> hours, or sooner if you or an administrator ends the SOS.</li>
-      <li>SMS and phone calls made as part of an SOS are sent directly from your device using your own SIM/network — this content passes through your mobile carrier as it would for any SMS/call you send yourself.</li>
-    </ul>
-  </div>
-
-  <div class="card" id="permissions">
-    <h2>4. Permissions the app requests</h2>
-    <table>
-      <tr><th>Permission</th><th>Why it's needed</th></tr>
-      <tr><td>Location (fine &amp; background)</td><td>To capture and share your location during an SOS</td></tr>
-      <tr><td>Camera</td><td>To capture front/back photos during an SOS</td></tr>
-      <tr><td>Microphone</td><td>To capture audio during an SOS</td></tr>
-      <tr><td>SMS</td><td>To send an emergency SMS to your configured contacts</td></tr>
-      <tr><td>Phone (call, phone state)</td><td>To place an emergency call from your device</td></tr>
-      <tr><td>Notifications</td><td>To deliver SOS and account alerts</td></tr>
-      <tr><td>Accessibility service</td><td>To let you trigger an SOS using the physical volume buttons, including when the screen is off or the app is in the background</td></tr>
-      <tr><td>Background / foreground service &amp; battery-optimization exemption</td><td>To keep an active SOS (location tracking, alerts) running reliably</td></tr>
-    </table>
-    <p class="muted">You can review and revoke most of these permissions at any time from your device's system settings, though doing so may disable the related SOS features.</p>
-  </div>
-
-  <div class="card" id="third-parties">
-    <h2>5. Third-party services</h2>
-    <p>We use the following service providers to operate CoGG Safe. Each processes only the data necessary for its function:</p>
-    <table>
-      <tr><th>Provider</th><th>Purpose</th></tr>
-      <tr><td>Google Firebase Cloud Messaging</td><td>Delivering push notifications</td></tr>
-      <tr><td>Google Maps</td><td>Displaying live location on the admin dashboard and emergency link page</td></tr>
-      <tr><td>Cloudflare R2</td><td>Storing SOS photos and audio recordings</td></tr>
-      <tr><td><span class="placeholder">[EMAIL_PROVIDER, e.g. Resend / your SMTP provider]</span></td><td>Sending email notifications</td></tr>
-      <tr><td><span class="placeholder">[HOSTING PROVIDER, e.g. Railway / Vercel]</span></td><td>Hosting the backend API and this policy page</td></tr>
-      <tr><td>MongoDB <span class="placeholder">[Atlas / self-hosted]</span></td><td>Storing application data</td></tr>
-    </table>
-    <p>These providers have their own privacy policies governing how they handle data on our behalf.</p>
-  </div>
-
-  <div class="card" id="retention">
-    <h2>6. Data retention</h2>
-    <ul>
-      <li>Account information is retained for as long as your account is active.</li>
-      <li>SOS records (including media and location history) are retained for <span class="placeholder">[RETENTION_PERIOD, e.g. "12 months" or "as long as your organization's account is active"]</span>, after which they may be deleted or anonymized, unless a longer period is required by law or by your organization's administrator.</li>
-      <li>You may request deletion of your account and associated data — see <a href="#rights">Section 9</a>.</li>
-    </ul>
-  </div>
-
-  <div class="card" id="security">
-    <h2>7. Data security</h2>
-    <ul>
-      <li>Passwords are hashed (never stored in plain text).</li>
-      <li>Data in transit is encrypted using HTTPS/TLS.</li>
-      <li>Access to the admin dashboard and SOS data is restricted by authentication and role checks.</li>
-      <li>Login attempts are rate-limited to reduce the risk of unauthorized access.</li>
-      <li>The public emergency link uses a long, random, single-purpose token and only remains valid while the SOS is active.</li>
-    </ul>
-    <p class="muted">No method of transmission or storage is 100% secure. We work to protect your information but cannot guarantee absolute security.</p>
-  </div>
-
-  <div class="card" id="sharing">
-    <h2>8. Sharing and disclosure</h2>
-    <p>We share information only:</p>
-    <ul>
-      <li>Within your organization/group, as described in <a href="#sos-sharing">Section 3</a> — this is the core purpose of the app</li>
-      <li>With the third-party service providers listed in <a href="#third-parties">Section 5</a>, solely to operate the Service</li>
-      <li>If required by law, legal process, or to protect the rights, property or safety of any person</li>
-      <li>In connection with a merger, acquisition or sale of assets, with notice to you where required</li>
-    </ul>
-    <p>We do not sell your personal information.</p>
-  </div>
-
-  <div class="card" id="rights">
-    <h2>9. Your rights and choices</h2>
-    <ul>
-      <li>You may access, update or correct your profile information from within the app.</li>
-      <li>You may request a copy of, or the deletion of, your personal data by contacting us (see <a href="#contact">Section 13</a>). Note that some data may be retained by your organization's administrator as part of group safety records.</li>
-      <li>You may revoke app permissions (location, camera, microphone, SMS, phone, accessibility) at any time through your device settings, which may limit or disable SOS functionality.</li>
-      <li>You may disable push notifications from your device settings.</li>
-      <li>Depending on your location, you may have additional rights under applicable data protection law (e.g. access, correction, deletion, portability, objection).</li>
-    </ul>
-  </div>
-
-  <div class="card" id="children">
-    <h2>10. Children's privacy</h2>
-    <p>
-      CoGG Safe is intended for use by <span class="placeholder">[e.g. "individuals aged 18 and over" or your organization's members]</span>.
-      We do not knowingly collect personal information from children under <span class="placeholder">[13/16, per applicable law]</span>
-      without appropriate consent. If you believe a child has provided us with personal information, please contact us so we can remove it.
-    </p>
-  </div>
-
-  <div class="card" id="transfers">
-    <h2>11. International data transfers</h2>
-    <p>
-      Your information may be stored and processed in <span class="placeholder">[country/region where your MongoDB, Cloudflare R2, and hosting provider store data]</span>,
-      which may be different from the country you live in. Where required, we take steps to ensure your data receives an
-      adequate level of protection.
-    </p>
-  </div>
-
-  <div class="card" id="changes">
-    <h2>12. Changes to this policy</h2>
-    <p>
-      We may update this Privacy Policy from time to time. We will update the "Effective date" above and, for material changes,
-      provide additional notice (e.g. an in-app notice or email) where appropriate.
-    </p>
-  </div>
-
-  <div class="card" id="contact">
-    <h2>13. Contact us</h2>
-    <p>If you have questions about this Privacy Policy or your data, contact us at:</p>
-    <ul>
-      <li>Email: <span class="placeholder">[CONTACT_EMAIL]</span></li>
-      <li>Company: <span class="placeholder">[COMPANY_NAME]</span></li>
-      <li>Address: <span class="placeholder">[COMPANY_ADDRESS]</span> <span class="muted">(optional, but recommended for Play Store listings)</span></li>
-    </ul>
-  </div>
-
-</main>
-
-<footer>
-  &copy; <span id="year"></span> <span class="placeholder">[COMPANY_NAME]</span>. All rights reserved.
-</footer>
-
-<script>
-  document.getElementById('year').textContent = new Date().getFullYear();
-</script>
-
 </body>
 </html>

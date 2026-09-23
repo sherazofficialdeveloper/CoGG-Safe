@@ -11,6 +11,7 @@ import {
   SafeAreaView,
 } from 'react-native';
 import Icon from '../../components/Icon';
+import {getUserInitials} from '../../utils/userInitials';
 
 const AdminProfileScreen = ({
   user,
@@ -58,7 +59,7 @@ const AdminProfileScreen = ({
           <View style={styles.profileCard}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>
-                {(user?.username || 'A').slice(0, 2).toUpperCase()}
+                {getUserInitials(user?.username)}
               </Text>
             </View>
 

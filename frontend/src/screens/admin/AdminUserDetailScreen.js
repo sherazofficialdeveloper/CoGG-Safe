@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import {deleteUser, setUserPassword, setUserStatus, updateUser} from '../../api/resources';
 import Icon from '../../components/Icon';
+import {getUserInitials} from '../../utils/userInitials';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {userEditFormValues} from '../../utils/adminUserForm';
 
@@ -184,7 +185,7 @@ const AdminUserDetailScreen = ({
               },
             ]}>
             <Text style={styles.avatarText}>
-              {selectedUser.initials}
+              {getUserInitials(selectedUser.username || selectedUser.name)}
             </Text>
           </View>
 

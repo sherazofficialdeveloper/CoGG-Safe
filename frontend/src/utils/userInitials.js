@@ -1,4 +1,4 @@
-export const getUserInitials = (name, fallback = 'U') => {
+export const getUserInitials = (name, fallback = 'A') => {
   const words = String(name || '')
     .trim()
     .split(/\s+/)

@@ -11,6 +11,7 @@ import {
 import {listUsers, setUserPassword, updateUser} from '../../api/resources';
 import {SafeAreaView as ContextSafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 import {InlineUserForm} from './AdminCollectionsBackendScreen';
+import {getUserInitials} from '../../utils/userInitials';
 
 const AdminUsersScreen = ({
   token,
@@ -44,7 +45,7 @@ const AdminUsersScreen = ({
           accountStatus: item.status,
           status: item.status === 'active' ? 'Active' : 'Inactive',
           email: item.email || 'No email configured',
-          initials: item.username.slice(0, 2).toUpperCase(),
+          initials: getUserInitials(item.username),
           joined: item.createdAt ? `Joined ${new Date(item.createdAt).toLocaleDateString()}` : 'Join date unavailable',
           color: '#C62828',
         })));
@@ -196,7 +197,7 @@ const AdminUsersScreen = ({
           activeOpacity={0.8}
           onPress={onProfile}>
           <Text style={styles.headerProfileText}>
-            {(currentAdmin?.username || 'A').slice(0, 2).toUpperCase()}
+            {getUserInitials(currentAdmin?.username)}
           </Text>
         </TouchableOpacity>
       </View>

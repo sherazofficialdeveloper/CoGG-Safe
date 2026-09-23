@@ -2,10 +2,11 @@ import {API_BASE_URL} from './config';
 import {emitSosDiagnostic} from '../features/sos/services/sosDiagnosticService';
 
 export class ApiError extends Error {
-  constructor(message, status) {
+  constructor(message, status, details = undefined) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -74,7 +75,11 @@ export async function request(path, {method = 'GET', body, token, timeoutMs, for
     if (path === '/sos' || path.includes('/media/') || path.includes('/location')) {
       emitSosDiagnostic(`SOS DEBUG API FAILED: ${normalizedMethod} ${path} HTTP ${response.status}: ${payload.message || 'request failed'}`, 'error');
     }
-        throw new ApiError(payload.message || 'The server could not complete that request.', response.status);
+        throw new ApiError(
+          payload.message || 'The server could not complete that request.',
+          response.status,
+          payload.error?.details,
+        );
   }
 
     return payload.data;

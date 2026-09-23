@@ -4,6 +4,7 @@ import {SafeAreaView, useSafeAreaInsets} from 'react-native-safe-area-context';
 import {createUser, deleteCollection, deleteUser, getUserCredentials, listCollectionUsers, listCollections, setUserPassword, updateCollection, updateUser} from '../../api/resources';
 import {rememberCredential} from '../../utils/adminCredentials';
 import Icon from '../../components/Icon';
+import {getUserInitials} from '../../utils/userInitials';
 
 const EMPTY_USER = {username: '', mobileNumber: '+', email: '', password: ''};
 const TYPES = ['personal', 'employees', 'other'];
@@ -11,6 +12,18 @@ const collectionSnapshots = new Map();
 const memberSnapshots = new Map();
 export const clearCollectionSnapshots = () => { collectionSnapshots.clear(); memberSnapshots.clear(); };
 const capitalizeFirstWord = value => { const text = String(value || '').trim(); return text ? text.charAt(0).toUpperCase() + text.slice(1) : ''; };
+const getRequestErrorMessage = (requestError, fallback) => {
+  const details = Array.isArray(requestError?.details) ? requestError.details : [];
+  const detailMessage = details
+    .map(detail => {
+      if (typeof detail === 'string') return detail;
+      if (!detail?.message) return null;
+      return detail.field ? `${detail.field}: ${detail.message}` : detail.message;
+    })
+    .filter(Boolean)
+    .join('\n');
+  return detailMessage || requestError?.message || fallback;
+};
 
 export default function AdminCollectionsBackendScreen({token, onBack, onAddCollection, onEditCollection, onUserDetail, onEditUser, initialCredentials = {}, onCredentialRemember}) {
   const insets = useSafeAreaInsets();
@@ -131,7 +144,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
         memberSnapshots.delete(`${token}:${selected._id}`);
         await openCollection(selected);
       } catch (requestError) {
-        setError(requestError.message || 'Unable to update user.');
+        setError(getRequestErrorMessage(requestError, 'Unable to update user.'));
       } finally {
         setSubmitting(false);
       }
@@ -171,7 +184,7 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
       openCollection(selected).catch(() => undefined);
       Alert.alert('User created', 'The user can now sign in with these credentials.');
     } catch (requestError) {
-      setError(requestError.message || 'Unable to create user.');
+      setError(getRequestErrorMessage(requestError, 'Unable to create user.'));
     } finally {
       setSubmitting(false);
     }
@@ -278,9 +291,9 @@ export default function AdminCollectionsBackendScreen({token, onBack, onAddColle
             <View key={memberId} style={styles.memberCard}>
               <TouchableOpacity
                 style={styles.memberMain}
-                onPress={() => onUserDetail?.({...member, name: member.username, phone: member.mobileNumber, email: member.email || 'No email configured', accountStatus: member.status, status: statusLabel, initials: (member.username || 'U').slice(0, 2).toUpperCase(), joined: member.createdAt ? new Date(member.createdAt).toLocaleDateString() : 'Date unavailable', color: '#E4002B'})}
+                onPress={() => onUserDetail?.({...member, name: member.username, phone: member.mobileNumber, email: member.email || 'No email configured', accountStatus: member.status, status: statusLabel, initials: getUserInitials(member.username), joined: member.createdAt ? new Date(member.createdAt).toLocaleDateString() : 'Date unavailable', color: '#E4002B'})}
               >
-                <View style={styles.avatar}><Text style={styles.avatarText}>{(member.username || 'U').slice(0, 2).toUpperCase()}</Text></View>
+                <View style={styles.avatar}><Text style={styles.avatarText}>{getUserInitials(member.username)}</Text></View>
                 <View style={styles.memberInfo}>
                   <Text style={styles.memberName}>{member.username}</Text>
                   <Text style={styles.memberMeta}>{member.mobileNumber || 'No mobile number'}</Text>

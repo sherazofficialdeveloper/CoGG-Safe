@@ -20,6 +20,7 @@ import {API_BASE_URL} from '../../api/config';
 import {buildMediaUrl} from '../../utils/media';
 import SosMediaSection from '../../components/SosMediaSection';
 import Icon from '../../components/Icon';
+import {getUserInitials} from '../../utils/userInitials';
 
 const {width: screenWidth} = Dimensions.get('window');
 
@@ -238,7 +239,7 @@ const AdminSosDetailScreen = ({
           <View style={styles.headerTopRow}>
             <View style={styles.userAvatar}>
               <Text style={styles.userAvatarText}>
-                {record.initials || record.userName?.charAt(0) || 'U'}
+                {getUserInitials(record.userName || record.userId?.username)}
               </Text>
             </View>
             <View>

@@ -5,6 +5,7 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {listCollections, listNotifications, listSos, listUsers} from '../../api/resources';
 import StatCard from '../../components/StatCard';
 import Icon from '../../components/Icon';
+import {getUserInitials} from '../../utils/userInitials';
 
 const dashboardSnapshots = new Map();
 export const clearDashboardSnapshots = () => dashboardSnapshots.clear();
@@ -62,7 +63,7 @@ const AdminDashboardScreen = ({
           id: record.id || record._id,
           userName: record.userId?.username || 'CoGG Safe user',
           collectionName: record.collectionId?.name || 'Assigned group',
-          initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
+          initials: getUserInitials(record.userId?.username),
           time: record.createdAt ? new Date(record.createdAt).toLocaleString() : 'Unknown time',
           status: record.status ? record.status.charAt(0).toUpperCase() + record.status.slice(1) : 'Active',
         }));

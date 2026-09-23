@@ -18,6 +18,7 @@ import {getCachedApiData} from '../../api/client';
 import Icon from '../../components/Icon';
 import {clearDashboardSnapshots} from './AdminDashboardScreen';
 import {getDefaultEmergencyMessage} from '../../features/sos/services/emergencyMessage';
+import {getUserInitials} from '../../utils/userInitials';
 
 const sosSnapshots = new Map();
 
@@ -63,7 +64,7 @@ const AdminSosScreen = ({
           _id: record._id || record.id,
           userName: record.userId?.username || 'CoGG Safe user',
           mobileNumber: record.userId?.mobileNumber || 'Mobile unavailable',
-          initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
+          initials: getUserInitials(record.userId?.username),
           collectionName: record.collectionId?.name || 'Assigned group',
           location: hasLocation 
             ? `${record.location.latitude.toFixed(5)}, ${record.location.longitude.toFixed(5)}` 
@@ -110,7 +111,7 @@ const AdminSosScreen = ({
           _id: record._id || record.id,
           userName: record.userId?.username || 'CoGG Safe user',
           mobileNumber: record.userId?.mobileNumber || 'Mobile unavailable',
-          initials: (record.userId?.username || 'CS').slice(0, 2).toUpperCase(),
+          initials: getUserInitials(record.userId?.username),
           collectionName: record.collectionId?.name || 'Assigned group',
           location: hasLocation 
             ? `${record.location.latitude.toFixed(5)}, ${record.location.longitude.toFixed(5)}` 

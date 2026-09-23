@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import {listContacts} from '../api/resources';
+import {getUserInitials} from '../utils/userInitials';
 import Icon from '../components/Icon';
 
 const contactsCache = new Map();
@@ -96,7 +97,7 @@ const UserContactsScreen = ({token, onBack}) => {
 
             <View style={[styles.contactAvatar, {backgroundColor: '#F3F4F6'}]}>
               <Text style={styles.contactAvatarText}>
-                {(contact.username || 'C').slice(0, 2).toUpperCase()}
+                {getUserInitials(contact.username)}
               </Text>
             </View>
 
